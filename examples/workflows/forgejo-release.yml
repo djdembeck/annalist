@@ -136,6 +136,9 @@ jobs:
       #     docker build -t "${REGISTRY}:${VERSION}" .
       #     docker push "${REGISTRY}:${VERSION}"
       #   fi
+      #
+      # Note: pushing to a registry requires the job token/PAT to have write
+      # access to that registry; the default GITHUB_TOKEN needs `packages: write`.
 
       - name: Generate notes and create release (complete on first post)
         env:

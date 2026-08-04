@@ -141,6 +141,10 @@ jobs:
       #     docker build -t "${REGISTRY}:${VERSION}" .
       #     docker push "${REGISTRY}:${VERSION}"
       #   fi
+      #
+      # Note: pushing to GHCR requires the job token to have `packages: write`
+      # (add it to the top-level `permissions:`), otherwise the push is denied
+      # with "installation not allowed to Write … package".
 
       - name: Generate notes and create release (complete on first post)
         env:
