@@ -41,6 +41,93 @@ Prerequisites: Go 1.26+, Bun 1.x (only if modifying the web dashboard). The buil
 
 Run the service behind a TLS-terminating reverse proxy; the binary itself does not terminate TLS. Keep `ADMIN_TOKEN` and `LLM_API_KEY` in environment variables (or a `config.yaml` readable only by the service user) — never commit them anywhere. The data directory holds the SQLite database and git clones; restrict its access to the service user.
 
+## Platform setup
+
+Connect annalist to GitHub or Forgejo. Order matters: **configure and start the
+container first, then register the platform-side webhooks against the now-live
+URL.** The tokens and secrets are container configuration (they must exist
+before `serve` starts); webhook registration points a running instance's URL
+(`/webhooks/github`, `/webhooks/forgejo`) and therefore happens after startup.
+
+Copy-paste templates for deployment, config, and CI workflows live in
+[`examples/`](examples/README.md).
+
+### Prerequisites (container config — before startup)
+
+- `ADMIN_TOKEN` — protects the dashboard and every `/api/*` route. Required.
+- `LLM_BASE_URL` (+ optionally `LLM_API_KEY`) — any OpenAI-compatible endpoint.
+  Required to start when a platform is enabled.
+- One credential pair per platform (below). A platform is "enabled" once its
+  cloning credential is present; a webhook secret alone enables the listener
+  but not cloning/publishing.
+
+### Ordering
+
+1. Set the environment variables from the table below and start the container
+   (`docker run` / `docker compose up -d` — see the examples pack).
+2. Confirm the container is reachable at its public URL:
+   `GET https://<annalist-host>/api/health` → `{"status":"ok",...}`.
+3. Register the platform webhooks (GitHub App webhook / Forgejo repo or org
+   webhook) against `https://<annalist-host>/webhooks/github` and
+   `https://<annalist-host>/webhooks/forgejo`.
+4. Open the dashboard, enter `ADMIN_TOKEN`, and check **Repos** — the repos
+   you granted access appear there. No per-repo registration step: repos are
+   enabled by default.
+
+### GitHub (account / organization)
+
+Annalist talks to GitHub as a **GitHub App**; the App is the account-level
+setup, installed onto the account/org to grant repo access.
+
+1. Create the App: GitHub → Settings → Developer settings → GitHub Apps →
+   New GitHub App. Set **Webhook URL** to `https://<annalist-host>/webhooks/github`
+   and **Webhook secret** to the value of `GITHUB_WEBHOOK_SECRET`. Subscribe to
+   the **Release** event. (Leave it enabled even if you only use the generate-first
+   workflow — it is the passive-fill path.)
+2. Grant permissions (Repository permissions): **Contents** → Read-only
+   (clone + read the in-repo instructions file), **Releases** → Read and write
+   (read + edit the release body), **Metadata** → Read-only (default, required
+   to list repos/installations). Under **Where can this App be installed**,
+   choose the account/org you manage.
+3. Generate a **private key** on the App's General tab and download the `.pem`;
+   mount it read-only into the container (in Docker Compose:
+   `./github-app.pem:/etc/annalist/github-app.pem:ro`) and set
+   `GITHUB_APP_PRIVATE_KEY_FILE` to the **container** path
+   (`/etc/annalist/github-app.pem`).
+4. Install the App on your account/org (GitHub → Settings → Applications →
+   GitHub Apps), granting it **All repositories** or the selected repos to manage.
+5. Set the container env: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY_FILE`,
+   `GITHUB_WEBHOOK_SECRET`.
+
+### Forgejo (instance / account / repo)
+
+Annalist talks to Forgejo with a **personal/org API token** plus a registered
+**repository or organization webhook**.
+
+1. Create a token: Forgejo → Settings → Applications → Generate New Token.
+   Scope it for the operations annalist performs: repository read (clone and
+   read files) and release read/write (read + edit release bodies).
+2. Register the webhook: repo (or org) → Settings → Webhooks → Add Webhook →
+   Forgejo. **Target URL** `https://<annalist-host>/webhooks/forgejo`,
+   **HTTP method** POST, **Content type** application/json, **Secret** = the
+   value of `FORGEJO_WEBHOOK_SECRET`, and the **Release** event. An org-level
+   webhook covers every repo in the org.
+3. Set the container env: `FORGEJO_URL` (instance base, default
+   `https://git.theiahd.nl`), `FORGEJO_TOKEN`, `FORGEJO_WEBHOOK_SECRET`.
+
+### Two ways annalist fills release notes
+
+- **Passive (webhook fill).** Create an empty release in the platform UI (or
+  via your own tooling); the Release webhook fires and annalist fills the body.
+  Requires the webhook registration above.
+- **Generate-first (recommended).** A CI workflow asks annalist for complete
+  notes with `publish:false` **before** the release exists, then creates the
+  release once with the full body. Needs **no webhook** — only
+  `ANNALIST_ADMIN_TOKEN` stored as a CI secret (same value as the container's
+  `ADMIN_TOKEN`) plus the platform credential for cloning. Ready-to-copy
+  workflows: `examples/workflows/forgejo-release.yml` and
+  `examples/workflows/github-release.yml`.
+
 ## Usage
 
 Configure the server by copying `config.example.yaml` to `config.yaml` or by setting environment variables. The `serve` command requires `ADMIN_TOKEN`; when GitHub or Forgejo is enabled, `LLM_BASE_URL` is also required.
