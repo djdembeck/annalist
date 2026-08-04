@@ -4,6 +4,7 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -231,5 +232,14 @@ func (c *Client) CloneInfo(ctx context.Context, owner, repo string) (cloneURL, h
 	if err != nil {
 		return "", "", fmt.Errorf("github: mint installation token: %w", err)
 	}
-	return "https://github.com/" + owner + "/" + repo + ".git", "Bearer " + token, nil
+	return "https://github.com/" + owner + "/" + repo + ".git", gitAuthHeader(token), nil
+}
+
+// gitAuthHeader builds the Authorization header for git clone over HTTPS.
+// GitHub's smart-HTTP git endpoint rejects Bearer tokens; it requires Basic
+// auth with the reserved "x-access-token" username and the installation token
+// as the password (the documented GitHub App pattern). Forgejo is the reason
+// the pipeline passes the header verbatim: it accepts the same Basic form.
+func gitAuthHeader(token string) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
 }

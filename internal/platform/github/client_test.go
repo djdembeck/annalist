@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"strings"
@@ -129,6 +130,25 @@ func TestCloneInfoNoCreds(t *testing.T) {
 	c := New(config.GitHubConfig{})
 	_, _, err := c.CloneInfo(context.Background(), "owner", "repo")
 	assertCredsError(t, err)
+}
+
+func TestGitAuthHeader(t *testing.T) {
+	// GitHub App git over HTTPS requires Basic auth with the reserved
+	// x-access-token username and the installation token as the password;
+	// GitHub's smart-HTTP endpoint rejects Bearer tokens. The header must
+	// decode back to exactly that.
+	got := gitAuthHeader("secrettoken")
+	const wantPrefix = "Basic "
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("gitAuthHeader() = %q, want %q prefix", got, wantPrefix)
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(got, wantPrefix))
+	if err != nil {
+		t.Fatalf("decode header: %v", err)
+	}
+	if want := "x-access-token:secrettoken"; string(raw) != want {
+		t.Errorf("header payload = %q, want %q", raw, want)
+	}
 }
 
 func assertCredsError(t *testing.T, err error) {
