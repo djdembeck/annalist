@@ -4,6 +4,11 @@ AI-generated release notes for GitHub and Forgejo. Annalist listens for release 
 
 Annalist is aimed at DevOps and SRE teams who want consistent, human-sounding release notes without hand-writing each one. It supports GitHub Apps, Forgejo webhooks, and on-demand CLI generation, with idempotent regeneration so the same webhook can be retried safely.
 
+> **New here?** The [`examples/`](examples/README.md) directory holds copy-paste
+> templates: a deployable `docker-compose.yml`, an annotated `config.yaml`, a
+> release-notes prompt file, and generate-first release workflows for both
+> Forgejo and GitHub Actions — language-neutral, ready to adopt in any repo.
+
 ## Install
 
 The fastest path is to pull the pre-built image from the GitHub Container Registry:
