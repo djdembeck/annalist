@@ -22,6 +22,7 @@ import (
 	"github.com/djdembeck/annalist/internal/pipeline"
 	"github.com/djdembeck/annalist/internal/platform/forgejo"
 	"github.com/djdembeck/annalist/internal/platform/github"
+	"github.com/djdembeck/annalist/internal/version"
 )
 
 func main() {
@@ -41,7 +42,7 @@ func main() {
 
 	switch cmd {
 	case "version":
-		fmt.Println("0.1.0")
+		fmt.Println(version.Version)
 	case "generate":
 		cmdGenerate(cfg, os.Args[2:])
 	default:

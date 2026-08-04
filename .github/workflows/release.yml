@@ -23,6 +23,8 @@ name: Release
 on:
   push:
     branches: [main]
+    # Release only on code changes — CI/docs-only merges must not bump or cut.
+    paths-ignore: ['*.md', 'docs/**', '.github/**']
   workflow_dispatch:
     inputs:
       version:                       # manual override
@@ -133,13 +135,11 @@ jobs:
           git push origin "${VERSION}"
           echo "created=true" >> "$GITHUB_OUTPUT"
 
-      # Dockerfile must declare `ARG VERSION` — it does not yet (follow-up). To
-      # stamp the Go binary into the backend stage, add `ARG VERSION=devel` to
-      # `FROM golang:1.26-alpine AS backend-builder` and change the build to
-      # `go build -tags webui -ldflags "-w -s -X github.com/djdembeck/annalist/cmd/annalist.Version=${VERSION}"`
-      # — or point `-X` at a future version var (no `internal/version` package
-      # exists yet). Until then the build arg is unconsumed and produces only a
-      # Docker warning; the image is still versioned by its tag.
+      # Version stamping: the Dockerfile declares `ARG VERSION` and the backend
+      # build injects `-ldflags -X github.com/djdembeck/annalist/internal/version.Version=${VERSION}`,
+      # which `annalist version` and /api/health report. Un-stamped dev/CI
+      # builds fall back to the package default (0.1.0). The manifest-inspect
+      # guard below keeps re-runs from double-pushing.
 
       - name: Build and push Docker image
         id: docker

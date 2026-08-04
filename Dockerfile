@@ -12,6 +12,11 @@ FROM golang:1.26-alpine AS backend-builder
 
 WORKDIR /build
 
+# Release builds set VERSION via --build-arg VERSION=vX.Y.Z; the ldflags -X
+# stamps it into internal/version.Version (reported by `annalist version` and
+# /api/health). Dev/CI builds leave it at the default.
+ARG VERSION=0.1.0
+
 RUN apk add --no-cache git ca-certificates tzdata
 
 COPY go.mod go.sum ./
@@ -25,7 +30,7 @@ ENV GO111MODULE=on \
     GOOS=linux
 
 # -tags webui embeds the SPA built in the frontend stage (see web/embed.go).
-RUN go build -tags webui -o /annalist ./cmd/annalist
+RUN go build -tags webui -ldflags "-s -w -X github.com/djdembeck/annalist/internal/version.Version=${VERSION}" -o /annalist ./cmd/annalist
 
 FROM alpine:3.20
 

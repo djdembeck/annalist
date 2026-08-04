@@ -14,6 +14,7 @@ import (
 	"github.com/djdembeck/annalist/internal/db"
 	"github.com/djdembeck/annalist/internal/engine"
 	"github.com/djdembeck/annalist/internal/pipeline"
+	"github.com/djdembeck/annalist/internal/version"
 )
 
 // fakePip is a controllable pipService double: it returns a fixed Resolved and
@@ -185,8 +186,8 @@ func TestHandleHealth(t *testing.T) {
 	if body["status"] != "ok" {
 		t.Errorf("status field = %q, want ok", body["status"])
 	}
-	if body["version"] != version {
-		t.Errorf("version field = %q, want %q", body["version"], version)
+	if body["version"] != version.Version {
+		t.Errorf("version field = %q, want %q", body["version"], version.Version)
 	}
 }
 

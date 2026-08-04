@@ -12,9 +12,8 @@ import (
 
 	"github.com/djdembeck/annalist/internal/db"
 	"github.com/djdembeck/annalist/internal/pipeline"
+	"github.com/djdembeck/annalist/internal/version"
 )
-
-const version = "0.1.0"
 
 func validPlatform(p string) bool {
 	return p == "github" || p == "forgejo"
@@ -114,7 +113,7 @@ func (a *api) settingsFor(ctx context.Context, platform, owner, repo string) (db
 
 // handleHealth is the open (no-auth) liveness probe.
 func (a *api) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version.Version})
 }
 
 // handleStatus reports which platforms are enabled.

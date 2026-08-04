@@ -27,6 +27,8 @@ name: Release
 on:
   push:
     branches: [main]
+    # Release only on code changes — CI/docs-only merges must not bump or cut.
+    paths-ignore: ['*.md', 'docs/**', '.github/**']
   workflow_dispatch:
     inputs:
       version:                       # manual override
