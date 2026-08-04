@@ -58,6 +58,12 @@ jobs:
           # Full history so version resolution can inspect all refs.
           fetch-depth: 0
 
+      - name: Configure Git
+        ## Annotated tags need a git identity; the runner ships none.
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Determine next version
         id: version
         run: |
