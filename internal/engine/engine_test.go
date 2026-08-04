@@ -14,8 +14,9 @@ import (
 
 // TestBuildSystemPrompt verifies prompt assembly: the neutral persona for an
 // empty tone, each preset's verbatim prompt text, custom tones passed through
-// verbatim, instructions appended, the rules block always present, and no
-// consent-policy block ever emitted.
+// verbatim, repo instructions used verbatim with nothing layered on, and the
+// default (no-instructions) prompt requiring a prose lead plus categorized
+// bullets. No consent-policy block is ever emitted.
 func TestBuildSystemPrompt(t *testing.T) {
 	eng := &Engine{}
 
@@ -68,20 +69,28 @@ func TestBuildSystemPrompt(t *testing.T) {
 		})
 	}
 
-	// Instructions are appended, and the rules block is always the last element.
-	prompt := eng.BuildSystemPrompt(Resolved{Tone: "chronicler", Instructions: "Keep it terse.", Model: "m", Temperature: 0.5})
+	// A repo-provided prompt is used verbatim; no persona or rules are layered on top.
+	verbatim := "You are the repo's own narrator. Lead prose, then bullets."
+	prompt := eng.BuildSystemPrompt(Resolved{Tone: "chronicler", Instructions: verbatim, Model: "m", Temperature: 0.5})
+	if prompt != verbatim {
+		t.Errorf("repo instructions must be the entire system prompt; got:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "You are a chronicler") || strings.Contains(prompt, "Rules:") {
+		t.Errorf("repo instructions must not be combined with persona or rules")
+	}
+
+	// The default prompt (no instructions) requires a prose lead plus
+	// categorized bullet sections.
+	prompt = eng.BuildSystemPrompt(Resolved{Tone: "chronicler", Model: "m", Temperature: 0.5})
 	for _, want := range []string{
-		"You are a chronicler",
-		"Keep it terse.",
-		"Rules:",
-		"- Write flowing prose, NOT bullet lists",
+		"short prose section",
+		"as bullet points",
+		"Features",
+		"Output ONLY the release notes text",
 	} {
 		if !strings.Contains(prompt, want) {
-			t.Errorf("prompt missing %q", want)
+			t.Errorf("default prompt missing %q", want)
 		}
-	}
-	if !strings.HasSuffix(prompt, "- Output ONLY the release notes text, no preamble, no markdown headers, no meta-commentary") {
-		t.Errorf("rules block should be the last element of the prompt")
 	}
 }
 
