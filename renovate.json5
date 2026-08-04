@@ -1,0 +1,16 @@
+// Self-hosted Renovate must run with `platform: forgejo` and
+// `endpoint: https://git.theiahd.nl` (API base https://git.theiahd.nl/api/v1).
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['config:recommended'],
+  commitMessagePrefix: 'ci',
+  labels: ['dependencies', 'ci', 'renovate'],
+  schedule: ['before 6am on Monday'],
+  managers: ['github-actions', 'dockerfile', 'docker-compose'],
+  packageRules: [
+    {
+      groupName: 'github-actions',
+      matchManagers: ['github-actions'],
+    },
+  ],
+}
