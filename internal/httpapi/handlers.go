@@ -286,6 +286,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		ToTag   string  `json:"to_tag"`
 		FromTag *string `json:"from_tag"`
 		Force   bool    `json:"force"`
+		Publish *bool   `json:"publish"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		badJSON(w, err)
@@ -294,6 +295,11 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.ToTag) == "" {
 		writeErr(w, http.StatusBadRequest, "to_tag is required")
 		return
+	}
+
+	publish := true
+	if req.Publish != nil {
+		publish = *req.Publish
 	}
 
 	releaseID := "manual:" + platform + "/" + owner + "/" + repo + "@" + req.ToTag
@@ -309,7 +315,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		ToTag:     req.ToTag,
 		FromTag:   fromTag,
 		ReleaseID: releaseID,
-	}, pipeline.Options{Force: req.Force, Publish: true})
+	}, pipeline.Options{Force: req.Force, Publish: publish})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -318,7 +324,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"notes":      notes,
 		"release_id": releaseID,
-		"published":  true,
+		"published":  publish,
 	})
 }
 

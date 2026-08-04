@@ -505,6 +505,30 @@ func TestHandleGenerate(t *testing.T) {
 		}
 	})
 
+	t.Run("publish false", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","publish":false}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("bad json: %v", err)
+		}
+		if body["notes"] != "generated notes" {
+			t.Errorf("notes = %v", body["notes"])
+		}
+		if body["published"] != false {
+			t.Errorf("published = %v, want false", body["published"])
+		}
+		if len(pip.calls) != 1 || pip.opts[0].Publish || pip.opts[0].Force {
+			t.Errorf("opts = %+v, want publish=false, force=false", pip.opts[0])
+		}
+	})
+
 	t.Run("pipeline error", func(t *testing.T) {
 		pip.err = context.DeadlineExceeded
 		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0"}`,
