@@ -27,6 +27,7 @@
   let search = $state("");
   let showForks = $state(false);
   let showSharedNamespaces = $state(false);
+  let sortBy = $state<"name" | "activity">("name");
 
   let selected = $state<Record<string, boolean>>({});
 
@@ -70,6 +71,15 @@
       result = result.filter((r) =>
         `${r.owner}/${r.repo}`.toLowerCase().includes(query),
       );
+    }
+    if (sortBy === "activity") {
+      return result.sort((a, b) => {
+        const aT = new Date(a.updatedAt ?? 0).getTime();
+        const bT = new Date(b.updatedAt ?? 0).getTime();
+        if (aT !== bT) return bT - aT;
+        if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
+        return a.repo.localeCompare(b.repo);
+      });
     }
     return result.sort((a, b) => {
       const aOwn = a.ownNamespace === false ? 1 : 0;
@@ -157,6 +167,16 @@
           placeholder="Search repositories…"
           class="min-w-0 flex-1 rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
         />
+        <label class="flex items-center gap-2 text-sm text-ink-2">
+          Sort
+          <select
+            bind:value={sortBy}
+            class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
+          >
+            <option value="name">Name</option>
+            <option value="activity">Recent activity</option>
+          </select>
+        </label>
         <label class="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
           <input
             bind:checked={showForks}

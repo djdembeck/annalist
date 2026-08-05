@@ -33,6 +33,7 @@ export type AvailableRepo = {
   repo: string;
   fork?: boolean;
   ownNamespace?: boolean;
+  updatedAt?: string;
 };
 
 export type RepoSettingUpdate = {

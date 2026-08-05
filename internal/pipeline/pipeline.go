@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
@@ -25,6 +26,7 @@ type OwnerRepo struct {
 	Repo         string
 	Fork         bool
 	OwnNamespace bool
+	UpdatedAt    time.Time
 }
 
 // Spec identifies a single release for which to generate notes.

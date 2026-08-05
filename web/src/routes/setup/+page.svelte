@@ -67,6 +67,7 @@
   let search = $state("");
   let showForks = $state(false);
   let showSharedNamespaces = $state(false);
+  let sortBy = $state<"name" | "activity">("name");
 
   // --- step 4: voice ---
   let toneOption = $state("inherit");
@@ -90,7 +91,17 @@
       if (query && !`${r.owner}/${r.repo}`.toLowerCase().includes(query)) return false;
       return true;
     });
-    return items.sort((a, b) => {
+    const sorted = [...items];
+    if (sortBy === "activity") {
+      return sorted.sort((a, b) => {
+        const at = new Date(a.updatedAt ?? 0).getTime();
+        const bt = new Date(b.updatedAt ?? 0).getTime();
+        if (at !== bt) return bt - at;
+        if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
+        return a.repo.localeCompare(b.repo);
+      });
+    }
+    return sorted.sort((a, b) => {
       const an = a.ownNamespace === false ? 1 : 0;
       const bn = b.ownNamespace === false ? 1 : 0;
       if (an !== bn) return an - bn;
@@ -487,12 +498,24 @@
         </div>
       {:else}
         <div class="flex flex-col gap-3">
-          <input
-            type="search"
-            placeholder="Search repositories…"
-            bind:value={search}
-            class="rounded border border-line-strong bg-page px-4 py-2.5 text-ink outline-none placeholder:text-ink-3 focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
-          />
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <input
+              type="search"
+              placeholder="Search repositories…"
+              bind:value={search}
+              class="rounded border border-line-strong bg-page px-4 py-2.5 text-ink outline-none placeholder:text-ink-3 focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
+            />
+            <label class="flex items-center gap-2 text-sm text-ink-2">
+              Sort
+              <select
+                bind:value={sortBy}
+                class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
+              >
+                <option value="name">Name</option>
+                <option value="activity">Recent activity</option>
+              </select>
+            </label>
+          </div>
           <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
             <input
               type="checkbox"
