@@ -32,6 +32,7 @@ export type AvailableRepo = {
   owner: string;
   repo: string;
   fork?: boolean;
+  ownNamespace?: boolean;
 };
 
 export type RepoSettingUpdate = {

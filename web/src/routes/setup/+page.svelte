@@ -66,6 +66,7 @@
   let reposVisible = $state(false);
   let search = $state("");
   let showForks = $state(false);
+  let showSharedNamespaces = $state(false);
 
   // --- step 4: voice ---
   let toneOption = $state("inherit");
@@ -84,11 +85,15 @@
     const query = search.trim().toLowerCase();
     const items = available.filter((r) => {
       if (r.platform !== activeSource) return false;
+      if (r.ownNamespace === false && !showSharedNamespaces) return false;
       if (r.fork === true && !showForks) return false;
       if (query && !`${r.owner}/${r.repo}`.toLowerCase().includes(query)) return false;
       return true;
     });
     return items.sort((a, b) => {
+      const an = a.ownNamespace === false ? 1 : 0;
+      const bn = b.ownNamespace === false ? 1 : 0;
+      if (an !== bn) return an - bn;
       const af = a.fork === true ? 1 : 0;
       const bf = b.fork === true ? 1 : 0;
       if (af !== bf) return af - bf;
@@ -495,6 +500,14 @@
               class="h-4 w-4 accent-mark"
             />
             Show forks
+          </label>
+          <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
+            <input
+              type="checkbox"
+              bind:checked={showSharedNamespaces}
+              class="h-4 w-4 accent-mark"
+            />
+            Show organization &amp; shared namespaces
           </label>
         </div>
 

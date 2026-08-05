@@ -26,6 +26,7 @@
 
   let search = $state("");
   let showForks = $state(false);
+  let showSharedNamespaces = $state(false);
 
   let selected = $state<Record<string, boolean>>({});
 
@@ -58,6 +59,9 @@
 
   function filtered(): AvailableRepo[] {
     let result = available.filter((r) => r.platform === activeSource);
+    if (!showSharedNamespaces) {
+      result = result.filter((r) => r.ownNamespace !== false);
+    }
     if (!showForks) {
       result = result.filter((r) => r.fork !== true);
     }
@@ -68,6 +72,9 @@
       );
     }
     return result.sort((a, b) => {
+      const aOwn = a.ownNamespace === false ? 1 : 0;
+      const bOwn = b.ownNamespace === false ? 1 : 0;
+      if (aOwn !== bOwn) return aOwn - bOwn;
       const aFork = a.fork === true ? 1 : 0;
       const bFork = b.fork === true ? 1 : 0;
       if (aFork !== bFork) return aFork - bFork;
@@ -157,6 +164,14 @@
             class="h-4 w-4 accent-mark"
           />
           Show forks
+        </label>
+        <label class="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
+          <input
+            bind:checked={showSharedNamespaces}
+            type="checkbox"
+            class="h-4 w-4 accent-mark"
+          />
+          Show organization &amp; shared namespaces
         </label>
       </div>
       <div class="mb-8 flex gap-2">

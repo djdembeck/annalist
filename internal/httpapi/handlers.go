@@ -151,10 +151,11 @@ func (a *api) handleListRepos(w http.ResponseWriter, r *http.Request) {
 
 // availableRepo is the flat JSON shape for a repo in /api/repos/available.
 type availableRepo struct {
-	Platform string `json:"platform"`
-	Owner    string `json:"owner"`
-	Repo     string `json:"repo"`
-	Fork     bool   `json:"fork"`
+	Platform     string `json:"platform"`
+	Owner        string `json:"owner"`
+	Repo         string `json:"repo"`
+	Fork         bool   `json:"fork"`
+	OwnNamespace bool   `json:"ownNamespace"`
 }
 
 // repoLister is the subset shared by both platform clients that hands back the
@@ -175,7 +176,7 @@ func (a *api) listAvailable(ctx context.Context, platform string, client repoLis
 		if managed[key] {
 			continue
 		}
-		available = append(available, availableRepo{Platform: platform, Owner: rp.Owner, Repo: rp.Repo, Fork: rp.Fork})
+		available = append(available, availableRepo{Platform: platform, Owner: rp.Owner, Repo: rp.Repo, Fork: rp.Fork, OwnNamespace: rp.OwnNamespace})
 	}
 	return available, nil
 }

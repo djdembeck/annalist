@@ -21,9 +21,10 @@ var ErrNotFound = errors.New("not found")
 // OwnerRepo is a repository reference returned by platform listings so other
 // packages can join with repo_settings without importing platform packages.
 type OwnerRepo struct {
-	Owner string
-	Repo  string
-	Fork  bool
+	Owner        string
+	Repo         string
+	Fork         bool
+	OwnNamespace bool
 }
 
 // Spec identifies a single release for which to generate notes.

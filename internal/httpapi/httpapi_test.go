@@ -348,11 +348,11 @@ func TestHandleListAvailableRepos(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}, Forgejo: config.ForgejoConfig{Token: "t"}}
 	a, _, store := testAPI(t, cfg)
 	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{
-		{Owner: "djdembeck", Repo: "annalist"},
-		{Owner: "someone", Repo: "other", Fork: true},
+		{Owner: "djdembeck", Repo: "annalist", OwnNamespace: true},
+		{Owner: "someone", Repo: "other", Fork: true, OwnNamespace: false},
 	}}
 	a.fj = &fakeClient{repos: []pipeline.OwnerRepo{
-		{Owner: "fjuser", Repo: "released"},
+		{Owner: "fjuser", Repo: "released", OwnNamespace: true},
 	}}
 	// annalist is already managed, so it must be excluded from available.
 	if err := store.UpsertRepoSettings(db.RepoSetting{
@@ -388,6 +388,28 @@ func TestHandleListAvailableRepos(t *testing.T) {
 		if !strings.Contains(w.Body.String(), `"fork":`) {
 			t.Fatalf("fork field missing from JSON: %s", w.Body.String())
 		}
+		// The ownNamespace flag must be present in the JSON for every repo.
+		if !strings.Contains(w.Body.String(), `"ownNamespace":`) {
+			t.Fatalf("ownNamespace field missing from JSON: %s", w.Body.String())
+		}
+	}
+	// forgejo/fjuser/released is owned by the authenticated user's namespace, so
+	// it must carry ownNamespace=true; the external fork must carry false.
+	var ownNs bool
+	var nonOwn bool
+	for _, ar := range avail {
+		if ar.Platform == "forgejo" && ar.Repo == "released" && ar.OwnNamespace {
+			ownNs = true
+		}
+		if ar.Platform == "github" && ar.Repo == "other" && !ar.OwnNamespace {
+			nonOwn = true
+		}
+	}
+	if !ownNs {
+		t.Errorf("forgejo/fjuser/released should be reported as own namespace, got %+v", avail)
+	}
+	if !nonOwn {
+		t.Errorf("github/someone/other should not be reported as own namespace, got %+v", avail)
 	}
 	// The one repo that is a fork must carry fork=true.
 	var forked bool

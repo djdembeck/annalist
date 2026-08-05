@@ -94,13 +94,17 @@ func TestNew(t *testing.T) {
 
 func TestListReposPartialPageStopsPagination(t *testing.T) {
 	_, client, log := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.URL.Path, "/api/v1/user/repos"; got != want {
-			t.Errorf("path = %q, want %q", got, want)
+		switch r.URL.Path {
+		case "/api/v1/user":
+			okJSON(w, 200, map[string]any{"login": "owner0"})
+		case "/api/v1/user/repos":
+			if got := r.URL.Query().Get("page"); got != "1" {
+				t.Errorf("page = %q, want 1", got)
+			}
+			okJSON(w, 200, repoPageJSON(2))
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
 		}
-		if got := r.URL.Query().Get("page"); got != "1" {
-			t.Errorf("page = %q, want 1", got)
-		}
-		okJSON(w, 200, repoPageJSON(2))
 	})
 
 	repos, err := client.ListRepos(context.Background())
@@ -108,11 +112,11 @@ func TestListReposPartialPageStopsPagination(t *testing.T) {
 		t.Fatalf("ListRepos: %v", err)
 	}
 	want := []pipeline.OwnerRepo{
-		{Owner: "owner0", Repo: "repo0"},
+		{Owner: "owner0", Repo: "repo0", OwnNamespace: true},
 		{Owner: "owner1", Repo: "repo1"},
 	}
-	if len(log.reqs) != 1 {
-		t.Errorf("expected 1 request (partial page stops pagination), got %d", len(log.reqs))
+	if len(log.reqs) != 2 {
+		t.Errorf("expected 2 requests (current user + partial page), got %d", len(log.reqs))
 	}
 	if !reflect.DeepEqual(repos, want) {
 		t.Errorf("ListRepos = %+v, want %+v", repos, want)
@@ -123,6 +127,10 @@ func TestListReposPaginatesUntilPartialPage(t *testing.T) {
 	// Page 1 returns exactly 50 (a full page) forcing a second request; page 2
 	// returns an empty (partial) page, stopping the loop.
 	_, client, log := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/user" {
+			okJSON(w, 200, map[string]any{"login": "someone"})
+			return
+		}
 		switch r.URL.Query().Get("page") {
 		case "1":
 			okJSON(w, 200, repoPageJSON(50))
@@ -141,16 +149,16 @@ func TestListReposPaginatesUntilPartialPage(t *testing.T) {
 	if len(repos) != 50 {
 		t.Errorf("got %d repos, want 50", len(repos))
 	}
-	if len(log.reqs) != 2 {
-		t.Errorf("expected 2 requests (full page then empty page), got %d", len(log.reqs))
+	if len(log.reqs) != 3 {
+		t.Errorf("expected 3 requests (current user + full page + empty page), got %d", len(log.reqs))
 	}
-	if got := log.reqs[0].path; !strings.Contains(got, "page=1") {
-		t.Errorf("first request = %q, want page=1", got)
+	if got := log.reqs[1].path; !strings.Contains(got, "page=1") {
+		t.Errorf("first page request = %q, want page=1", got)
 	}
-	if got := log.reqs[1].path; !strings.Contains(got, "page=2") {
-		t.Errorf("second request = %q, want page=2", got)
+	if got := log.reqs[2].path; !strings.Contains(got, "page=2") {
+		t.Errorf("second page request = %q, want page=2", got)
 	}
-	if got := log.reqs[0].auth; got != "token secret-token" {
+	if got := log.reqs[1].auth; got != "token secret-token" {
 		t.Errorf("Authorization = %q, want %q", got, "token secret-token")
 	}
 }

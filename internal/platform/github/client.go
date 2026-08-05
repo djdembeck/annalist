@@ -144,7 +144,7 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 					continue
 				}
 				seen[key] = struct{}{}
-				repos = append(repos, pipeline.OwnerRepo{Owner: owner, Repo: name, Fork: r.GetFork()})
+				repos = append(repos, pipeline.OwnerRepo{Owner: owner, Repo: name, Fork: r.GetFork(), OwnNamespace: owner == inst.GetAccount().GetLogin()})
 			}
 			if resp == nil || resp.NextPage == 0 {
 				break

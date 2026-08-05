@@ -99,7 +99,29 @@ func apiPath(seg string) string {
 
 // ListRepos returns the authenticated user's repositories, paginating over all
 // pages until a partial page is returned.
+// currentUser returns the login of the authenticated user, resolving the
+// /user endpoint's username fallback for Gitea-compatible instances.
+func (c *Client) currentUser(ctx context.Context) (string, error) {
+	var resp struct {
+		Login    string `json:"login"`
+		Username string `json:"username"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/user", nil, &resp); err != nil {
+		return "", err
+	}
+	if resp.Login != "" {
+		return resp.Login, nil
+	}
+	return resp.Username, nil
+}
+
+// ListRepos returns the authenticated user's repositories, paginating over all
+// pages until a partial page is returned.
 func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
+	user, err := c.currentUser(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var out []pipeline.OwnerRepo
 	page := 1
 	for {
@@ -122,9 +144,10 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 				owner = r.Owner.Username
 			}
 			out = append(out, pipeline.OwnerRepo{
-				Owner: owner,
-				Repo:  r.Name,
-				Fork:  r.Fork,
+				Owner:        owner,
+				Repo:         r.Name,
+				Fork:         r.Fork,
+				OwnNamespace: owner == user,
 			})
 		}
 		if len(batch) < 50 {
