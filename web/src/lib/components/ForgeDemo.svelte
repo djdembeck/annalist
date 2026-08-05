@@ -22,16 +22,28 @@
 - Webhook authentication headers are now documented in the API reference. No breaking changes to existing integrations.`;
 
   let step = $state(0);
+  let paused = $state(false);
 
   onMount(() => {
     const interval = setInterval(() => {
+      if (paused) return;
       step = (step + 1) % (commits.length + 2);
     }, 1400);
-    return () => clearInterval(interval);
+
+    const sync = () => {
+      paused = document.hidden;
+    };
+    document.addEventListener("visibilitychange", sync);
+    sync();
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", sync);
+    };
   });
 </script>
 
-<div class="rounded border border-line bg-surface-1 p-4 sm:p-6">
+<div class="rounded border border-line bg-surface-1 p-4 sm:p-6" class:paused={paused}>
   <div class="mb-4 flex items-center justify-between">
     <span class="font-display text-sm text-ember">Forge stage</span>
     <span class="rounded bg-control px-2 py-0.5 text-xs font-medium tabular-nums text-ink-2" aria-hidden="true">v1.4.0</span>
@@ -116,6 +128,10 @@
 
   .animate-heat-pulse {
     animation: heatPulse 1.4s ease-in-out infinite;
+  }
+
+  .paused :is(.animate-strike, .animate-heat-pulse) {
+    animation-play-state: paused;
   }
 
   @media (prefers-reduced-motion: reduce) {
