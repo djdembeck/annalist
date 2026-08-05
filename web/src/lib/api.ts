@@ -27,6 +27,12 @@ export type Repo = {
   };
 };
 
+export type AvailableRepo = {
+  platform: string;
+  owner: string;
+  repo: string;
+};
+
 export type RepoSettingUpdate = {
   enabled?: boolean;
   tone?: string | null;
@@ -108,6 +114,21 @@ export function getStatus(): Promise<Status> {
 
 export function getRepos(): Promise<Repo[]> {
   return apiFetch<Repo[]>("/api/repos");
+}
+
+export function getAvailableRepos(): Promise<AvailableRepo[]> {
+  return apiFetch<AvailableRepo[]>("/api/repos/available");
+}
+
+export function addRepo(repo: {
+  platform: string;
+  owner: string;
+  repo: string;
+}): Promise<Repo> {
+  return apiFetch<Repo>("/api/repos", {
+    method: "POST",
+    body: JSON.stringify(repo),
+  });
 }
 
 export function putRepoSettings(

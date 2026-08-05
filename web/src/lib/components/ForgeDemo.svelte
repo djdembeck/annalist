@@ -31,24 +31,24 @@
   });
 </script>
 
-<div class="rounded border border-forge-line bg-forge-surface p-4 sm:p-6">
+<div class="rounded border border-line bg-surface-1 p-4 sm:p-6">
   <div class="mb-4 flex items-center justify-between">
-    <span class="font-display text-sm text-forge-ember">Forge stage</span>
-    <span class="rounded bg-forge-control px-2 py-0.5 text-xs font-medium tabular-nums text-forge-ink-2" aria-hidden="true">v1.4.0</span>
+    <span class="font-display text-sm text-ember">Forge stage</span>
+    <span class="rounded bg-control px-2 py-0.5 text-xs font-medium tabular-nums text-ink-2" aria-hidden="true">v1.4.0</span>
   </div>
 
-  <div class="relative h-24 overflow-hidden rounded bg-forge-page/60 sm:h-28">
+  <div class="relative h-24 overflow-hidden rounded bg-page/60 sm:h-28">
     <div class="absolute inset-0 flex items-center justify-center px-4">
       <div class="w-full max-w-lg">
         <div class="mb-3 h-6 overflow-hidden text-center">
           {#if step < commits.length}
-            <p class="animate-strike text-sm text-forge-heat sm:text-base">{commits[step]}</p>
+            <p class="animate-strike text-sm text-heat sm:text-base">{commits[step]}</p>
           {:else}
-            <span class="inline-block h-1.5 w-1.5 rounded-full bg-forge-ink-3"></span>
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-ink-3"></span>
           {/if}
         </div>
 
-        <div class="relative h-2 w-full overflow-hidden rounded-sm bg-forge-surface-2">
+        <div class="relative h-2 w-full overflow-hidden rounded-sm bg-surface-2">
           <div
             class="absolute inset-0 h-full w-full transition-opacity duration-300"
             class:opacity-60={step < commits.length}
@@ -61,7 +61,7 @@
           </div>
         </div>
 
-        <div class="mt-2 flex justify-between text-xs tabular-nums text-forge-ink-3">
+        <div class="mt-2 flex justify-between text-xs tabular-nums text-ink-3">
           <span>HEAT {step < commits.length ? "1250" : "1480"}</span>
           <span>BLOWS {Math.min(step, commits.length).toString().padStart(2, "0")}/{commits.length.toString().padStart(2, "0")}</span>
         </div>
@@ -70,12 +70,12 @@
   </div>
 
   <div class="mt-4">
-    <div class="rounded border border-forge-line bg-forge-page/80 p-4">
+    <div class="rounded border border-line bg-page/80 p-4">
       <div class="mb-2 flex items-center justify-between">
-        <span class="font-display text-sm text-forge-white">Synthetic output</span>
-        <span class="text-xs tabular-nums text-forge-ink-3">written by annalist</span>
+        <span class="font-display text-sm text-white">Synthetic output</span>
+        <span class="text-xs tabular-nums text-ink-3">written by annalist</span>
       </div>
-      <pre class="whitespace-pre-wrap font-mono text-xs leading-relaxed text-forge-ink-2">{output}</pre>
+      <pre class="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ink-2">{output}</pre>
     </div>
   </div>
 </div>

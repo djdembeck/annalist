@@ -28,7 +28,7 @@
 </script>
 
 <div class="mx-auto max-w-2xl">
-  <h1 class="mb-2 text-2xl font-bold text-ink">Setup</h1>
+  <h1 class="mb-2 font-display text-2xl text-ink">Setup</h1>
   <p class="mb-6 text-sm text-ink-2">
     Set your admin token to unlock the dashboard.
   </p>
@@ -51,7 +51,7 @@
     </label>
     <button
       type="submit"
-      class="rounded bg-mark px-4 py-2 text-sm font-medium text-page hover:bg-mark-hover"
+      class="rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-4 py-2 text-sm font-medium text-page hover:brightness-110"
     >
       Continue
     </button>
@@ -99,7 +99,7 @@
 
     <section class="mt-8 space-y-6 text-sm text-ink-2">
       <div>
-        <h2 class="mb-2 font-semibold text-ink">GitHub</h2>
+        <h2 class="mb-2 font-display text-base text-ink">GitHub</h2>
         <ul class="list-inside list-disc space-y-1 text-ink-2">
           <li>
             Install your GitHub App from
@@ -114,7 +114,7 @@
         </ul>
       </div>
       <div>
-        <h2 class="mb-2 font-semibold text-ink">Forgejo</h2>
+        <h2 class="mb-2 font-display text-base text-ink">Forgejo</h2>
         <ul class="list-inside list-disc space-y-1 text-ink-2">
           <li>
             Add a repository or organization webhook for the

@@ -75,7 +75,7 @@
 </script>
 
 <div class="mx-auto max-w-2xl">
-  <h1 class="mb-2 text-2xl font-bold text-ink">Settings</h1>
+  <h1 class="mb-2 font-display text-2xl tracking-tight text-ink">Settings</h1>
   <p class="mb-6 text-sm text-ink-2">
     Global defaults used for any repository that doesn't override them.
   </p>
@@ -147,7 +147,7 @@
       <div class="flex items-center gap-3">
         <button
           onclick={save}
-          class="rounded bg-mark px-4 py-2 text-sm font-medium text-page hover:bg-mark-hover"
+          class="rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-4 py-2 text-sm font-medium text-page hover:brightness-110"
         >
           Save
         </button>
@@ -158,7 +158,7 @@
     </div>
 
     <section class="mt-8 rounded border border-line bg-surface-1 p-4 text-sm">
-      <h2 class="mb-2 font-semibold text-ink">LLM endpoint</h2>
+      <h2 class="mb-2 font-display text-lg tracking-tight text-ink">LLM endpoint</h2>
       <dl class="space-y-1 text-ink-2">
         <div class="flex justify-between gap-4">
           <dt>Base URL</dt>

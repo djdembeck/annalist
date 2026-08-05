@@ -1,40 +1,44 @@
 ---
 name: Annalist
-description: Self-hosted AI release notes for GitHub and Forgejo — The Copy Desk dashboard.
+description: Self-hosted AI release notes for GitHub and Forgejo — the Forged Release Notes dashboard.
 colors:
-  page: "#0d0f13"
-  surface-1: "#131722"
-  surface-2: "#1a1f2c"
-  line: "#232a38"
-  line-strong: "#2d3547"
-  focus: "#8a93a6"
-  ink: "#eef1f6"
-  ink-2: "#b9c0cd"
-  ink-3: "#6f7788"
-  control: "#2b3342"
-  control-hover: "#37415a"
-  mark: "#d65a4f"
-  mark-hover: "#e0695d"
+  page: "#0a0a0c"
+  surface-1: "#14161a"
+  surface-2: "#1b1e22"
+  line: "#2a2e35"
+  line-strong: "#3a3f48"
+  focus: "#948e84"
+  ink: "#f3f0ec"
+  ink-2: "#b8b2a8"
+  ink-3: "#8a847b"
+  control: "#23262b"
+  control-hover: "#2d3138"
+  mark: "#ff7b00"
+  mark-hover: "#ffb300"
+  cherry: "#ff3d00"
+  ember: "#ff7b00"
+  heat: "#ffb300"
+  white: "#fff7e8"
   ok: "#3fb477"
   alert: "#e05252"
 typography:
   title:
-    fontFamily: "ui-sans-serif, system-ui, sans-serif"
+    fontFamily: '"Saira Stencil One", ui-sans-serif, system-ui, sans-serif'
     fontSize: "1.5rem"
-    fontWeight: 700
+    fontWeight: 400
     lineHeight: 1.2
   headline:
-    fontFamily: "ui-sans-serif, system-ui, sans-serif"
+    fontFamily: '"Saira", ui-sans-serif, system-ui, sans-serif'
     fontSize: "0.875rem"
     fontWeight: 600
     lineHeight: 1.5
   body:
-    fontFamily: "ui-sans-serif, system-ui, sans-serif"
+    fontFamily: '"Saira", ui-sans-serif, system-ui, sans-serif'
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: "ui-sans-serif, system-ui, sans-serif"
+    fontFamily: '"Saira", ui-sans-serif, system-ui, sans-serif'
     fontSize: "0.75rem"
     fontWeight: 400
     lineHeight: 1.4
@@ -49,43 +53,43 @@ spacing:
   "6": "24px"
 components:
   button-primary:
-    backgroundColor: "{colors.control}"
-    textColor: "{colors.ink}"
+    backgroundColor: "#23262b"
+    textColor: "#f3f0ec"
     typography: "{typography.body}"
     rounded: "{rounded.sm}"
     padding: "8px 12px"
   button-primary-hover:
-    backgroundColor: "{colors.control-hover}"
+    backgroundColor: "#2d3138"
   button-mark:
-    backgroundColor: "{colors.mark}"
-    textColor: "{colors.page}"
+    backgroundColor: "linear-gradient(90deg, #ff3d00, #ff7b00, #ffb300)"
+    textColor: "#0a0a0c"
     typography: "{typography.body}"
     rounded: "{rounded.sm}"
     padding: "8px 16px"
   button-mark-hover:
-    backgroundColor: "{colors.mark-hover}"
+    backgroundColor: "linear-gradient(90deg, #ff7b00, #ffb300, #fff7e8)"
   button-secondary:
-    backgroundColor: "{colors.surface-2}"
-    textColor: "{colors.ink}"
+    backgroundColor: "#1b1e22"
+    textColor: "#f3f0ec"
     typography: "{typography.body}"
     rounded: "{rounded.sm}"
     padding: "6px 12px"
   button-secondary-hover:
-    backgroundColor: "{colors.control}"
+    backgroundColor: "#23262b"
   field:
-    backgroundColor: "{colors.surface-1}"
-    textColor: "{colors.ink}"
+    backgroundColor: "#14161a"
+    textColor: "#f3f0ec"
     typography: "{typography.body}"
     rounded: "{rounded.sm}"
     padding: "8px 12px"
   card:
-    backgroundColor: "{colors.surface-1}"
-    textColor: "{colors.ink-2}"
+    backgroundColor: "#14161a"
+    textColor: "#b8b2a8"
     rounded: "{rounded.sm}"
     padding: "16px"
   chip:
-    backgroundColor: "{colors.surface-2}"
-    textColor: "{colors.ink-2}"
+    backgroundColor: "#1b1e22"
+    textColor: "#b8b2a8"
     typography: "{typography.label}"
     rounded: "{rounded.sm}"
     padding: "2px 8px"
@@ -95,128 +99,135 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Copy Desk"**
+**Creative North Star: "Forged Release Notes"**
 
-Annalist's dashboard is the desk where a release's voice is set before it ships. Like a newsroom's copy desk — where prose is shaped, checked, and released without ceremony — the interface is dark, calm, and entirely in service of the work: repositories, settings, and the machine that writes notes while everyone sleeps. There is no decoration, no chrome, no theater; every pixel either carries information or gives the operator room to breathe.
-
-The system is **editorial restraint** rendered in graphite. It is monochrome by conviction: cool-lean charcoal surfaces on a near-black page, a cold-press paper text ramp, and exactly one proofing color — a desaturated vermilion used the way an editor uses a pen, for the single committed action and little else. Hierarchy arrives through weight, size, and tonal stepping, never through color or shadow. The dashboard is flat, quiet, and legible at a glance, the way an instrument panel should be.
+Annalist is the forge where raw commits are heated, shaped by settings, and struck into human-sounding release notes. The interface is dark, warm, and industrial: forge-black ground, anvil-steel panels, and a heat ramp from cherry to white-hot for the committed action. Every surface — public landing page and operator dashboard alike — shares this world. There is no chrome, no decoration; every element either carries information or gives the operator room to work.
 
 **Key Characteristics:**
-- Dark-first, cool-lean graphite palette; near-black page (`#0d0f13`) with one- and two-step raised surfaces.
-- Color is signal: vermilion for the committed action, green/red strictly for platform status, nothing decorative.
+- Dark-first forge palette; near-black page (`#0a0a0c`) with one- and two-step raised steel surfaces.
+- Heat is signal: the cherry-to-ember-to-heat gradient marks the single committed action. Green/red remain strictly for status.
 - Flat by default — depth comes from 1px hairline borders and tonal steps, never shadows.
-- Precise, restrained controls: 4px radius, weight-differentiated states, hover = one tonal step lighter.
-- System font stack; typography does hierarchy by weight and size, not by face.
+- One stenciled display face (`Saira Stencil One`) for titles, wordmark, and measured labels; `Saira` for body and UI. Self-hosted.
+- Uniform 4px radius on every control, card, chip, table, and input.
 
 ## Colors
 
-One sentence: cool-lean midnight graphite surfaces under cold-press paper ink, with a single vermilion proofing mark and green/red reserved for signal.
+One sentence: forge-black ground under warm paper ink, with an anvil-steel surface ramp and a single heat-ramp accent used like a striking mark.
 
 ### Primary
-- **Editor's Vermilion** (`#d65a4f`, hover `#e0695d`): the single accent. Used for the committed action on a surface (Setup → Continue, Settings → Save) and as the checkbox accent fill. It is the red pen — it makes a mark, then stays off the page.
+- **Heat Mark** (`#ff7b00`, hover `#ffb300`): the single accent. Rendered as a horizontal gradient from **Cherry** (`#ff3d00`) through **Ember** (`#ff7b00`) to **Heat** (`#ffb300`). Used for the committed action on a surface and the checkbox accent fill. It is the strike — it makes a mark, then stays off the page.
 
 ### Neutral
-- **Midnight Graphite** (`#0d0f13`): page background. The whole system sits on it.
-- **Carbon Slate** (`#131722`): first raised surface — nav bar, cards, table headers, input/select/textarea fills. The work-surface tone.
-- **Toned Iron** (`#1a1f2c`): second raised step — chips, secondary buttons, inset controls. 60% opacity variant backs expandable table rows.
-- **Soft Graphite** (`#2b3342`) → **Lifted Graphite** (`#37415a`): neutral button fill and its hover. Quiet controls that never compete with the mark.
-- **Hairline Steel** (`#232a38`): 1px borders and row dividers.
-- **Field Edge** (`#2d3547`): input borders — one step brighter than dividers so fields read as editable.
-- **Correction Steel** (`#8a93a6`): focus border on focused fields.
-- **Cold Press Ink** (`#eef1f6`): primary text and button labels.
-- **Draft Gray** (`#b9c0cd`): secondary text — field labels, table secondary cells, subtitles.
-- **Footnote Gray** (`#6f7788`): muted hints, loading/empty states, ghost captions.
-- **Proofread Green** (`#3fb477`): configured / saved status.
-- **Red-Pen Red** (`#e05252`): errors and misconfigured status; shares the vermilion hue family, but is signal, not decoration.
+- **Forge Black** (`#0a0a0c`): page background.
+- **Anvil Steel** (`#14161a`): first raised surface — nav bar, cards, table headers, input/select/textarea fills.
+- **Pitted Steel** (`#1b1e22`): second raised step — chips, secondary buttons, inset controls. 60% opacity variant backs expandable table rows.
+- **Tool Steel** (`#23262b`) → **Worked Steel** (`#2d3138`): neutral button fill and its hover.
+- **Hairline Scale** (`#2a2e35`): 1px borders and row dividers.
+- **Field Edge** (`#3a3f48`): input borders — one step brighter than dividers so fields read as editable.
+- **Focus Haze** (`#948e84`): focus border on focused fields.
+- **Cold-Press Ink** (`#f3f0ec`): primary text and button labels.
+- **Draft Ash** (`#b8b2a8`): secondary text — field labels, table secondary cells, subtitles.
+- **Slag Gray** (`#8a847b`): muted hints, loading/empty states, ghost captions.
+- **White Hot** (`#fff7e8`): display headline text and the peak of the heat ramp.
+
+### Status
+- **Forged Green** (`#3fb477`): configured / saved status.
+- **Scrap Red** (`#e05252`): errors and misconfigured status.
 
 ### Named Rules
-**The Editor's Mark Rule.** The vermilion appears only for the committed action on a surface (Setup Continue, Settings Save), checkbox accent, and nothing else. Two vermilion elements on one screen is a copy error.
+**The Heat-Mark Rule.** The heat gradient appears only for the committed action on a surface and the checkbox accent. Two heat-ramp elements on one screen is a copy error.
 
-**The Signal-Only Color Rule.** Green and red mean status, never decoration. A page is monochrome until a platform reports configured, saved, or failed.
+**The Signal-Only Color Rule.** Green and red mean status, never decoration.
 
-**The Ink-On-Mark Rule.** Text on vermilion buttons is Midnight Graphite (`text-page`), because the mark is a working surface, not a bright badge.
+**The Ink-On-Mark Rule.** Text on mark buttons is Forge Black (`text-page`) because the mark is a working surface.
 
 ## Typography
 
-**Display/Body Font:** `ui-sans-serif, system-ui, sans-serif` — the system stack. No webfonts, no display face. The dashboard is an instrument; the type gets out of the way.
+**Display Font:** `Saira Stencil One`, self-hosted. Used for page titles, the wordmark, numeric step labels, and small measured panel labels.
 
-**Character:** Operative and quiet. All hierarchy is achieved with weight, size, and color stepping within one neutral sans stack — the same discipline the rest of the system follows.
+**Body/UI Font:** `Saira`, self-hosted. Weights 400–600. Tabular numerals for metrics.
+
+**Code Font:** browser monospace stack (`ui-monospace`, SFMono, Menlo, Consolas).
+
+**Character:** Operative and warm. Hierarchy is achieved with the stencil display face for position, weight and size within Saira for detail, and tonal stepping for priority.
 
 ### Hierarchy
-- **Page Title** (bold 700, 24px / `text-2xl`, line-height 1.2): the H1 on each surface ("Repositories", "Settings", "Setup") in Cold Press Ink.
-- **Section Heading** (semibold 600, 14px / `text-sm`, line-height 1.5): H2s like "LLM endpoint" and setup guidance, in Cold Press Ink.
-- **Body / Field Label** (regular 400, 14px / `text-sm`, line-height 1.5): labels and values. Labels render in Draft Gray; primary values in Cold Press Ink.
-- **Label / Caption** (regular 400, 12px / `text-xs`, line-height 1.4): chips, field mini-labels, "Effective" summaries, footnote captions — Draft Gray or Footnote Gray.
-- **Mono:** note-preview output uses the browser default monospace (`<pre>`); not system-controlled.
-
-### Named Rules
-**The One-Face Rule.** No display type, no webfonts. If a hierarchy problem needs a new size or weight, use the existing stack. A second typeface is a redesign, not a tweak.
+- **Page Title** (`font-display`, `text-2xl`, White Hot): the H1 on each surface ("REPOSITORIES", "SETTINGS", "SETUP").
+- **Section Heading** (`font-sans` semibold, `text-sm`): H2s like "LLM endpoint" and setup guidance, in Cold-Press Ink.
+- **Body / Field Label** (`font-sans` regular, `text-sm`): labels and values. Labels in Draft Ash; primary values in Cold-Press Ink.
+- **Caption / Metric** (`font-sans` regular, `text-xs`, tabular numerals): chips, field mini-labels, "Effective" summaries, footnote captions — Draft Ash or Slag Gray.
+- **Mono:** code blocks, Docker commands, generated release notes.
 
 ## Layout
 
-- **App shell:** full-width top nav with a 1px Hairline Steel bottom border; content column `max-w-5xl` (Repositories) or centered `max-w-2xl` (Setup, Settings) with 24px padding.
-- **Spacing rhythm:** Tailwind's 4px base scale — 4 / 8 / 12 / 16 / 24px (gap-1 … gap-6). Dense but not cramped; the calm comes from consistent increments.
-- **Responsive:** grids are `grid gap-4` collapsing to one column below 640px (`sm:grid-cols-2`); tables are full-width inside an `overflow-x-auto` scroller so narrow viewports scroll rather than break.
-- Tables: 16px horizontal cell padding, 8px vertical; header row distinct via Carbon Slate fill.
+- **App shell:** full-width top nav with 1px Hairline Scale bottom border; content column `max-w-5xl` (Repositories, Add repositories) or centered `max-w-3xl` (Setup, Settings) with 24px padding.
+- **Spacing rhythm:** Tailwind's 4px base scale — 4 / 8 / 12 / 16 / 24px.
+- **Responsive:** grids collapse to one column below 640px; tables scroll horizontally inside `overflow-x-auto`.
+- Tables: 16px horizontal cell padding, 12px vertical; header row distinct via Anvil Steel fill.
 
 ## Elevation & Depth
 
-Flat by default. There are **no box-shadows** in the system. Depth is conveyed three ways: 1px Hairline Steel borders that separate surfaces; tonal stepping from page → Carbon Slate → Toned Iron; and a `black/40` scrim behind the note-preview `<pre>` to drop it back from the desk. Anything that needs lifting does it by one tonal step, never by shadow.
+Flat by default. No box-shadows. Depth is conveyed by 1px Hairline Scale borders and tonal stepping from Forge Black → Anvil Steel → Pitted Steel.
 
 ## Shapes
 
-Uniform precision: **4px radius** (`rounded`) on every control, card, chip, table, and input — buttons, selects, textareas, the note preview. The only exception is the `rounded-full` 10px status dot (configured / misconfigured indicators). No clipping, no pill buttons, no new geometry. The radius is a constant because the system's identity is repetition, not variation.
+Uniform 4px radius (`rounded`) on every control, card, chip, table, and input. The only exception is the `rounded-full` status dot. No clipping, no pill buttons.
 
 ## Components
 
 ### Buttons
-- **Shape:** 4px radius, flat, no shadow.
-- **Quiet Primary** (`button-primary`) — row and page actions (Refresh, Settings, Save on a repo row): Soft Graphite fill, Cold Press Ink label, 8px padding; hover lifts one step to Lifted Graphite. 500 weight on larger labels.
-- **Committed Primary** (`button-mark`) — the one action that ships something (Setup Continue, Settings Save): Editor's Vermilion fill, Midnight Graphite label (`text-page`), 8px 16px padding; hover uses the lighter mark. Reserve for exactly one per surface.
-- **Secondary** (`button-secondary`) — Regenerate: Toned Iron fill, Ink label; hover to Soft Graphite.
-- **States:** hover is always one tonal step; no brightness tricks, no glow.
+- **Quiet Primary** (`button-primary`) — page actions (Refresh, Settings row): Tool Steel fill, Cold-Press Ink label; hover to Worked Steel.
+- **Committed Primary** (`button-mark`) — the action that ships something (Continue, Save, Add repositories): heat-gradient fill, Forge Black label, 4px radius, `brightness-110` hover. Reserve for the single committed action per surface.
+- **Secondary** (`button-secondary`) — Regenerate: Pitted Steel fill, Ink label; hover to Tool Steel.
 
 ### Checkboxes
-- 16px native checkbox with vermilion accent (`accent-mark`); used for enable/force-regenerate toggles.
+Native checkbox with heat accent (`accent-mark`).
 
 ### Chips
-- Toned Iron fill, Draft Gray 12px text, 4px radius, 2px 8px padding. Read-only value tags (effective tone/model); no states.
+Pitted Steel fill, Draft Ash 12px text, 4px radius, 2px 8px padding. Read-only value tags (effective tone/model).
 
 ### Cards / Containers
-- Carbon Slate fill, Hairline Steel 1px border, 4px radius, 16px padding, flat. Used for status cards, the LLM endpoint panel, and the "Effective" readings.
+Anvil Steel fill, Hairline Scale 1px border, 4px radius, 16px padding, flat.
 
 ### Inputs / Fields
-- Carbon Slate fill, Field Edge 1px border, 4px radius, 8px 12px padding, Cold Press Ink text.
-- **Focus:** border shifts to Correction Steel; no glow, no ring — focus is a line change.
-- Selects render with dark options by default; textareas share the same field style.
+Anvil Steel fill, Field Edge 1px border, 4px radius, 8px 12px padding, Cold-Press Ink text.
+- **Focus:** border shifts to Focus Haze; no glow.
 
 ### Navigation
-- Carbon Slate bar, full width, Hairline Steel bottom border; wordmark "Annalist" 16px semibold in Cold Press Ink; links (Setup, Repos, Settings) 14px Draft Gray hover → Cold Press Ink. No active-state styling — the current surface's H1 is the position marker.
+Anvil Steel bar, full width, Hairline Scale bottom border; wordmark "ANNALIST" in `Saira Stencil One`; links 14px Draft Ash hover → Cold-Press Ink. No active-state styling.
 
 ### Tables
-- Header row: Carbon Slate fill, Draft Gray medium weight; body rows Hairline Steel top borders; cells 16/8px padding; the expandable per-repo settings row drops one tone step (`Carbon Slate / 60`) to sit under its row.
+Header row: Anvil Steel fill, Draft Ash medium weight; body rows Hairline Scale top borders; expandable per-repo settings row drops one tone step (`bg-surface-1/60`).
 
 ### Note Preview
-- Rendered generated notes in `<pre>`: `black/40` scrim, Hairline Steel border, 12px Draft Gray mono, `max-h-64` scroll.
+Generated notes in `<pre>`: Forge Black background, Hairline Scale border, 12px Slag Gray mono, `max-h-64` scroll.
+
+## Onboarding
+
+The `/repos` page lists only repositories the operator has deliberately added. New users are guided to `/repos/add`, where they can:
+- Browse repositories available from each enabled platform (GitHub / Forgejo).
+- Select multiple available repos and add them at once.
+- Add a repository manually by platform, owner, and name.
+
+Empty states explain the next step rather than assuming misconfiguration. Managed repos can be enabled/disabled, tuned per-repo, and regenerated from the list.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** keep the page on Midnight Graphite and raise surfaces only one or two tonal steps (Carbon Slate, Toned Iron).
-- **Do** use the vermilion mark for exactly one committed action per surface, plus the checkbox accent.
-- **Do** treat green/red strictly as status signal (config dots, Saved, errors).
-- **Do** prefer tonal separation and hairlines over shadows — flat is the system.
-- **Do** keep the 4px radius constant across controls, cards, chips, and inputs.
-- **Do** show hierarchy with weight, size, and tonal stepping within the system font stack.
+- Keep the page on Forge Black and raise surfaces only one or two tonal steps.
+- Use the heat-ramp mark for exactly one committed action per surface, plus the checkbox accent.
+- Treat green/red strictly as status signal.
+- Prefer tonal separation and hairlines over shadows.
+- Keep the 4px radius constant across controls, cards, chips, and inputs.
+- Use the display face for position and the UI face for detail.
 
 ### Don't:
-- **Don't** introduce a second accent hue (teal, blue, purple) — the palette is graphite + vermilion + signal green/red.
-- **Don't** add box-shadows, gradients, or glass effects to lift anything.
-- **Don't** fall back to default Tailwind zinc classes; the bespoke graphite ramp is the only allowed neutral.
-- **Don't** use the vermilion as link color, decoration, or ambient fill — its rarity is the point.
-- **Don't** use white text on vermilion buttons; mark buttons carry Midnight Graphite labels.
-- **Don't** change the radius per component; variation in shape reads as error.
-- **Don't** apply the Forged landing world to the dashboard; the dashboard remains The Copy Desk.
+- Don't introduce a second accent hue (teal, blue, purple) alongside the heat ramp.
+- Don't add box-shadows, gradients, or glass effects as decoration.
+- Don't fall back to default Tailwind zinc classes; the bespoke forge ramp is the only allowed neutral.
+- Don't use the heat-ramp as link color, decoration, or ambient fill.
+- Don't use white text on mark buttons; mark buttons carry Forge Black labels.
+- Don't change the radius per component.
 
 ---
 
@@ -224,42 +235,16 @@ Uniform precision: **4px radius** (`rounded`) on every control, card, chip, tabl
 
 ## Mode and World
 
-The landing page operates in **Persuade** mode and uses a separate visual world, **Forged Release Notes**. It dramatizes the pipeline — raw commits are heated, each summary is a measured blow, and a human-sounding release note exits as shaped metal. The dashboard and authenticated routes keep the existing Copy Desk system; this surface is allowed to be expressive because its only job is to explain and drive deployment.
+Public landing page. Mode: **Persuade**. It dramatizes the pipeline — raw commits are heated, each summary is a measured blow, and a human-sounding release note exits as shaped metal. It shares the same Forged world as the dashboard, but is allowed to be more expressive because its only job is to explain and drive deployment.
 
-## Palette
+## Palette, Typography, Components
 
-- **Forge Page** `#0a0a0c`: ground.
-- **Forge Surface** `#14161a`: first raised panel.
-- **Forge Surface 2** `#1b1e22`: inset and secondary panels.
-- **Forge Line** `#2a2e35`: hairlines.
-- **Forge Line Strong** `#3a3f48`: hover borders.
-- **Forge Ink** `#f3f0ec`: primary text.
-- **Forge Ink 2** `#b8b2a8`: secondary text.
-- **Forge Ink 3** `#8a847b`: muted captions.
-- **Forge Cherry** `#ff3d00`, **Forge Ember** `#ff7b00`, **Forge Heat** `#ffb300`, **Forge White** `#fff7e8`: the workpiece heat ramp and the single committed-action gradient.
-- **Forge Control** `#23262b`, **Forge Control Hover** `#2d3138`: secondary buttons and code-panel chrome.
-
-## Typography
-
-- **Display:** `Saira Stencil One`, self-hosted. Used only for the headline, wordmark, numeric step labels, and small uppercase panel captions.
-- **Body / UI:** `Saira`, self-hosted. Weights 400–600. Tabular numerals for metrics.
-- **Code:** browser monospace stack for commands and synthetic output.
-
-## Composition
-
-- Single full-width dark column.
-- Hero: stacked on narrow, two-column on large (claim left, forge-stage demo right).
-- How-it-works as three full-width "blow rows" separated by 1px hairlines; no cards.
-- Deploy section: copy left, copyable Docker command panel right.
-
-## Components
-
-- **Committed-action button:** gradient from Forge Cherry to Forge Heat, Forge Page label, 4px radius, `brightness-110` hover.
-- **Secondary button:** Forge Surface fill, Forge Ink label, 1px Forge Line border, hover to Forge Surface 2.
-- **Forge stage card:** Forge Surface fill, Forge Line border, animated heat bar, static synthetic output.
-- **Blow row:** Forge Line top border, `Saira Stencil One` label, body description, tabular metric caption.
-- **Code panel:** Forge Surface fill, Forge Line border, Forge Page background for the code block.
+Uses the global Forged system. Dedicated accents:
+- Large display headline in `Saira Stencil One`, White Hot.
+- Hero "forge stage" card with an animated heat bar and a static, honestly-labeled synthetic release note.
+- Three "blow rows" explain the pipeline as Receive → Resolve → Strike.
+- Deploy section presents a copyable Docker command.
 
 ## Motion
 
-One controlled animation: commits and heat values animate through the forge-stage bar in a loop; the synthetic output below is always readable so the proof is never hidden. No scattered hover effects.
+One controlled animation: commits and heat values animate through the forge-stage bar in a loop; the synthetic output below is always readable so the proof is never hidden. Respects `prefers-reduced-motion`.

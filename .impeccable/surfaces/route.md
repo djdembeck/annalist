@@ -2,7 +2,7 @@
 version: 1
 slug: "route"
 primary_target: "route:/"
-related_targets: []
+related_targets: ["route:/repos/add"]
 ---
 
 # Surface Brief: /
@@ -27,7 +27,7 @@ Understand that Annalist writes release notes automatically from commit history,
 
 ## Direction
 
-**"Forged Release Notes"** — the blacksmith's forge as a metaphor for the pipeline. Raw commits are heated, each summary is a measured blow, and a human-sounding release note exits as shaped metal. The visual system is forge-black ground, anvil-steel panels, a workpiece heat ramp from cherry to white-hot, one stenciled display face, and hairline rules that read like chalk marks on the shop floor.
+**"Forged Release Notes"** — the blacksmith's forge as a metaphor for the pipeline. Raw commits are heated, each summary is a measured blow, and a human-sounding release note exits as shaped metal. The visual system is forge-black ground, anvil-steel panels, a workpiece heat ramp from cherry to white-hot, one stenciled display face, and hairline rules that read like chalk marks on the shop floor. This world now extends across the whole app.
 
 ## Memorable Moment
 
@@ -36,6 +36,10 @@ The visitor sees a glowing iron bar receive commit subjects one at a time, brigh
 ## Constraints
 
 - Must remain public; authenticated visitors are redirected to `/repos`.
-- Must coexist with the existing graphite dashboard (The Copy Desk). The dashboard routes keep their current world; this page introduces a distinct Persuade surface.
+- Must share the same Forged world as the dashboard.
 - No fabricated customers, testimonials, or commercial claims.
 - Seed: fe85d9c7.
+
+## Related surfaces
+
+- `/repos/add` — onboarding surface where users add repositories.
