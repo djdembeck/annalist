@@ -207,12 +207,16 @@
       reposAdded = targets.length;
       step = 3;
     } catch (e) {
-      saving = false;
       if (e instanceof Error && e.message === "Unauthorized") {
         goto("/setup");
         return;
       }
       error = e instanceof Error ? e.message : "Failed to add repositories";
+    } finally {
+      // `saving` is shared with the voice step's Finish button; it must not
+      // stay true after the repo add succeeds or that button lands disabled
+      // showing "Saving…" (the reported stuck state).
+      saving = false;
     }
   }
 
@@ -232,12 +236,15 @@
       localStorage.setItem("annalist.setup-complete", "1");
       step = 4;
     } catch (e) {
-      saving = false;
       if (e instanceof Error && e.message === "Unauthorized") {
         goto("/setup");
         return;
       }
       error = e instanceof Error ? e.message : "Failed to save default tone";
+    } finally {
+      // Reset even on success so stepping back to the voice step (step 3)
+      // doesn't leave the Finish button stuck at "Saving…".
+      saving = false;
     }
   }
 

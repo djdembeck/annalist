@@ -5,6 +5,7 @@ COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY web/src src
+COPY web/static static
 COPY web/svelte.config.js web/vite.config.ts web/tsconfig.json ./
 RUN bun run build
 

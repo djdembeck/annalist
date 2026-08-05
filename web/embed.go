@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -59,9 +60,32 @@ func Handler() http.Handler {
 			f.Close()
 		}
 
-		// SPA fallback for every other path.
-		serveIndex(sub, w, r)
+		// SPA fallback only for navigation-style requests. Paths that look like
+		// static files (they have a dot in the basename) and requests that do
+		// not accept HTML (fonts, scripts, CSS) must not receive the HTML shell:
+		// a browser that gets HTML where a font/script is expected reports
+		// sanitizer/decode errors instead of a clean 404.
+		if !isAssetPath(p) && acceptsHTML(r) {
+			serveIndex(sub, w, r)
+			return
+		}
+		http.NotFound(w, r)
 	})
+}
+
+// isAssetPath reports whether the request path names a file rather than an SPA
+// route, by checking for a dot in the basename (e.g. /fonts/x.woff2,
+// /_app/immutable/x.js).
+func isAssetPath(p string) bool {
+	return strings.Contains(path.Base(p), ".")
+}
+
+// acceptsHTML reports whether the request expects an HTML document. Empty
+// Accept means the client has no strong preference, which the shell can
+// answer; asset fetches send narrow Accept values.
+func acceptsHTML(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	return accept == "" || strings.Contains(accept, "text/html")
 }
 
 // serveIndex serves index.html with a CSP nonce injected into the inline
