@@ -31,6 +31,7 @@ export type AvailableRepo = {
   platform: string;
   owner: string;
   repo: string;
+  fork?: boolean;
 };
 
 export type RepoSettingUpdate = {

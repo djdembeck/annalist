@@ -349,7 +349,7 @@ func TestHandleListAvailableRepos(t *testing.T) {
 	a, _, store := testAPI(t, cfg)
 	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{
 		{Owner: "djdembeck", Repo: "annalist"},
-		{Owner: "someone", Repo: "other"},
+		{Owner: "someone", Repo: "other", Fork: true},
 	}}
 	a.fj = &fakeClient{repos: []pipeline.OwnerRepo{
 		{Owner: "fjuser", Repo: "released"},
@@ -384,6 +384,20 @@ func TestHandleListAvailableRepos(t *testing.T) {
 		if ar.Platform == "github" && ar.Repo == "annalist" {
 			t.Errorf("managed repo leaked into available: %+v", ar)
 		}
+		// The fork flag must be present in the JSON for every repo.
+		if !strings.Contains(w.Body.String(), `"fork":`) {
+			t.Fatalf("fork field missing from JSON: %s", w.Body.String())
+		}
+	}
+	// The one repo that is a fork must carry fork=true.
+	var forked bool
+	for _, ar := range avail {
+		if ar.Platform == "github" && ar.Repo == "other" && ar.Fork {
+			forked = true
+		}
+	}
+	if !forked {
+		t.Errorf("github/someone/other should be reported as a fork, got %+v", avail)
 	}
 }
 

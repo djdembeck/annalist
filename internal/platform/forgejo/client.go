@@ -106,6 +106,7 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 		var batch []struct {
 			FullName string `json:"full_name"`
 			Name     string `json:"name"`
+			Fork     bool   `json:"fork"`
 			Owner    struct {
 				Login    string `json:"login"`
 				Username string `json:"username"`
@@ -123,6 +124,7 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 			out = append(out, pipeline.OwnerRepo{
 				Owner: owner,
 				Repo:  r.Name,
+				Fork:  r.Fork,
 			})
 		}
 		if len(batch) < 50 {

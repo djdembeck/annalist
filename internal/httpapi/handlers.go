@@ -154,6 +154,7 @@ type availableRepo struct {
 	Platform string `json:"platform"`
 	Owner    string `json:"owner"`
 	Repo     string `json:"repo"`
+	Fork     bool   `json:"fork"`
 }
 
 // repoLister is the subset shared by both platform clients that hands back the
@@ -174,7 +175,7 @@ func (a *api) listAvailable(ctx context.Context, platform string, client repoLis
 		if managed[key] {
 			continue
 		}
-		available = append(available, availableRepo{Platform: platform, Owner: rp.Owner, Repo: rp.Repo})
+		available = append(available, availableRepo{Platform: platform, Owner: rp.Owner, Repo: rp.Repo, Fork: rp.Fork})
 	}
 	return available, nil
 }

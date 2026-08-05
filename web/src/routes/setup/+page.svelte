@@ -64,6 +64,8 @@
   let saving = $state(false);
   let reposAdded = $state(0);
   let reposVisible = $state(false);
+  let search = $state("");
+  let showForks = $state(false);
 
   // --- step 4: voice ---
   let toneOption = $state("inherit");
@@ -79,7 +81,20 @@
   }
 
   function filtered(): AvailableRepo[] {
-    return available.filter((r) => r.platform === activeSource);
+    const query = search.trim().toLowerCase();
+    const items = available.filter((r) => {
+      if (r.platform !== activeSource) return false;
+      if (r.fork === true && !showForks) return false;
+      if (query && !`${r.owner}/${r.repo}`.toLowerCase().includes(query)) return false;
+      return true;
+    });
+    return items.sort((a, b) => {
+      const af = a.fork === true ? 1 : 0;
+      const bf = b.fork === true ? 1 : 0;
+      if (af !== bf) return af - bf;
+      if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
+      return a.repo.localeCompare(b.repo);
+    });
   }
 
   function selectedCount(): number {
@@ -466,6 +481,23 @@
           </button>
         </div>
       {:else}
+        <div class="flex flex-col gap-3">
+          <input
+            type="search"
+            placeholder="Search repositories…"
+            bind:value={search}
+            class="rounded border border-line-strong bg-page px-4 py-2.5 text-ink outline-none placeholder:text-ink-3 focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
+          />
+          <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
+            <input
+              type="checkbox"
+              bind:checked={showForks}
+              class="h-4 w-4 accent-mark"
+            />
+            Show forks
+          </label>
+        </div>
+
         <div class="flex gap-2">
           {#each SOURCES as source}
             {@const isEnabled = status?.[source] ?? false}

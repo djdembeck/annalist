@@ -23,6 +23,7 @@ var ErrNotFound = errors.New("not found")
 type OwnerRepo struct {
 	Owner string
 	Repo  string
+	Fork  bool
 }
 
 // Spec identifies a single release for which to generate notes.

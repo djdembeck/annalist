@@ -24,6 +24,9 @@
   let manualOwner = $state<string>("");
   let manualRepo = $state<string>("");
 
+  let search = $state("");
+  let showForks = $state(false);
+
   let selected = $state<Record<string, boolean>>({});
 
   function repoKey(r: AvailableRepo): string {
@@ -54,7 +57,23 @@
   onMount(load);
 
   function filtered(): AvailableRepo[] {
-    return available.filter((r) => r.platform === activeSource);
+    let result = available.filter((r) => r.platform === activeSource);
+    if (!showForks) {
+      result = result.filter((r) => r.fork !== true);
+    }
+    const query = search.trim().toLowerCase();
+    if (query) {
+      result = result.filter((r) =>
+        `${r.owner}/${r.repo}`.toLowerCase().includes(query),
+      );
+    }
+    return result.sort((a, b) => {
+      const aFork = a.fork === true ? 1 : 0;
+      const bFork = b.fork === true ? 1 : 0;
+      if (aFork !== bFork) return aFork - bFork;
+      if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
+      return a.repo.localeCompare(b.repo);
+    });
   }
 
   function selectedCount(): number {
@@ -124,6 +143,22 @@
         No platform is configured. Connect GitHub or Forgejo in your server config first.
       </div>
     {:else}
+      <div class="mb-4 flex flex-wrap items-center gap-4">
+        <input
+          bind:value={search}
+          type="text"
+          placeholder="Search repositories…"
+          class="min-w-0 flex-1 rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
+        />
+        <label class="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
+          <input
+            bind:checked={showForks}
+            type="checkbox"
+            class="h-4 w-4 accent-mark"
+          />
+          Show forks
+        </label>
+      </div>
       <div class="mb-8 flex gap-2">
         {#each SOURCES as source}
           {@const isEnabled = status[source]}
