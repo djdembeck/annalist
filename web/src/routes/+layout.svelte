@@ -22,8 +22,8 @@
     setupComplete =
       typeof localStorage !== "undefined" &&
       localStorage.getItem("annalist.setup-complete") === "1";
-    // The landing page stays public; every other route needs a token.
-    if (!token && $page.url.pathname !== "/") {
+    // The landing page and setup page stay public; every other route needs a token.
+    if (!token && $page.url.pathname !== "/" && $page.url.pathname !== "/setup") {
       goto("/setup");
     }
   });
