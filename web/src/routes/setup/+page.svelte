@@ -38,11 +38,40 @@
 
   const SYNTHETIC_EXAMPLES: Record<string, string> = {
     chronicler:
-      "This release hardens the forge. Webhook deliveries now surface a live health check, so you can see at a glance whether GitHub is reaching your instance. Note generation runs faster under load thanks to result caching, and the retired v1 endpoints step aside after a long farewell tour.",
+      `This release hardens the forge. Webhook deliveries now surface a live health check, so you can see at a glance whether GitHub is reaching your instance. Note generation runs faster under load thanks to result caching, and the retired v1 endpoints step aside after a long farewell tour.
+
+## Features
+- Webhook deliveries now carry a live health check, so you can see at a glance whether GitHub is reaching your instance.
+
+## Fixes
+- Release history pagination is corrected — long lists finally page the way they should.
+
+## Improvements
+- Note generation results are cached, so releases build faster under load.
+- The deprecated v1 endpoints step aside after a long farewell tour.`,
     engineer:
-      "- Add webhook delivery health check\n- Cache note generation results for faster builds\n- Fix pagination on release history\n- Remove deprecated v1 endpoints",
+      `This release adds a webhook delivery health check, caches note generation output, fixes pagination on the release history, and removes the deprecated v1 endpoints.
+
+## Features
+- Add webhook delivery health check
+
+## Fixes
+- Fix pagination on release history
+
+## Improvements
+- Cache note generation results for faster rebuilds
+- Remove deprecated v1 endpoints`,
     launch:
-      "Time to shine — this update makes your forge faster and healthier than ever. Webhook health checks keep you in the loop, caching makes note generation snappy, and release history scrolls like butter.",
+      `Time to shine — this update makes your forge faster and healthier than ever. Webhook health checks keep you in the loop, note generation gets a speed boost, and release history finally scrolls like butter.
+
+## Features
+- Webhook health checks keep you in the loop on every delivery.
+
+## Fixes
+- Release history scrolls like butter, even with a long history.
+
+## Improvements
+- Note generation gets a speed boost when the forge is under load.`,
   };
 
   // --- step 1: token ---
@@ -773,7 +802,7 @@
           </div>
           <p class="mt-1 text-sm text-ink-2">{PRESET_DESCRIPTIONS[toneOption]}</p>
           <pre
-            class="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-line bg-page p-3 font-mono text-xs text-ink-2"
+            class="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded border border-line bg-page p-3 font-mono text-xs text-ink-2"
           >{SYNTHETIC_EXAMPLES[toneOption]}</pre
           >
           <p class="mt-2 text-xs text-ink-3">
@@ -847,7 +876,7 @@
           <span class="text-xs text-ink-3">Synthetic example</span>
         </div>
         <pre
-          class="max-h-64 overflow-auto whitespace-pre-wrap rounded border border-line bg-page p-3 font-mono text-xs text-ink-2"
+          class="max-h-96 overflow-auto whitespace-pre-wrap rounded border border-line bg-page p-3 font-mono text-xs text-ink-2"
         >{previewNote()}</pre
         >
       </div>
