@@ -1,0 +1,58 @@
+# annalist — application configuration
+#
+# This file is optional. Every key may be set here (config.yaml in the working
+# directory) or via the environment variable shown on each line. Precedence:
+# defaults < config.yaml < environment variables.
+#
+# Copy this file to config.yaml and adjust as needed.
+
+server:
+  # HTTP listen address.            (env SERVER_HOST, default "0.0.0.0")
+  host: 0.0.0.0
+  # HTTP listen port.               (env SERVER_PORT, default 8080)
+  port: 8080
+
+data:
+  # Directory for the SQLite database and git clones.
+  #                                  (env DATA_DIR, default "./data")
+  dir: ./data
+
+llm:
+  # OpenAI-compatible endpoint base URL. REQUIRED if a platform is enabled
+  # (the serve command fails to start without it).
+  #                                 (env LLM_BASE_URL, no default)
+  base_url: ""
+  # API key for the LLM endpoint.   (env LLM_API_KEY, no default)
+  api_key: ""
+  # Model name to use.              (env LLM_MODEL, default "qwen3.5-397b-a17b")
+  model: qwen3.5-397b-a17b
+  # Sampling temperature.           (env LLM_TEMPERATURE, default 0.85)
+  temperature: 0.85
+  # Maximum tokens to generate.     (env LLM_MAX_TOKENS, default 4096)
+  max_tokens: 4096
+  # Timeout for LLM HTTP calls, seconds. (env LLM_TIMEOUT_S, default 120)
+  timeout_s: 120
+
+github:
+  # GitHub App ID.                  (env GITHUB_APP_ID, no default)
+  app_id: 0
+  # Path to the GitHub App private key PEM file.
+  #                                 (env GITHUB_APP_PRIVATE_KEY_FILE, no default)
+  app_private_key_file: ""
+  # GitHub webhook secret (verified against X-Hub-Signature-256).
+  #                                 (env GITHUB_WEBHOOK_SECRET, no default)
+  webhook_secret: ""
+
+forgejo:
+  # Forgejo instance base URL.      (env FORGEJO_URL, no default)
+  url: https://git.example.com
+  # Forgejo API token.              (env FORGEJO_TOKEN, no default)
+  token: ""
+  # Forgejo webhook secret (verified against the X-*/X-Hub signature headers).
+  #                                 (env FORGEJO_WEBHOOK_SECRET, no default)
+  webhook_secret: ""
+
+admin:
+  # Admin bearer token protecting the dashboard and /api/*. REQUIRED to start
+  # `annalist serve`.               (env ADMIN_TOKEN, no default)
+  token: ""

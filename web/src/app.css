@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+/* Annalist — Graphite Ink palette (The Copy Desk) */
+@theme {
+  /* Surfaces (dark-first, cool-lean charcoal) */
+  --color-page: #0d0f13;
+  --color-surface-1: #131722;
+  --color-surface-2: #1a1f2c;
+  --color-line: #232a38;
+  --color-line-strong: #2d3547;
+  --color-focus: #8a93a6;
+
+  /* Text (cold-press paper ramp) */
+  --color-ink: #eef1f6;
+  --color-ink-2: #b9c0cd;
+  --color-ink-3: #6f7788;
+
+  /* Controls (quiet graphite) */
+  --color-control: #2b3342;
+  --color-control-hover: #37415a;
+
+  /* Signal */
+  --color-mark: #d65a4f;
+  --color-mark-hover: #e0695d;
+  --color-ok: #3fb477;
+  --color-alert: #e05252;
+}
+
+html,
+body {
+  background-color: var(--color-page);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}

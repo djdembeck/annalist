@@ -1,0 +1,272 @@
+package db
+
+import (
+	"database/sql"
+	"fmt"
+)
+
+// Settings is the global (singleton) release-note configuration row.
+// Temperature is nil when unset so downstream can distinguish inherit from a
+// literal zero.
+type Settings struct {
+	Tone         string
+	Instructions string
+	Model        string
+	Temperature  *float64
+}
+
+// RepoSetting is a per-repo override of the global settings. Empty string /
+// nil temperature mean "inherit from global".
+type RepoSetting struct {
+	Platform     string
+	Owner        string
+	Repo         string
+	Trigger      string
+	Enabled      bool
+	Tone         string
+	Instructions string
+	Model        string
+	Temperature  *float64
+}
+
+// GeneratedNote records a previously generated release note for idempotency.
+type GeneratedNote struct {
+	Platform  string
+	Owner     string
+	Repo      string
+	ReleaseID string
+	Tag       string
+	Notes     string
+	CreatedAt string
+}
+
+// migrations are applied in order at Store construction.
+var migrations = []string{
+	`CREATE TABLE IF NOT EXISTS settings (
+		id INTEGER PRIMARY KEY CHECK(id = 1),
+		tone TEXT,
+		instructions TEXT,
+		model TEXT,
+		temperature REAL
+	)`,
+	`CREATE TABLE IF NOT EXISTS repo_settings (
+		platform TEXT NOT NULL,
+		owner TEXT NOT NULL,
+		repo TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		tone TEXT,
+		instructions TEXT,
+		model TEXT,
+		temperature REAL,
+		trigger TEXT NOT NULL DEFAULT 'auto',
+		PRIMARY KEY (platform, owner, repo)
+	)`,
+	`CREATE TABLE IF NOT EXISTS generated_notes (
+		platform TEXT NOT NULL,
+		owner TEXT NOT NULL,
+		repo TEXT NOT NULL,
+		release_id TEXT NOT NULL,
+		tag TEXT NOT NULL,
+		notes TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY (release_id)
+	)`,
+}
+
+func (s *Store) migrate() error {
+	for _, m := range migrations {
+		if _, err := s.db.Exec(m); err != nil {
+			return fmt.Errorf("running migration: %w", err)
+		}
+	}
+	return nil
+}
+
+// strOrNil maps an empty string to NULL so absent values round-trip as
+// "inherit" rather than as an explicit empty override.
+func strOrNil(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// GetSettings returns the singleton global settings row. When the row is
+// absent it returns a zero Settings (empty tone/instructions/model, nil
+// temperature) with a nil error.
+func (s *Store) GetSettings() (Settings, error) {
+	var out Settings
+	var tone, instructions, model sql.NullString
+	var temp sql.NullFloat64
+
+	err := s.db.QueryRow(
+		`SELECT tone, instructions, model, temperature FROM settings WHERE id = 1`,
+	).Scan(&tone, &instructions, &model, &temp)
+	if err == sql.ErrNoRows {
+		return out, nil
+	}
+	if err != nil {
+		return out, err
+	}
+
+	out.Tone = tone.String
+	out.Instructions = instructions.String
+	out.Model = model.String
+	if temp.Valid {
+		v := temp.Float64
+		out.Temperature = &v
+	}
+	return out, nil
+}
+
+// UpsertSettings writes the singleton settings row (id=1), replacing any
+// existing values.
+func (s *Store) UpsertSettings(settings Settings) error {
+	var temp any
+	if settings.Temperature != nil {
+		temp = *settings.Temperature
+	}
+
+	_, err := s.db.Exec(
+		`INSERT INTO settings (id, tone, instructions, model, temperature)
+		 VALUES (1, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+			tone = excluded.tone,
+			instructions = excluded.instructions,
+			model = excluded.model,
+			temperature = excluded.temperature`,
+		settings.Tone, settings.Instructions, settings.Model, temp,
+	)
+	return err
+}
+
+// ListRepoSettings returns every repo_settings row.
+func (s *Store) ListRepoSettings() ([]RepoSetting, error) {
+	rows, err := s.db.Query(
+		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger
+		 FROM repo_settings`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RepoSetting
+	for rows.Next() {
+		var r RepoSetting
+		if err := scanRepoSetting(rows, &r); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// GetRepoSettings returns the settings row for a repo, or (nil, nil) when no
+// row exists (downstream treats a missing row as all-inherit / enabled).
+func (s *Store) GetRepoSettings(platform, owner, repo string) (*RepoSetting, error) {
+	row := s.db.QueryRow(
+		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger
+		 FROM repo_settings WHERE platform = ? AND owner = ? AND repo = ?`,
+		platform, owner, repo,
+	)
+
+	var r RepoSetting
+	err := scanRepoSetting(row, &r)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+// UpsertRepoSettings inserts or updates the settings row keyed by
+// (platform, owner, repo). Empty tone/instructions/model are stored as NULL to
+// signal "inherit"; a nil Temperature is stored as NULL.
+func (s *Store) UpsertRepoSettings(r RepoSetting) error {
+	var temp any
+	if r.Temperature != nil {
+		temp = *r.Temperature
+	}
+	enabled := 0
+	if r.Enabled {
+		enabled = 1
+	}
+
+	_, err := s.db.Exec(
+		`INSERT INTO repo_settings (platform, owner, repo, enabled, tone, instructions, model, temperature, trigger)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(platform, owner, repo) DO UPDATE SET
+			enabled = excluded.enabled,
+			tone = excluded.tone,
+			instructions = excluded.instructions,
+			model = excluded.model,
+			temperature = excluded.temperature,
+			trigger = excluded.trigger`,
+		r.Platform, r.Owner, r.Repo, enabled,
+		strOrNil(r.Tone), strOrNil(r.Instructions), strOrNil(r.Model),
+		temp, r.Trigger,
+	)
+	return err
+}
+
+// MarkGenerated records a generated release note, overwriting any prior note
+// for the same release_id (idempotent for retries and force regeneration).
+func (s *Store) MarkGenerated(platform, owner, repo, releaseID, tag, notes string) error {
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO generated_notes (platform, owner, repo, release_id, tag, notes)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		platform, owner, repo, releaseID, tag, notes,
+	)
+	return err
+}
+
+// GetGenerated returns the stored generated note for a release, or
+// (nil, nil) when none exists.
+func (s *Store) GetGenerated(platform, releaseID string) (*GeneratedNote, error) {
+	var n GeneratedNote
+	err := s.db.QueryRow(
+		`SELECT platform, owner, repo, release_id, tag, notes, created_at
+		 FROM generated_notes WHERE release_id = ?`,
+		releaseID,
+	).Scan(&n.Platform, &n.Owner, &n.Repo, &n.ReleaseID, &n.Tag, &n.Notes, &n.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+// rowScanner is satisfied by both *sql.Row and *sql.Rows.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanRepoSetting(row rowScanner, r *RepoSetting) error {
+	var enabled int
+	var tone, instructions, model, trigger sql.NullString
+	var temp sql.NullFloat64
+
+	err := row.Scan(&r.Platform, &r.Owner, &r.Repo, &enabled, &tone, &instructions, &model, &temp, &trigger)
+	if err != nil {
+		return err
+	}
+
+	r.Enabled = enabled != 0
+	r.Tone = tone.String
+	r.Instructions = instructions.String
+	r.Model = model.String
+	r.Trigger = trigger.String
+	if trigger.String == "" {
+		r.Trigger = "auto"
+	}
+	if temp.Valid {
+		v := temp.Float64
+		r.Temperature = &v
+	}
+	return nil
+}

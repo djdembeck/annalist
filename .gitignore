@@ -1,0 +1,12 @@
+data/
+web/build/
+# Root-level `annalist` binary artifact. Anchored so it does not also ignore
+# the cmd/annalist source package.
+/annalist
+*.db*
+.env
+/config.yaml
+
+# Node
+web/node_modules/
+web/.svelte-kit/

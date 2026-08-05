@@ -1,0 +1,53 @@
+# annalist — deploy the release-notes service with Docker Compose.
+#
+#   docker compose up -d
+#
+# Supply values via a .env file next to this compose file or your deploy tool.
+# Required: ADMIN_TOKEN, LLM_BASE_URL, LLM_API_KEY.
+# Optional  : LLM_MODEL, TZ, plus the platform credentials you need.
+#
+# Terminate TLS in front (Caddy/Traefik/etc.) — the binary does not do TLS.
+# The ADMIN_TOKEN protects the dashboard AND the /api/* endpoints; store the
+# same value as an ANNALIST_ADMIN_TOKEN secret in your CI so release
+# workflows can call the generate API (see examples/workflows/).
+
+services:
+  annalist:
+    image: ghcr.io/djdembeck/annalist:latest
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-UTC}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:?set ADMIN_TOKEN}
+      - LLM_BASE_URL=${LLM_BASE_URL:?set LLM_BASE_URL}
+      - LLM_API_KEY=${LLM_API_KEY:?set LLM_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-qwen3.5-397b-a17b}
+      # Forgejo / Gitea — webhooks are mounted at /webhooks/forgejo when a
+      # token or webhook secret is set.
+      - FORGEJO_URL=${FORGEJO_URL:-https://git.example.com}
+      - FORGEJO_TOKEN=${FORGEJO_TOKEN:-}
+      - FORGEJO_WEBHOOK_SECRET=${FORGEJO_WEBHOOK_SECRET:-}
+      # GitHub — webhooks are mounted at /webhooks/github when a webhook
+      # secret OR a full App credential pair is set.
+      # - GITHUB_APP_ID=${GITHUB_APP_ID:-}
+      # - GITHUB_APP_PRIVATE_KEY_FILE=${GITHUB_APP_PRIVATE_KEY_FILE:-}
+      #   (the key is a file — mount it, e.g. ./github-app.pem:/etc/annalist/github-app.pem:ro,
+      #   and point GITHUB_APP_PRIVATE_KEY_FILE at the container path)
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - DATA_DIR=/app/data
+    volumes:
+      - annalist-data:/app/data
+    ports:
+      - "8080:8080"
+    logging:
+      options:
+        max-file: '10'
+        max-size: 200m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  annalist-data:

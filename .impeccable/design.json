@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-04T09:00:24Z",
+  "title": "Design System: Releaser",
+  "extensions": {
+    "colorMeta": {
+      "page": {
+        "role": "neutral",
+        "displayName": "Midnight Graphite",
+        "canonical": "#0d0f13",
+        "purpose": "Page background. The whole system sits on it."
+      },
+      "surface-1": {
+        "role": "neutral",
+        "displayName": "Carbon Slate",
+        "canonical": "#131722",
+        "purpose": "First raised surface: nav, cards, table headers, form fills."
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Toned Iron",
+        "canonical": "#1a1f2c",
+        "purpose": "Second raised step: chips, secondary buttons, inset controls."
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline Steel",
+        "canonical": "#232a38",
+        "purpose": "1px borders and row dividers."
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Field Edge",
+        "canonical": "#2d3547",
+        "purpose": "Input borders, one step brighter than dividers."
+      },
+      "focus": {
+        "role": "neutral",
+        "displayName": "Correction Steel",
+        "canonical": "#8a93a6",
+        "purpose": "Focus border on focused fields."
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Cold Press Ink",
+        "canonical": "#eef1f6",
+        "purpose": "Primary text and button labels."
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Draft Gray",
+        "canonical": "#b9c0cd",
+        "purpose": "Secondary text: field labels, subtitles, table secondary cells."
+      },
+      "ink-3": {
+        "role": "neutral",
+        "displayName": "Footnote Gray",
+        "canonical": "#6f7788",
+        "purpose": "Muted hints, loading/empty states, ghost captions."
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "Soft Graphite",
+        "canonical": "#2b3342",
+        "purpose": "Quiet primary button fill."
+      },
+      "control-hover": {
+        "role": "neutral",
+        "displayName": "Lifted Graphite",
+        "canonical": "#37415a",
+        "purpose": "Quiet primary button hover."
+      },
+      "mark": {
+        "role": "primary",
+        "displayName": "Editor's Vermilion",
+        "canonical": "#d65a4f",
+        "purpose": "The single accent: committed actions and checkbox accent."
+      },
+      "mark-hover": {
+        "role": "primary",
+        "displayName": "Editor's Vermilion (lifted)",
+        "canonical": "#e0695d",
+        "purpose": "Mark hover state."
+      },
+      "ok": {
+        "role": "neutral",
+        "displayName": "Proofread Green",
+        "canonical": "#3fb477",
+        "purpose": "Configured / saved status signal."
+      },
+      "alert": {
+        "role": "neutral",
+        "displayName": "Red-Pen Red",
+        "canonical": "#e05252",
+        "purpose": "Errors and misconfigured status signal."
+      }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Page Title", "purpose": "H1 on each surface. Bold 700, 24px." },
+      "headline": { "displayName": "Section Heading", "purpose": "H2s. Semibold 600, 14px." },
+      "body": { "displayName": "Body / Field Label", "purpose": "Default text. Regular 400, 14px." },
+      "label": { "displayName": "Label / Caption", "purpose": "Chips, mini-labels, captions. Regular 400, 12px." }
+    },
+    "shadows": [
+      {
+        "name": "flat",
+        "value": "none",
+        "purpose": "The system has no box-shadows. Depth is tonal stepping, 1px hairlines, and the black/40 note scrim."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-change",
+        "value": "time-based; Tailwind default transition on hover",
+        "purpose": "Hover state = one tonal step lighter. No keyframes, no entrance motion specified."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Quiet Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Row and page actions: Refresh, Settings, per-row Save. Soft graphite fill, ink label, hover one step lighter.",
+      "html": "<button class=\"rounded bg-control px-3 py-1.5 text-sm text-ink hover:bg-control-hover\">Refresh</button>",
+      "css": ".rounded { border-radius: 4px; } .bg-control { background-color: #2b3342; } .text-ink { color: #eef1f6; } .hover\\:bg-control-hover:hover { background-color: #37415a; }"
+    },
+    {
+      "name": "Committed Mark Button",
+      "kind": "button",
+      "refersTo": "button-mark",
+      "description": "The one committed action per surface (Setup Continue, Settings Save). Vermilion fill, page-colored label.",
+      "html": "<button type=\"submit\" class=\"rounded bg-mark px-4 py-2 text-sm font-medium text-page hover:bg-mark-hover\">Continue</button>",
+      "css": ".bg-mark { background-color: #d65a4f; } .text-page { color: #0d0f13; } .hover\\:bg-mark-hover:hover { background-color: #e0695d; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Regenerate. Toned Iron fill, ink label, hover to soft graphite.",
+      "html": "<button class=\"rounded bg-surface-2 px-3 py-1.5 text-sm text-ink hover:bg-control\">Regenerate</button>",
+      "css": ".bg-surface-2 { background-color: #1a1f2c; } .hover\\:bg-control:hover { background-color: #2b3342; }"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Text, password, select, textarea. Carbon slate fill, field-edge border; focus shifts border to correction steel.",
+      "html": "<input class=\"rounded border border-line-strong bg-surface-1 px-3 py-2 text-ink outline-none focus:border-focus\">",
+      "css": ".border-line-strong { border-color: #2d3547; } .bg-surface-1 { background-color: #131722; } .focus\\:border-focus:focus { border-color: #8a93a6; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Read-only effective tone/model value tags.",
+      "html": "<span class=\"rounded bg-surface-2 px-2 py-0.5 text-xs text-ink-2\">motd</span>",
+      "css": ".text-xs { font-size: 0.75rem; } .text-ink-2 { color: #b9c0cd; }"
+    },
+    {
+      "name": "Status Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Platform config status card with signal dot. Flat, hairline border.",
+      "html": "<div class=\"rounded border border-line bg-surface-1 p-4\"><span class=\"h-2.5 w-2.5 inline-block rounded-full bg-ok\"></span><span class=\"font-medium text-ink\">GitHub</span></div>",
+      "css": ".border-line { border-color: #232a38; } .bg-ok { background-color: #3fb477; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Copy Desk",
+    "overview": "Releaser's dashboard is the desk where a release's voice is set before it ships. Like a newsroom's copy desk — where prose is shaped, checked, and released without ceremony — the interface is dark, calm, and entirely in service of the work: repositories, settings, and the machine that writes notes while everyone sleeps.\n\nThe system is editorial restraint rendered in graphite. It is monochrome by conviction: cool-lean charcoal surfaces on a near-black page, a cold-press paper text ramp, and exactly one proofing color — a desaturated vermilion used the way an editor uses a pen, for the single committed action and little else. Hierarchy arrives through weight, size, and tonal stepping, never through color or shadow. The dashboard is flat, quiet, and legible at a glance.",
+    "keyCharacteristics": [
+      "Dark-first, cool-lean graphite palette; near-black page (#0d0f13) with one- and two-step raised surfaces.",
+      "Color is signal: vermilion for the committed action, green/red strictly for platform status, nothing decorative.",
+      "Flat by default — depth comes from 1px hairline borders and tonal steps, never shadows.",
+      "Precise, restrained controls: 4px radius, weight-differentiated states, hover = one tonal step lighter.",
+      "System font stack; typography does hierarchy by weight and size, not by face."
+    ],
+    "rules": [
+      {
+        "name": "The Editor's Mark Rule",
+        "body": "The vermilion appears only for the committed action on a surface (Setup Continue, Settings Save), checkbox accent, and nothing else. Two vermilion elements on one screen is a copy error.",
+        "section": "colors"
+      },
+      {
+        "name": "The Signal-Only Color Rule",
+        "body": "Green and red mean status, never decoration. A page is monochrome until a platform reports configured, saved, or failed.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ink-On-Mark Rule",
+        "body": "Text on vermilion buttons is Midnight Graphite (text-page), because the mark is a working surface, not a bright badge.",
+        "section": "colors"
+      },
+      {
+        "name": "The One-Face Rule",
+        "body": "No display type, no webfonts. If a hierarchy problem needs a new size or weight, use the existing stack. A second typeface is a redesign, not a tweak.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Do keep the page on Midnight Graphite and raise surfaces only one or two tonal steps (Carbon Slate, Toned Iron).",
+      "Do use the vermilion mark for exactly one committed action per surface, plus the checkbox accent.",
+      "Do treat green/red strictly as status signal (config dots, Saved, errors).",
+      "Do prefer tonal separation and hairlines over shadows — flat is the system.",
+      "Do keep the 4px radius constant across controls, cards, chips, and inputs.",
+      "Do show hierarchy with weight, size, and tonal stepping within the system font stack."
+    ],
+    "donts": [
+      "Don't introduce a second accent hue (teal, blue, purple) — the palette is graphite + vermilion + signal green/red.",
+      "Don't add box-shadows, gradients, or glass effects to lift anything.",
+      "Don't fall back to default Tailwind zinc classes; the bespoke graphite ramp is the only allowed neutral.",
+      "Don't use the vermilion as link color, decoration, or ambient fill — its rarity is the point.",
+      "Don't use white text on vermilion buttons; mark buttons carry Midnight Graphite labels.",
+      "Don't change the radius per component; variation in shape reads as error."
+    ]
+  }
+}

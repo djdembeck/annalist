@@ -1,0 +1,651 @@
+package pipeline
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/djdembeck/annalist/internal/config"
+	"github.com/djdembeck/annalist/internal/db"
+	"github.com/djdembeck/annalist/internal/llm"
+)
+
+// fakePlatform satisfies pipeline.Platform without any network. It points the
+// clone at a local git repository and serves repo files / releases from maps.
+type fakePlatform struct {
+	origin     string // local dir used as the clone source
+	files      map[string]string
+	releases   map[string]*Release // keyed by tag
+	edited     string
+	cloneErr   error // if set, CloneInfo returns it
+	editErr    error // if set, EditReleaseBody returns it
+	readErr    error // if set, ReadRepoFile returns it (before checking files)
+	releaseErr error // if set, GetReleaseByTag returns it (before checking releases)
+}
+
+func (f *fakePlatform) ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error) {
+	if f.readErr != nil {
+		return "", f.readErr
+	}
+	if c, ok := f.files[path]; ok {
+		return c, nil
+	}
+	return "", fmt.Errorf("%w: %s", ErrNotFound, path)
+}
+
+func (f *fakePlatform) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*Release, error) {
+	if f.releaseErr != nil {
+		return nil, f.releaseErr
+	}
+	if rl, ok := f.releases[tag]; ok {
+		return rl, nil
+	}
+	return nil, fmt.Errorf("%w: %s", ErrNotFound, tag)
+}
+
+func (f *fakePlatform) EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error {
+	if f.editErr != nil {
+		return f.editErr
+	}
+	f.edited = body
+	return nil
+}
+
+func (f *fakePlatform) CloneInfo(ctx context.Context, owner, repo string) (string, string, error) {
+	if f.cloneErr != nil {
+		return "", "", f.cloneErr
+	}
+	return f.origin, "Bearer test-token", nil
+}
+
+// llmStub records every chat request and returns a fixed, non-empty answer.
+type llmStub struct {
+	srv       *httptest.Server
+	body      []byte
+	calls     int
+	answer    string
+	errStatus int // if > 0, respond with this HTTP status instead of 200
+}
+
+func newStub(answer string) *llmStub {
+	s := &llmStub{answer: answer}
+	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.body, _ = io.ReadAll(r.Body)
+		s.calls++
+		if s.errStatus > 0 {
+			w.WriteHeader(s.errStatus)
+			_, _ = fmt.Fprint(w, "boom")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%q}}]}`, s.answer)
+	}))
+	return s
+}
+
+func (s *llmStub) close() { s.srv.Close() }
+
+type wireReq struct {
+	Model    string `json:"model"`
+	Messages []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	} `json:"messages"`
+	Temperature float64 `json:"temperature"`
+	MaxTokens   int     `json:"max_tokens"`
+}
+
+func (s *llmStub) request() (wireReq, error) {
+	var r wireReq
+	err := json.Unmarshal(s.body, &r)
+	return r, err
+}
+
+func (s *llmStub) system() string {
+	r, err := s.request()
+	if err != nil || len(r.Messages) == 0 {
+		return ""
+	}
+	return r.Messages[0].Content
+}
+
+func (s *llmStub) user() string {
+	r, err := s.request()
+	if err != nil || len(r.Messages) < 2 {
+		return ""
+	}
+	return r.Messages[1].Content
+}
+
+// gitRun executes git in dir without a *testing.T, for use in TestMain.
+func gitRun(dir string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.invalid",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.invalid")
+	return cmd.CombinedOutput()
+}
+
+func gitNoAsk(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if out, err := gitRun(dir, args...); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// buildOriginErr creates an origin repo directory at dir/origin populated with
+// two commits tagged v0.1.0 and v0.2.0.
+func buildOriginErr(dir string) (string, error) {
+	origin := filepath.Join(dir, "origin")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		return "", err
+	}
+	if out, err := gitRun(origin, "init", "-q"); err != nil {
+		return "", fmt.Errorf("git init: %v\n%s", err, out)
+	}
+
+	commit := func(subject string, tags ...string) error {
+		if err := os.WriteFile(filepath.Join(origin, "f.txt"), []byte(subject), 0o644); err != nil {
+			return err
+		}
+		if out, err := gitRun(origin, "add", "-A"); err != nil {
+			return fmt.Errorf("git add: %v\n%s", err, out)
+		}
+		if out, err := gitRun(origin, "commit", "-q", "-m", subject); err != nil {
+			return fmt.Errorf("git commit: %v\n%s", err, out)
+		}
+		for _, tag := range tags {
+			if out, err := gitRun(origin, "tag", tag); err != nil {
+				return fmt.Errorf("git tag: %v\n%s", err, out)
+			}
+		}
+		return nil
+	}
+
+	if err := commit("first: scaffolding", "v0.1.0"); err != nil {
+		return "", err
+	}
+	if err := commit("second: feature x", "v0.2.0"); err != nil {
+		return "", err
+	}
+	return origin, nil
+}
+
+// buildOrigin creates an origin repo at dir/origin (t.Fatal on failure), for
+// tests that need a bespoke repo layout.
+func buildOrigin(t *testing.T, dir string) string {
+	t.Helper()
+	origin, err := buildOriginErr(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return origin
+}
+
+// makeOrigin builds a fresh origin in dir (kept for tests that need a
+// bespoke repo layout).
+func makeOrigin(t *testing.T, dir string) string {
+	return buildOrigin(t, dir)
+}
+
+// sharedOrigin is the standard two-commit origin, built once in TestMain and
+// cloned read-only by every GenerateNotes call. Sharing the source cuts
+// per-test git init/commit/tag subprocess churn; each clone lands in its own
+// workdir so isolation is preserved.
+var sharedOrigin string
+
+// TestMain builds the shared origin once for the whole package run.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "pipeline-shared-origin-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pipeline: create shared origin: %v\n", err)
+		os.Exit(1)
+	}
+	sharedOrigin, err = buildOriginErr(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pipeline: build shared origin: %v\n", err)
+		os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
+// sharedStandardOrigin returns the origin built once in TestMain.
+func sharedStandardOrigin(t *testing.T) string {
+	t.Helper()
+	return sharedOrigin
+}
+
+// fixture wires a full pipeline: temp store + config, LLM stub, local origin
+// repo, and a fake platform.
+func fixture(t *testing.T, files map[string]string, releases map[string]*Release) (*Pipeline, *llmStub, *fakePlatform, *db.Store) {
+	return fixtureWithStub(t, newStub("FLOWING PROSE"), files, releases)
+}
+
+func fixtureWithStub(t *testing.T, stub *llmStub, files map[string]string, releases map[string]*Release) (*Pipeline, *llmStub, *fakePlatform, *db.Store) {
+	t.Helper()
+	dir := t.TempDir()
+
+	t.Cleanup(stub.close)
+
+	store, err := db.New(filepath.Join(dir, "data"))
+	if err != nil {
+		t.Fatalf("db.New: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	cfg := &config.Config{
+		Data: config.DataConfig{Dir: filepath.Join(dir, "data")},
+		LLM: config.LLMConfig{
+			BaseURL:     stub.srv.URL,
+			APIKey:      "key",
+			Model:       "qwen3.5-397b-a17b",
+			Temperature: 0.85,
+			MaxTokens:   4096,
+		},
+	}
+
+	origin := sharedStandardOrigin(t)
+	f := &fakePlatform{origin: origin, files: files, releases: releases}
+	pip := New(cfg, store, llm.New(cfg.LLM), f, nil)
+	return pip, stub, f, store
+}
+
+func genSpec(tag, releaseID string) Spec {
+	return Spec{Platform: "github", Owner: "djdembeck", Repo: "annalist", ToTag: tag, ReleaseID: releaseID}
+}
+
+// TestResolvePrecedence covers the resolution chain per field:
+// repo row ?? global ?? LLM config default, plus the enabled flag defaulting to
+// true when no row exists.
+func TestResolvePrecedence(t *testing.T) {
+	_, _, _, store := fixture(t, nil, nil)
+	pip := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model", Temperature: 0.7}}, DB: store}
+
+	t0, t1, t2 := 0.2, 0.9, 0.1
+	if err := store.UpsertSettings(db.Settings{
+		Tone: "global-tone", Instructions: "global-instructions", Model: "global-model",
+		Temperature: &t0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("no row falls back to global", func(t *testing.T) {
+		enabled, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !enabled {
+			t.Error("enabled should default to true for a missing row")
+		}
+		if r.Tone != "global-tone" || r.Instructions != "global-instructions" ||
+			r.Model != "global-model" || r.Temperature != t0 {
+			t.Errorf("resolved = %+v", r)
+		}
+	})
+
+	t.Run("row overrides tone/model/temperature, inherits instructions", func(t *testing.T) {
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r", Enabled: true,
+			Tone: "repo-tone", Instructions: "", Model: "repo-model", Temperature: &t1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Tone != "repo-tone" || r.Model != "repo-model" || r.Temperature != t1 {
+			t.Errorf("row overrides not applied: %+v", r)
+		}
+		if r.Instructions != "global-instructions" {
+			t.Errorf("instructions should inherit from global: %q", r.Instructions)
+		}
+	})
+
+	t.Run("row with empty tone inherits global tone", func(t *testing.T) {
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "forgejo", Owner: "o", Repo: "r2", Enabled: true,
+			Tone: "", Model: "", Temperature: &t2,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, r, err := pip.Resolve(context.Background(), "forgejo", "o", "r2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Tone != "global-tone" || r.Temperature != t2 {
+			t.Errorf("mixed inheritance wrong: %+v", r)
+		}
+	})
+
+	t.Run("disabled row reports enabled=false", func(t *testing.T) {
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r", Enabled: false,
+			Tone: "", Instructions: "", Model: "", Temperature: nil,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		enabled, _, err := pip.Resolve(context.Background(), "github", "o", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if enabled {
+			t.Error("enabled should be false for a disabled row")
+		}
+	})
+}
+
+// instructionsPathFor matches the pipeline's per-platform in-repo file path.
+func instructionsPathFor(platform string) string {
+	if platform == "forgejo" {
+		return ".forgejo/release-notes.md"
+	}
+	return ".github/release-notes-instructions.md"
+}
+
+// TestInstructionsPrecedence drives the full GenerateNotes flow and asserts the
+// system prompt carries in-repo file > repo row > global instructions.
+func TestInstructionsPrecedence(t *testing.T) {
+	run := func(t *testing.T, files map[string]string, rowInstructions, globalInstructions string, wantContains, wantAbsent string) {
+		t.Helper()
+		pip, stub, _, store := fixture(t, files, map[string]*Release{"v0.2.0": {ID: 99, Body: ""}})
+
+		if globalInstructions != "" {
+			if err := store.UpsertSettings(db.Settings{
+				Instructions: globalInstructions, Tone: "chronicler",
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if rowInstructions != "" {
+			if err := store.UpsertRepoSettings(db.RepoSetting{
+				Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true,
+				Instructions: rowInstructions, Tone: "chronicler",
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-"+wantContains), Options{})
+		if err != nil {
+			t.Fatalf("GenerateNotes: %v", err)
+		}
+		if notes != "FLOWING PROSE" {
+			t.Errorf("notes = %q", notes)
+		}
+		sys := stub.system()
+		if wantContains != "" && !strings.Contains(sys, wantContains) {
+			t.Errorf("system prompt missing %q:\n%s", wantContains, sys)
+		}
+		if wantAbsent != "" && strings.Contains(sys, wantAbsent) {
+			t.Errorf("system prompt unexpectedly contains %q", wantAbsent)
+		}
+		// The user prompt must name the version and the collected commit log.
+		user := stub.user()
+		if !strings.Contains(user, "Generate release notes for version v0.2.0.") {
+			t.Errorf("user prompt missing version: %q", user)
+		}
+		if !strings.Contains(user, "- second: feature x") {
+			t.Errorf("user prompt missing commit log: %q", user)
+		}
+	}
+
+	t.Run("in-repo file beats row beats global", func(t *testing.T) {
+		run(t,
+			map[string]string{instructionsPathFor("github"): "IN-REPO FILE INSTRUCTIONS"},
+			"ROW INSTRUCTIONS", "GLOBAL INSTRUCTIONS",
+			"IN-REPO FILE INSTRUCTIONS", "ROW INSTRUCTIONS")
+	})
+	t.Run("row beats global when no file", func(t *testing.T) {
+		run(t, nil, "ROW INSTRUCTIONS", "GLOBAL INSTRUCTIONS",
+			"ROW INSTRUCTIONS", "GLOBAL INSTRUCTIONS")
+	})
+	t.Run("global when no file and no row", func(t *testing.T) {
+		run(t, nil, "", "GLOBAL INSTRUCTIONS",
+			"GLOBAL INSTRUCTIONS", "")
+	})
+}
+
+// TestGenerateNotesEmptyLog verifies an empty commit log short-circuits to the
+// prose-releaser fallback without ever calling the LLM.
+func TestGenerateNotesEmptyLog(t *testing.T) {
+	pip, stub, f, _ := fixture(t, nil, nil)
+
+	// Both tags point at the same commit: v1.0.0..v1.1.0 has no commits.
+	dir := t.TempDir()
+	origin := filepath.Join(dir, "origin")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitNoAsk(t, origin, "init", "-q")
+	if err := os.WriteFile(filepath.Join(origin, "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitNoAsk(t, origin, "add", "-A")
+	gitNoAsk(t, origin, "commit", "-q", "-m", "only commit")
+	gitNoAsk(t, origin, "tag", "v1.0.0")
+	gitNoAsk(t, origin, "tag", "v1.1.0")
+	// Swap the fake platform's origin to the empty-range repo.
+	f.origin = origin
+
+	notes, err := pip.GenerateNotes(context.Background(), genSpec("v1.1.0", "rel-empty"), Options{})
+	if err != nil {
+		t.Fatalf("GenerateNotes: %v", err)
+	}
+	if notes != "No changes documented." {
+		t.Errorf("notes = %q, want %q", notes, "No changes documented.")
+	}
+	if stub.calls != 0 {
+		t.Errorf("LLM called %d times for empty log, want 0", stub.calls)
+	}
+}
+
+// TestGenerateNotesIdempotentAndPublishGuard verifies (a) a human-edited body
+// (no marker) is left alone, (b) notes get published + recorded when empty, and
+// (c) a second non-forced run returns the stored note without re-generating.
+func TestGenerateNotesIdempotentAndPublishGuard(t *testing.T) {
+	t.Run("human-edited body is not clobbered", func(t *testing.T) {
+		pip, stub, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written notes"}})
+		notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-human"), Options{Publish: true})
+		if err != nil {
+			t.Fatalf("GenerateNotes: %v", err)
+		}
+		if f.edited != "" {
+			t.Errorf("human-edited body was overwritten with %q", f.edited)
+		}
+		if stub.calls != 1 {
+			t.Errorf("LLM calls = %d, want 1", stub.calls)
+		}
+		_ = notes
+	})
+
+	t.Run("publish writes and marks generated, repeat is idempotent", func(t *testing.T) {
+		pip, stub, f, store := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+
+		notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-1"), Options{Publish: true})
+		if err != nil {
+			t.Fatalf("first GenerateNotes: %v", err)
+		}
+		if !strings.HasSuffix(notes, "FLOWING PROSE") {
+			t.Errorf("notes = %q", notes)
+		}
+		wantBody := "FLOWING PROSE\n<!-- generated by annalist -->"
+		if f.edited != wantBody {
+			t.Errorf("published body = %q, want %q", f.edited, wantBody)
+		}
+		gn, err := store.GetGenerated("github", "rel-1")
+		if err != nil || gn == nil {
+			t.Fatalf("expected generated record, got %v (err=%v)", gn, err)
+		}
+		if gn.Tag != "v0.2.0" || gn.Owner != "djdembeck" || gn.Repo != "annalist" {
+			t.Errorf("generated record = %+v", gn)
+		}
+		if stub.calls != 1 {
+			t.Fatalf("LLM calls = %d after first run, want 1", stub.calls)
+		}
+
+		// Second, non-forced run: idempotency returns the stored note, no LLM.
+		again, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-1"), Options{Publish: true})
+		if err != nil {
+			t.Fatalf("second GenerateNotes: %v", err)
+		}
+		if again != notes {
+			t.Errorf("idempotent run returned %q, want %q", again, notes)
+		}
+		if stub.calls != 1 {
+			t.Errorf("LLM called %d times after idempotent run, want 1 (stored note returned)", stub.calls)
+		}
+	})
+}
+
+// pipForPlatformErrors builds a Pipeline wired to a real store but with no
+// platform clients, so GenerateNotes exercises platformFor before any cloning.
+func pipForPlatformErrors(t *testing.T) *Pipeline {
+	t.Helper()
+	dir := t.TempDir()
+	store, err := db.New(filepath.Join(dir, "data"))
+	if err != nil {
+		t.Fatalf("db.New: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	cfg := &config.Config{
+		Data: config.DataConfig{Dir: filepath.Join(dir, "data")},
+		LLM:  config.LLMConfig{Model: "m", Temperature: 0.1},
+	}
+	return New(cfg, store, nil, nil, nil)
+}
+
+// TestGenerateNotesPlatformErrors covers the platformFor error branches, all
+// of which short-circuit before any clone, so no git origin is needed.
+func TestGenerateNotesPlatformErrors(t *testing.T) {
+	pip := pipForPlatformErrors(t)
+
+	t.Run("unknown platform", func(t *testing.T) {
+		_, err := pip.GenerateNotes(context.Background(), Spec{Platform: "gitlab", Owner: "o", Repo: "r", ToTag: "v1", ReleaseID: "1"}, Options{})
+		if err == nil || !strings.Contains(err.Error(), `unknown platform "gitlab"`) {
+			t.Fatalf("err = %v, want unknown-platform error", err)
+		}
+	})
+	t.Run("github not configured", func(t *testing.T) {
+		_, err := pip.GenerateNotes(context.Background(), Spec{Platform: "github", Owner: "o", Repo: "r", ToTag: "v0.2.0", ReleaseID: "1"}, Options{})
+		if err == nil || !strings.Contains(err.Error(), "platform github is not configured") {
+			t.Fatalf("err = %v, want github not-configured error", err)
+		}
+	})
+	t.Run("forgejo not configured", func(t *testing.T) {
+		_, err := pip.GenerateNotes(context.Background(), Spec{Platform: "forgejo", Owner: "o", Repo: "r", ToTag: "v1", ReleaseID: "1"}, Options{})
+		if err == nil || !strings.Contains(err.Error(), "platform forgejo is not configured") {
+			t.Fatalf("err = %v, want forgejo not-configured error", err)
+		}
+	})
+}
+
+// TestGenerateNotesCloneInfoError verifies a CloneInfo failure propagates
+// before any clone work is attempted.
+func TestGenerateNotesCloneInfoError(t *testing.T) {
+	pip, stub, f, _ := fixture(t, nil, nil)
+	f.cloneErr = errors.New("boom")
+
+	notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-clone"), Options{})
+	if err == nil || !strings.Contains(err.Error(), "pipeline: clone info") || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("err = %v, want wrapped clone-info error", err)
+	}
+	if notes != "" {
+		t.Errorf("notes = %q, want empty on CloneInfo error", notes)
+	}
+	if stub.calls != 0 {
+		t.Errorf("LLM called %d times, want 0 (clone aborted before LLM)", stub.calls)
+	}
+}
+
+// TestGenerateNotesReadRepoFileErrorDrop verifies that a ReadRepoFile failure
+// does not abort generation: the source treats the in-repo file as optional
+// and falls back to the resolved instructions.
+func TestGenerateNotesReadRepoFileErrorDrop(t *testing.T) {
+	pip, _, f, _ := fixture(t, nil, nil)
+	f.readErr = errors.New("file api down")
+
+	notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-read"), Options{})
+	if err != nil {
+		t.Fatalf("GenerateNotes: expected in-repo file error to be dropped, got %v", err)
+	}
+	if notes != "FLOWING PROSE" {
+		t.Errorf("notes = %q, want %q", notes, "FLOWING PROSE")
+	}
+}
+
+// TestGenerateNotesLLMError verifies an LLM failure propagates with no
+// fallback text and nothing is published or recorded.
+func TestGenerateNotesLLMError(t *testing.T) {
+	stub := newStub("FLOWING PROSE")
+	pip, stub2, f, store := fixtureWithStub(t, stub, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+	stub2.errStatus = http.StatusInternalServerError
+
+	notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-llmfail"), Options{Publish: true})
+	if err == nil || !strings.Contains(err.Error(), "llm: unexpected status") {
+		t.Fatalf("err = %v, want llm status error", err)
+	}
+	if notes != "" {
+		t.Errorf("notes = %q, want empty (no fallback text)", notes)
+	}
+	if f.edited != "" {
+		t.Errorf("release body was edited despite LLM failure: %q", f.edited)
+	}
+	if gn, _ := store.GetGenerated("github", "rel-llmfail"); gn != nil {
+		t.Errorf("generated record written despite LLM failure: %+v", gn)
+	}
+}
+
+// TestPublishErrorsAndGuard covers Publish error branches and the
+// don't-clobber guard directly.
+func TestPublishErrorsAndGuard(t *testing.T) {
+	t.Run("fetch release error propagates", func(t *testing.T) {
+		pip, _, f, _ := fixture(t, nil, nil) // no releases map -> tag missing
+		err := pip.Publish(context.Background(), genSpec("v0.2.0", "rel-fetch"), f, "notes", false)
+		if err == nil || !strings.Contains(err.Error(), "pipeline: fetch release") {
+			t.Fatalf("err = %v, want fetch-release error", err)
+		}
+	})
+	t.Run("human-edited body not clobbered without force", func(t *testing.T) {
+		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
+		err := pip.Publish(context.Background(), genSpec("v0.2.0", "rel-x"), f, "NEW NOTES", false)
+		if err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+		if f.edited != "" {
+			t.Errorf("clobbered human-edited body: %q", f.edited)
+		}
+	})
+	t.Run("force overrides don't-clobber guard", func(t *testing.T) {
+		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
+		err := pip.Publish(context.Background(), genSpec("v0.2.0", "rel-x"), f, "NEW NOTES", true)
+		if err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+		want := "NEW NOTES\n<!-- generated by annalist -->"
+		if f.edited != want {
+			t.Errorf("edited body = %q, want %q", f.edited, want)
+		}
+	})
+	t.Run("edit release body error propagates", func(t *testing.T) {
+		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+		f.editErr = errors.New("api down")
+		err := pip.Publish(context.Background(), genSpec("v0.2.0", "rel-x"), f, "NEW NOTES", false)
+		if err == nil || !strings.Contains(err.Error(), "pipeline: edit release body") {
+			t.Fatalf("err = %v, want edit-release-body error", err)
+		}
+	})
+}
