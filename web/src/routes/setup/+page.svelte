@@ -239,8 +239,12 @@
   }
 </script>
 
-<div class="mx-auto max-w-3xl p-8">
-  <h1 class="mb-2 font-display text-3xl text-white">Setup</h1>
+<svelte:head>
+  <title>Setup · Annalist</title>
+</svelte:head>
+
+<div class="mx-auto max-w-3xl py-8">
+  <h1 class="mb-2 font-display text-2xl text-white">Setup</h1>
   <p class="mb-8 text-base text-ink-2">
     A quick walkthrough to get your forge online.
   </p>
@@ -248,7 +252,7 @@
   <!-- Stepper -->
   <nav
     aria-label="Setup progress"
-    class="sticky top-0 z-10 -mx-8 mb-8 border-b border-line bg-page px-8 py-4"
+    class="sticky top-14 z-10 mb-8 border-b border-line bg-page pb-4"
   >
     <ol class="flex flex-wrap items-center gap-x-6 gap-y-3">
       {#each STEPS as label, i}
@@ -256,10 +260,10 @@
           {#if i < step}
             <button
               onclick={() => goTo(i)}
-              class="inline-flex items-center gap-2 rounded text-sm text-ok transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              class="inline-flex items-center gap-2 rounded text-sm text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
             >
               <svg
-                class="h-4 w-4"
+                class="h-4 w-4 text-ok"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -271,7 +275,10 @@
               <span class="capitalize">{label}</span>
             </button>
           {:else if i === step}
-            <span class="relative inline-flex items-center gap-2 rounded text-sm font-medium text-heat">
+            <span
+              aria-current="step"
+              class="relative inline-flex items-center gap-2 rounded text-sm font-medium text-heat"
+            >
               <span
                 class="flex h-5 w-5 items-center justify-center rounded border border-heat text-xs"
                 >{i + 1}</span
@@ -295,15 +302,19 @@
     </ol>
   </nav>
 
-  {#if error}
-    <p class="mb-4 text-sm text-alert">{error}</p>
-  {/if}
+  <div aria-live="polite">
+    {#if error}
+      <p class="mb-4 rounded border border-alert/30 bg-alert/10 p-3 text-sm text-alert">
+        {error}
+      </p>
+    {/if}
+  </div>
 
   <!-- Step 1 — Welcome & Token -->
   {#if step === 0}
     <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
       <div class="space-y-2">
-        <h2 class="font-display text-3xl text-white">Welcome to your forge</h2>
+        <h2 class="font-display text-2xl text-white">Welcome to your forge</h2>
         <p class="text-base text-ink-2">
           Annalist is self-hosted. The admin token you provide protects every admin
           action on this instance, so keep it private.
@@ -328,7 +339,7 @@
         <button
           type="submit"
           disabled={!adminToken.trim() || busy}
-          class="inline-flex w-fit items-center gap-2 rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         >
           {busy ? "Connecting…" : "Continue"}
         </button>
@@ -436,7 +447,7 @@
         <button
           onclick={advanceToRepos}
           disabled={platformsConnected() === 0}
-          class="inline-flex w-fit items-center gap-2 rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         >
           Continue
         </button>
@@ -485,7 +496,7 @@
           </p>
           <button
             onclick={enterRepos}
-            class="inline-flex w-fit items-center gap-2 rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           >
             Load repositories
           </button>
@@ -606,7 +617,7 @@
             <button
               onclick={addSelected}
               disabled={selectedCount() === 0 || saving}
-              class="mt-5 inline-flex items-center gap-2 rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              class="mt-5 inline-flex items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
             >
               {saving ? "Adding…" : `Add ${selectedCount()} selected`}
             </button>
@@ -674,7 +685,7 @@
 
       <div class="space-y-4">
         {#each PRESET_OPTIONS as p (p)}
-          <div class="rounded border border-line bg-surface-1 p-4">
+          <div class="rounded border border-line bg-page p-4">
             <div class="mb-2 flex items-center justify-between">
               <span class="font-medium capitalize text-ink">{p}</span>
               <span class="text-xs text-ink-3">Synthetic example</span>
@@ -690,7 +701,7 @@
       <button
         onclick={finishSetup}
         disabled={saving}
-        class="inline-flex w-fit items-center gap-2 rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
       >
         {saving ? "Saving…" : "Finish setup"}
       </button>
@@ -700,7 +711,7 @@
   <!-- Step 5 — Done -->
   {#if step === 4}
     <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
-      <h2 class="font-display text-3xl text-white">Your forge is ready.</h2>
+      <h2 class="font-display text-2xl text-white">Your forge is ready.</h2>
       <dl class="grid gap-4 text-sm sm:grid-cols-2">
         <div class="flex items-center justify-between rounded border border-line bg-surface-2 px-4 py-3">
           <dt class="text-ink-2">Token</dt>
@@ -722,7 +733,7 @@
       <div class="flex flex-wrap items-center gap-4">
         <a
           href="/repos"
-          class="inline-flex items-center gap-2 rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          class="inline-flex items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         >
           Go to Repos
         </a>
