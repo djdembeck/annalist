@@ -346,9 +346,9 @@
           submitToken();
         }}
       >
-        <label class="flex flex-col gap-2">
-          <span class="flex items-center justify-between text-sm text-ink-2">
-            ADMIN_TOKEN
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <label for="admin-token" class="text-sm text-ink-2">ADMIN_TOKEN</label>
             <button
               type="button"
               onclick={() => (showToken = !showToken)}
@@ -356,8 +356,9 @@
             >
               {showToken ? "Hide" : "Show"}
             </button>
-          </span>
+          </div>
           <input
+            id="admin-token"
             type={showToken ? "text" : "password"}
             bind:value={adminToken}
             placeholder="Paste your admin token"
@@ -369,12 +370,35 @@
             server's <span class="font-mono text-ink-2">config.yaml</span> or environment. It is
             kept in your browser only.
           </span>
-        </label>
+        </div>
         <button
           type="submit"
           disabled={!adminToken.trim() || busy}
+          aria-busy={busy}
           class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         >
+          {#if busy}
+            <svg
+              class="h-4 w-4 animate-spin"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              ></circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              ></path>
+            </svg>
+          {/if}
           {busy ? "Connecting…" : "Continue"}
         </button>
       </form>
@@ -383,14 +407,11 @@
 
   <!-- Step 2 — Connect platforms -->
   {#if step === 1}
-    <section class="space-y-6">
-      <div class="grid gap-4 sm:grid-cols-2">
+    <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
+      <div class="grid gap-6 sm:grid-cols-2">
         {#each SOURCES as source}
           {@const configured = status?.[source] ?? false}
-          <div
-            class="rounded border border-line bg-surface-1 p-5"
-            class:opacity-90={!configured}
-          >
+          <div class="flex flex-col gap-3">
             <div class="flex items-center gap-3">
               {#if configured}
                 <span class="flex h-6 w-6 items-center justify-center rounded bg-ok/15 text-ok">
@@ -406,7 +427,9 @@
                   </svg>
                 </span>
               {:else}
-                <span class="flex h-6 w-6 items-center justify-center rounded bg-alert/15 text-alert">
+                <span
+                  class="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-3"
+                >
                   <svg
                     class="h-4 w-4"
                     viewBox="0 0 24 24"
@@ -415,8 +438,7 @@
                     stroke-width="2"
                     aria-hidden="true"
                   >
-                    <line x1="6" y1="6" x2="18" y2="18" stroke-linecap="round"></line>
-                    <line x1="18" y1="6" x2="6" y2="18" stroke-linecap="round"></line>
+                    <line x1="6" y1="12" x2="18" y2="12" stroke-linecap="round"></line>
                   </svg>
                 </span>
               {/if}
@@ -425,13 +447,12 @@
                 <p class="text-sm text-ink-2">{configured ? "Configured" : "Not configured"}</p>
               </div>
             </div>
-
             {#if !configured}
               <a
                 href="https://github.com/djdembeck/annalist#platform-setup"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="mt-4 inline-flex items-center gap-1.5 text-sm text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                class="inline-flex w-fit items-center gap-1.5 text-sm text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
               >
                 How to configure {source}
                 <svg
@@ -451,16 +472,12 @@
         {/each}
       </div>
 
-      <div
-        class="rounded border border-line bg-surface-1 p-5 text-sm text-ink-2"
-      >
-        <p>
-          Annalist only reads release events and commit history. It cannot merge PRs,
-          push code, or access source outside the repositories you add.
-        </p>
-      </div>
+      <p class="border-t border-line pt-4 text-sm text-ink-2">
+        Annalist only reads release events and commit history. It cannot merge PRs,
+        push code, or access source outside the repositories you add.
+      </p>
 
-      <div class="flex flex-col gap-3">
+      <div class="flex flex-col gap-3 border-t border-line pt-4">
         <button
           onclick={advanceToRepos}
           disabled={connectedCount === 0}
@@ -477,9 +494,12 @@
             onclick={continueFromPlatforms}
             class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           >
-            Skip for now
+            Continue anyway
           </button>
         {:else if connectedCount === 0}
+          <p class="text-sm text-ink-3">
+            Connect at least one platform to continue, or skip below.
+          </p>
           <button
             onclick={skipPlatforms}
             class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
@@ -490,7 +510,7 @@
       </div>
     </section>
   {/if}
-
+  <!-- Step 3 — Add repositories -->
   <!-- Step 3 — Add repositories -->
   {#if step === 2}
     <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
@@ -603,13 +623,39 @@
         </div>
 
         {#if loading}
-          <p class="text-base text-ink-3" aria-busy={loading}>Loading…</p>
+          <div
+            class="max-h-80 overflow-auto rounded border border-line"
+            aria-busy={loading}
+          >
+            {#each [1, 2, 3, 4, 5] as _}
+              <div
+                class="flex items-center gap-3 border-b border-line px-4 py-3 last:border-b-0"
+              >
+                <div class="h-4 w-4 animate-pulse rounded bg-surface-2"></div>
+                <div class="h-4 flex-1 animate-pulse rounded bg-surface-2"></div>
+              </div>
+            {/each}
+          </div>
         {:else}
           {@const items = filteredRepos}
           {#if items.length === 0}
-            <p class="text-base text-ink-2">
-              No available {activeSource} repositories found.
-            </p>
+            <div class="space-y-2 rounded border border-line bg-page p-4">
+              <p class="text-base text-ink-2">
+                No available {activeSource} repositories found.
+              </p>
+              <p class="text-sm text-ink-3">
+                Try clearing the search, enabling organization namespaces or forks, or
+                checking your platform token's repository access.
+              </p>
+              {#if search.trim()}
+                <button
+                  onclick={() => (search = "")}
+                  class="text-sm text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                >
+                  Clear search
+                </button>
+              {/if}
+            </div>
           {:else}
             <div class="mb-4 flex items-center justify-between">
               <span class="text-sm text-ink-3">{items.length} available</span>
@@ -704,6 +750,11 @@
             placeholder="Freeform persona"
             class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           />
+          {#if !customTone.trim()}
+            <span class="text-sm text-alert">
+              Enter a custom tone before finishing.
+            </span>
+          {/if}
         </label>
       {:else if PRESET_DESCRIPTIONS[toneOption]}
         <div class="rounded border border-line bg-page p-4">
@@ -727,7 +778,7 @@
 
       <button
         onclick={finishSetup}
-        disabled={saving}
+        disabled={saving || (toneOption === "custom" && !customTone.trim())}
         aria-busy={saving}
         class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
       >
