@@ -40,7 +40,6 @@
       status = await getStatus();
       available = await getAvailableRepos();
       error = "";
-      // Default to the first enabled source.
       const enabled = SOURCES.filter((s) => status?.[s]);
       if (enabled.length && !status?.[activeSource]) {
         activeSource = enabled[0];
@@ -142,22 +141,35 @@
 </script>
 
 <div class="mx-auto max-w-3xl">
-  <h1 class="mb-2 font-display text-3xl text-white">ADD REPOSITORIES</h1>
+  <h1 class="mb-2 font-display text-3xl tracking-tight text-white">ADD REPOSITORIES</h1>
   <p class="mb-8 text-base text-ink-2">
     Choose repos from an enabled source, or add one manually.
   </p>
 
   {#if error}
-    <p class="mb-4 text-sm text-alert">{error}</p>
+    <div class="card mb-4 border-alert bg-alert/10">
+      <p class="text-sm text-alert">{error}</p>
+    </div>
   {/if}
 
   {#if loading}
-    <p class="text-base text-ink-3">Loading…</p>
+    <div class="card" aria-busy="true" aria-label="Loading repositories">
+      <div class="space-y-4">
+        <div class="skeleton h-8 w-full"></div>
+        <div class="skeleton h-24 w-full"></div>
+        <div class="skeleton h-10 w-1/2"></div>
+      </div>
+    </div>
   {:else if status}
     {@const enabled = SOURCES.filter((s) => status?.[s])}
     {#if enabled.length === 0}
-      <div class="rounded border border-line bg-surface-1 p-4 text-base text-ink-2">
-        No platform is configured. Connect GitHub or Forgejo in your server config first.
+      <div class="card">
+        <p class="text-base text-ink-2">
+          No platform is configured. Connect GitHub or Forgejo in your server config first.
+        </p>
+        <a href="/settings" class="btn-base btn-primary mt-4">
+          Open settings
+        </a>
       </div>
     {:else}
       <div class="mb-4 flex flex-wrap items-center gap-4">
@@ -165,24 +177,17 @@
           bind:value={search}
           type="text"
           placeholder="Search repositories…"
-          class="min-w-0 flex-1 rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
+          class="field min-w-0 flex-1"
         />
         <label class="flex items-center gap-2 text-sm text-ink-2">
           Sort
-          <select
-            bind:value={sortBy}
-            class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
-          >
+          <select bind:value={sortBy} class="field w-auto">
             <option value="name">Name</option>
             <option value="activity">Recent activity</option>
           </select>
         </label>
         <label class="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
-          <input
-            bind:checked={showForks}
-            type="checkbox"
-            class="h-4 w-4 accent-mark"
-          />
+          <input bind:checked={showForks} type="checkbox" class="h-4 w-4 accent-mark" />
           Show forks
         </label>
         <label class="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
@@ -200,22 +205,9 @@
           <button
             onclick={() => (activeSource = source)}
             disabled={!isEnabled}
-            class="relative rounded px-4 py-2.5 text-sm font-medium transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-focus-ring"
-            class:bg-surface-2={activeSource !== source}
-            class:text-ink-2={activeSource !== source}
-            class:hover:bg-surface-1={activeSource !== source}
-            class:bg-surface-1={activeSource === source}
-            class:text-heat={activeSource === source}
-            class:opacity-50={!isEnabled}
-            class:after:absolute={activeSource === source}
-            class:after:bottom-0={activeSource === source}
-            class:after:left-0={activeSource === source}
-            class:after:right-0={activeSource === source}
-            class:after:h-px={activeSource === source}
-            class:after:bg-gradient-to-r={activeSource === source}
-            class:after:from-cherry={activeSource === source}
-            class:after:via-ember={activeSource === source}
-            class:after:to-heat={activeSource === source}
+            class="btn-base relative transition-colors {activeSource === source
+              ? 'text-heat after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-gradient-to-r after:from-cherry after:via-ember after:to-heat'
+              : 'bg-surface-2 text-ink-2 hover:bg-surface-1'} {isEnabled ? '' : 'opacity-50'}"
           >
             {source}
           </button>
@@ -238,14 +230,14 @@
                   selected[repoKey(r)] = !allSelected;
                 }
               }}
-              class="text-sm text-ink-2 hover:text-ink focus:outline-2 focus:outline-offset-2 focus:outline-focus-ring"
+              class="btn-link"
             >
               {items.every((r) => selected[repoKey(r)]) ? "Deselect all" : "Select all"}
             </button>
           </div>
           <ul class="max-h-80 overflow-auto rounded border border-line">
             {#each items as r (repoKey(r))}
-              <li class="flex items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 transition-colors hover:bg-row-hover hover:border-b-row-hover-line last:hover:border-b-transparent">
+              <li class="flex items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 transition-colors hover:bg-row-hover">
                 <input
                   type="checkbox"
                   id={repoKey(r)}
@@ -253,7 +245,7 @@
                   onchange={(e) => (selected[repoKey(r)] = e.currentTarget.checked)}
                   class="h-4 w-4 accent-mark"
                 />
-                <label for={repoKey(r)} class="flex-1 cursor-pointer text-base text-ink">
+                <label for={repoKey(r)} class="flex-1 cursor-pointer text-sm text-ink">
                   {r.owner}/{r.repo}
                 </label>
               </li>
@@ -262,7 +254,7 @@
           <button
             onclick={addSelected}
             disabled={selectedCount() === 0 || saving}
-            class="mt-5 inline-flex items-center gap-2 rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-focus-ring"
+            class="btn-base btn-mark mt-5"
           >
             {saving ? "Adding…" : `Add ${selectedCount()} selected`}
           </button>
@@ -270,15 +262,12 @@
       </div>
     {/if}
 
-    <div class="mt-10 rounded border border-line bg-surface-2-warm p-5">
+    <div class="card mt-10">
       <h2 class="mb-5 font-sans text-base font-semibold text-ink">Add manually</h2>
       <div class="grid gap-4 sm:grid-cols-[120px_1fr_1fr_auto]">
         <label class="flex flex-col gap-2">
           <span class="text-xs text-ink-3">Platform</span>
-          <select
-            bind:value={manualPlatform}
-            class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
-          >
+          <select bind:value={manualPlatform} class="field">
             {#each SOURCES as s}
               <option value={s}>{s}</option>
             {/each}
@@ -286,25 +275,17 @@
         </label>
         <label class="flex flex-col gap-2">
           <span class="text-xs text-ink-3">Owner</span>
-          <input
-            bind:value={manualOwner}
-            placeholder="owner"
-            class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
-          />
+          <input bind:value={manualOwner} placeholder="owner" class="field" />
         </label>
         <label class="flex flex-col gap-2">
           <span class="text-xs text-ink-3">Repository</span>
-          <input
-            bind:value={manualRepo}
-            placeholder="repo"
-            class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
-          />
+          <input bind:value={manualRepo} placeholder="repo" class="field" />
         </label>
         <div class="flex items-end">
           <button
             onclick={addManual}
             disabled={saving}
-            class="w-full rounded bg-control px-4 py-2.5 text-sm font-medium text-ink hover:bg-control-hover disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-focus-ring"
+            class="btn-base btn-primary w-full"
           >
             Add
           </button>

@@ -31,12 +31,12 @@
 
 <div class="min-h-dvh">
   <nav class="flex items-center gap-6 border-b border-line bg-surface-1 px-6 py-4">
-    <a href="/" class="font-display text-lg tracking-tight text-white">ANNALIST</a>
+    <a href="/" class="focus-ring font-display text-lg tracking-tight text-white">ANNALIST</a>
     <div class="ml-auto flex items-center gap-6">
       {#if token}
         <a
           href="/setup"
-          class="nav-link text-sm {isActive('/setup') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
+          class="focus-ring nav-link text-sm {isActive('/setup') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
         >Setup{#if setupComplete}<span
               class="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-ok"
               aria-hidden="true"
@@ -44,16 +44,16 @@
             ><span class="sr-only"> (complete)</span>{/if}</a>
         <a
           href="/repos"
-          class="nav-link text-sm {isActive('/repos') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
+          class="focus-ring nav-link text-sm {isActive('/repos') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
         >Repos</a>
         <a
           href="/settings"
-          class="nav-link text-sm {isActive('/settings') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
+          class="focus-ring nav-link text-sm {isActive('/settings') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
         >Settings</a>
       {:else}
         <a
           href="/setup"
-          class="nav-link text-sm {isActive('/setup') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
+          class="focus-ring nav-link text-sm {isActive('/setup') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
         >Dashboard</a>
       {/if}
     </div>
