@@ -64,29 +64,26 @@
   let reposAdded = $state(0);
   let reposVisible = $state(false);
   let search = $state("");
+  let debouncedSearch = $state("");
   let showForks = $state(false);
   let showSharedNamespaces = $state(false);
   let sortBy = $state<"name" | "activity">("activity");
 
-  // --- step 4: voice ---
-  let toneOption = $state("inherit");
-  let customTone = $state("");
+  // Debounce search input so filtering large repo lists does not run on every keystroke.
+  $effect(() => {
+    const q = search;
+    const id = setTimeout(() => {
+      debouncedSearch = q;
+    }, 150);
+    return () => clearTimeout(id);
+  });
 
-  // --- interaction helpers ---
-  let showToken = $state(false);
-  let showFilters = $state(false);
+  let connectedCount = $derived((status?.github ? 1 : 0) + (status?.forgejo ? 1 : 0));
+  let selectedCount = $derived(Object.values(selected).filter(Boolean).length);
 
-  function platformsConnected(): number {
-    if (!status) return 0;
-    return (status.github ? 1 : 0) + (status.forgejo ? 1 : 0);
-  }
-
-  function repoKey(r: AvailableRepo): string {
-    return `${r.platform}/${r.owner}/${r.repo}`;
-  }
-
-  function filtered(): AvailableRepo[] {
-    const query = search.trim().toLowerCase();
+  // Memoize the filtered/sorted list so it is computed once per dependency change, not per template read.
+  let filteredRepos = $derived((() => {
+    const query = debouncedSearch.trim().toLowerCase();
     const items = available.filter((r) => {
       if (r.platform !== activeSource) return false;
       if (r.ownNamespace === false && !showSharedNamespaces) return false;
@@ -114,10 +111,18 @@
       if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
       return a.repo.localeCompare(b.repo);
     });
-  }
+  })());
 
-  function selectedCount(): number {
-    return Object.values(selected).filter(Boolean).length;
+  // --- step 4: voice ---
+  let toneOption = $state("inherit");
+  let customTone = $state("");
+
+  // --- interaction helpers ---
+  let showToken = $state(false);
+  let showFilters = $state(false);
+
+  function repoKey(r: AvailableRepo): string {
+    return `${r.platform}/${r.owner}/${r.repo}`;
   }
 
   // Allow clicking back to any step already reached.
@@ -157,7 +162,7 @@
   }
 
   function advanceToRepos(): void {
-    if (platformsConnected() > 0) {
+    if (connectedCount > 0) {
       continueFromPlatforms();
     } else {
       skipPlatforms();
@@ -191,7 +196,7 @@
   }
 
   async function addSelected(): Promise<void> {
-    if (selectedCount() === 0) return;
+    if (selectedCount === 0) return;
     saving = true;
     error = "";
     const targets = available.filter((r) => selected[repoKey(r)]);
@@ -458,7 +463,7 @@
       <div class="flex flex-col gap-3">
         <button
           onclick={advanceToRepos}
-          disabled={platformsConnected() === 0}
+          disabled={connectedCount === 0}
           class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         >
           Continue
@@ -474,7 +479,7 @@
           >
             Skip for now
           </button>
-        {:else if platformsConnected() === 0}
+        {:else if connectedCount === 0}
           <button
             onclick={skipPlatforms}
             class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
@@ -489,7 +494,7 @@
   <!-- Step 3 — Add repositories -->
   {#if step === 2}
     <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
-      {#if platformsConnected() === 0}
+      {#if connectedCount === 0}
         <div class="space-y-4">
           <p class="text-base text-ink-2">
             No platforms are configured, so there are no repositories to add yet.
@@ -600,7 +605,7 @@
         {#if loading}
           <p class="text-base text-ink-3" aria-busy={loading}>Loading…</p>
         {:else}
-          {@const items = filtered()}
+          {@const items = filteredRepos}
           {#if items.length === 0}
             <p class="text-base text-ink-2">
               No available {activeSource} repositories found.
@@ -611,9 +616,11 @@
               <button
                 onclick={() => {
                   const allSelected = items.every((r) => selected[repoKey(r)]);
+                  const next = { ...selected };
                   for (const r of items) {
-                    selected[repoKey(r)] = !allSelected;
+                    next[repoKey(r)] = !allSelected;
                   }
+                  selected = next;
                 }}
                 class="text-sm text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
               >
@@ -623,7 +630,7 @@
             <ul class="max-h-80 overflow-auto rounded border border-line">
               {#each items as r (repoKey(r))}
                 <li
-                  class="flex items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 transition-colors hover:bg-row-hover"
+                  class="flex items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 transition-colors hover:bg-row-hover [content-visibility:auto] [contain-intrinsic-size:auto_3rem]"
                 >
                   <input
                     type="checkbox"
@@ -640,11 +647,11 @@
             </ul>
             <button
               onclick={addSelected}
-              disabled={selectedCount() === 0 || saving}
+              disabled={selectedCount === 0 || saving}
               aria-busy={saving}
               class="mt-5 inline-flex items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
             >
-              {saving ? "Adding…" : `Add ${selectedCount()} selected`}
+              {saving ? "Adding…" : `Add ${selectedCount} selected`}
             </button>
           {/if}
         {/if}
@@ -746,7 +753,7 @@
         </div>
         <div class="flex items-center justify-between rounded border border-line bg-surface-2 px-4 py-3">
           <dt class="text-ink-2">Platforms connected</dt>
-          <dd class="text-ink">{platformsConnected()}</dd>
+          <dd class="text-ink">{connectedCount}</dd>
         </div>
         <div class="flex items-center justify-between rounded border border-line bg-surface-2 px-4 py-3">
           <dt class="text-ink-2">Repositories added</dt>
