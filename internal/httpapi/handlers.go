@@ -158,6 +158,7 @@ type availableRepo struct {
 	Fork         bool      `json:"fork"`
 	OwnNamespace bool      `json:"ownNamespace"`
 	UpdatedAt    time.Time `json:"updatedAt"`
+	PushedAt     time.Time `json:"pushedAt"`
 }
 
 // repoLister is the subset shared by both platform clients that hands back the
@@ -178,7 +179,7 @@ func (a *api) listAvailable(ctx context.Context, platform string, client repoLis
 		if managed[key] {
 			continue
 		}
-		available = append(available, availableRepo{Platform: platform, Owner: rp.Owner, Repo: rp.Repo, Fork: rp.Fork, OwnNamespace: rp.OwnNamespace, UpdatedAt: rp.UpdatedAt})
+		available = append(available, availableRepo{Platform: platform, Owner: rp.Owner, Repo: rp.Repo, Fork: rp.Fork, OwnNamespace: rp.OwnNamespace, UpdatedAt: rp.UpdatedAt, PushedAt: rp.PushedAt})
 	}
 	return available, nil
 }

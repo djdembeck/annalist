@@ -134,6 +134,7 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 				Username string `json:"username"`
 			} `json:"owner"`
 			UpdatedAt time.Time `json:"updated_at"`
+			PushedAt  time.Time `json:"pushed_at,omitempty"`
 		}
 		path := "/user/repos?limit=50&page=" + strconv.Itoa(page)
 		if err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
@@ -150,7 +151,11 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 				Fork:         r.Fork,
 				OwnNamespace: owner == user,
 				UpdatedAt:    r.UpdatedAt,
+				PushedAt:     r.PushedAt,
 			})
+			if out[len(out)-1].PushedAt.IsZero() {
+				out[len(out)-1].PushedAt = r.UpdatedAt
+			}
 		}
 		if len(batch) < 50 {
 			break

@@ -349,11 +349,11 @@ func TestHandleListAvailableRepos(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}, Forgejo: config.ForgejoConfig{Token: "t"}}
 	a, _, store := testAPI(t, cfg)
 	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{
-		{Owner: "djdembeck", Repo: "annalist", OwnNamespace: true, UpdatedAt: time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC)},
-		{Owner: "someone", Repo: "other", Fork: true, OwnNamespace: false, UpdatedAt: time.Date(2023, 5, 15, 20, 30, 0, 0, time.UTC)},
+		{Owner: "djdembeck", Repo: "annalist", OwnNamespace: true, UpdatedAt: time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC), PushedAt: time.Date(2024, 3, 2, 10, 0, 0, 0, time.UTC)},
+		{Owner: "someone", Repo: "other", Fork: true, OwnNamespace: false, UpdatedAt: time.Date(2023, 5, 15, 20, 30, 0, 0, time.UTC), PushedAt: time.Date(2023, 5, 16, 20, 30, 0, 0, time.UTC)},
 	}}
 	a.fj = &fakeClient{repos: []pipeline.OwnerRepo{
-		{Owner: "fjuser", Repo: "released", OwnNamespace: true, UpdatedAt: time.Date(2024, 7, 4, 12, 45, 0, 0, time.UTC)},
+		{Owner: "fjuser", Repo: "released", OwnNamespace: true, UpdatedAt: time.Date(2024, 7, 4, 12, 45, 0, 0, time.UTC), PushedAt: time.Date(2024, 7, 4, 10, 0, 0, 0, time.UTC)},
 	}}
 	// annalist is already managed, so it must be excluded from available.
 	if err := store.UpsertRepoSettings(db.RepoSetting{
@@ -397,11 +397,18 @@ func TestHandleListAvailableRepos(t *testing.T) {
 		if !strings.Contains(w.Body.String(), `"updatedAt":`) {
 			t.Fatalf("updatedAt field missing from JSON: %s", w.Body.String())
 		}
+		// The pushedAt field must be present in the JSON for every repo.
+		if !strings.Contains(w.Body.String(), `"pushedAt":`) {
+			t.Fatalf("pushedAt field missing from JSON: %s", w.Body.String())
+		}
 	}
 	// Each available repo must carry its last-updated timestamp.
 	for _, ar := range avail {
 		if ar.UpdatedAt.IsZero() {
 			t.Errorf("available repo %s has zero updatedAt: %+v", ar.Platform+"/"+ar.Owner+"/"+ar.Repo, ar)
+		}
+		if ar.PushedAt.IsZero() {
+			t.Errorf("available repo %s has zero pushedAt: %+v", ar.Platform+"/"+ar.Owner+"/"+ar.Repo, ar)
 		}
 	}
 	// forgejo/fjuser/released is owned by the authenticated user's namespace, so

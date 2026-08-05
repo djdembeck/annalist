@@ -34,6 +34,7 @@ export type AvailableRepo = {
   fork?: boolean;
   ownNamespace?: boolean;
   updatedAt?: string;
+  pushedAt?: string;
 };
 
 export type RepoSettingUpdate = {

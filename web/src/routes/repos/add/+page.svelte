@@ -27,7 +27,7 @@
   let search = $state("");
   let showForks = $state(false);
   let showSharedNamespaces = $state(false);
-  let sortBy = $state<"name" | "activity">("name");
+  let sortBy = $state<"name" | "activity">("activity");
 
   let selected = $state<Record<string, boolean>>({});
 
@@ -74,8 +74,8 @@
     }
     if (sortBy === "activity") {
       return result.sort((a, b) => {
-        const aT = new Date(a.updatedAt ?? 0).getTime();
-        const bT = new Date(b.updatedAt ?? 0).getTime();
+        const aT = new Date(a.pushedAt ?? a.updatedAt ?? 0).getTime();
+        const bT = new Date(b.pushedAt ?? b.updatedAt ?? 0).getTime();
         if (aT !== bT) return bT - aT;
         if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
         return a.repo.localeCompare(b.repo);

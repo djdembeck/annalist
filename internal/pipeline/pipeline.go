@@ -27,6 +27,7 @@ type OwnerRepo struct {
 	Fork         bool
 	OwnNamespace bool
 	UpdatedAt    time.Time
+	PushedAt     time.Time
 }
 
 // Spec identifies a single release for which to generate notes.

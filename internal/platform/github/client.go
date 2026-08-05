@@ -153,6 +153,7 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 					Fork:         r.GetFork(),
 					OwnNamespace: ownNamespace,
 					UpdatedAt:    r.GetUpdatedAt().Time,
+					PushedAt:     r.GetPushedAt().Time,
 				})
 			}
 			if resp == nil || resp.NextPage == 0 {

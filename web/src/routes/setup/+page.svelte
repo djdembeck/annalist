@@ -67,7 +67,7 @@
   let search = $state("");
   let showForks = $state(false);
   let showSharedNamespaces = $state(false);
-  let sortBy = $state<"name" | "activity">("name");
+  let sortBy = $state<"name" | "activity">("activity");
 
   // --- step 4: voice ---
   let toneOption = $state("inherit");
@@ -94,8 +94,8 @@
     const sorted = [...items];
     if (sortBy === "activity") {
       return sorted.sort((a, b) => {
-        const at = new Date(a.updatedAt ?? 0).getTime();
-        const bt = new Date(b.updatedAt ?? 0).getTime();
+        const at = new Date(a.pushedAt ?? a.updatedAt ?? 0).getTime();
+        const bt = new Date(b.pushedAt ?? b.updatedAt ?? 0).getTime();
         if (at !== bt) return bt - at;
         if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
         return a.repo.localeCompare(b.repo);
