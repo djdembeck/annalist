@@ -16,41 +16,63 @@
   };
 
   let repos = $state<Repo[]>([]);
-  let loading = $state(true);
-  let error = $state("");
+  let loadState = $state<"idle" | "loading" | "error">("idle");
+  let loadError = $state("");
+  let pending = $state<
+    Record<string, { saving?: boolean; toggling?: boolean; generating?: boolean }>
+  >({});
+  let saveMsg = $state<Record<string, string | null>>({});
+  let saveErr = $state<Record<string, string | null>>({});
+  let toggleErr = $state<Record<string, string | null>>({});
   let expanded = $state<Record<string, boolean>>({});
   let drafts = $state<Record<string, Draft>>({});
   let force = $state<Record<string, boolean>>({});
   let notesOut = $state<Record<string, string | null>>({});
   let genError = $state<Record<string, string | null>>({});
+  let regenerateTag = $state<Record<string, string>>({});
+  let regenTagError = $state<Record<string, string | null>>({});
 
   function rowKey(r: Repo): string {
     return `${r.platform}/${r.owner}/${r.repo}`;
   }
 
   async function refresh(): Promise<void> {
+    loadError = "";
+    loadState = "loading";
     try {
       repos = await getRepos();
-      error = "";
+      loadState = "success";
     } catch (e) {
       if (e instanceof Error && e.message === "Unauthorized") {
         goto("/setup");
         return;
       }
-      error = e instanceof Error ? e.message : "Failed to load repos";
-    } finally {
-      loading = false;
+      loadState = "error";
+      loadError = e instanceof Error ? e.message : "Failed to load repos";
     }
   }
 
   onMount(refresh);
 
-  function toggleEnabled(r: Repo): void {
-    putRepoSettings(r.platform, r.owner, r.repo, { enabled: !r.enabled })
-      .then(refresh)
-      .catch((e) => {
-        error = e instanceof Error ? e.message : "Failed to update";
+  async function toggleEnabled(r: Repo): Promise<void> {
+    const key = rowKey(r);
+    const nextEnabled = !r.enabled;
+    toggleErr[key] = null;
+    pending[key] = { ...(pending[key] ?? {}), toggling: true };
+    try {
+      await putRepoSettings(r.platform, r.owner, r.repo, {
+        enabled: nextEnabled,
       });
+      await refresh();
+    } catch (e) {
+      if (e instanceof Error && e.message === "Unauthorized") {
+        goto("/setup");
+        return;
+      }
+      toggleErr[key] = e instanceof Error ? e.message : "Failed to update";
+    } finally {
+      pending[key] = { ...(pending[key] ?? {}), toggling: false };
+    }
   }
 
   function openSettings(r: Repo): void {
@@ -65,11 +87,16 @@
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
     };
+    regenerateTag[key] ??= "";
     expanded[key] = !expanded[key];
   }
 
   async function saveSettings(r: Repo): Promise<void> {
-    const d = drafts[rowKey(r)];
+    const key = rowKey(r);
+    const d = drafts[key];
+    saveErr[key] = null;
+    saveMsg[key] = null;
+    pending[key] = { ...(pending[key] ?? {}), saving: true };
     let tone: string | null;
     if (d.toneOption === "inherit") {
       tone = null;
@@ -88,23 +115,32 @@
         trigger: d.trigger,
       });
       await refresh();
+      saveMsg[key] = "Saved";
+      window.setTimeout(() => {
+        saveMsg[key] = null;
+      }, 2500);
     } catch (e) {
       if (e instanceof Error && e.message === "Unauthorized") {
         goto("/setup");
         return;
       }
-      error = e instanceof Error ? e.message : "Failed to save settings";
+      saveErr[key] = e instanceof Error ? e.message : "Failed to save settings";
+    } finally {
+      pending[key] = { ...(pending[key] ?? {}), saving: false };
     }
   }
 
   async function regenerate(r: Repo): Promise<void> {
     const key = rowKey(r);
-    const toTag = window.prompt(
-      `Release tag to generate notes for (${r.owner}/${r.repo}):`,
-    );
+    const toTag = (regenerateTag[key] ?? "").trim();
     notesOut[key] = null;
     genError[key] = null;
-    if (!toTag) return;
+    regenTagError[key] = null;
+    if (!toTag) {
+      regenTagError[key] = "Enter a release tag";
+      return;
+    }
+    pending[key] = { ...pending[key], generating: true };
     try {
       const result = await generate(r.platform, r.owner, r.repo, {
         to_tag: toTag,
@@ -117,6 +153,8 @@
         return;
       }
       genError[key] = e instanceof Error ? e.message : "Generate failed";
+    } finally {
+      pending[key] = { ...pending[key], generating: false };
     }
   }
 </script>
@@ -130,7 +168,7 @@
       </p>
     </div>
     <div class="flex items-center gap-3">
-      {#if !loading}
+      {#if loadState === "success" || loadState === "error"}
         <button
           onclick={refresh}
           class="rounded bg-control px-4 py-2 text-sm font-medium text-ink hover:bg-control-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
@@ -147,16 +185,28 @@
     </div>
   </div>
 
-  {#if error}
-    <p class="mb-4 text-sm text-alert">{error}</p>
-  {/if}
-
-  {#if loading}
+  {#if loadState === "loading" || loadState === "idle"}
     <p class="text-sm text-ink-3">Loading…</p>
+  {:else if loadState === "error"}
+    <div class="mb-4 rounded border border-alert bg-alert/10 p-4">
+      <p class="text-sm font-medium text-alert">
+        Couldn't load repositories.
+      </p>
+      <p class="mt-1 text-sm text-ink-2">{loadError}</p>
+      <button
+        onclick={() => refresh()}
+        class="mt-3 inline-flex items-center rounded bg-control px-4 py-2 text-sm font-medium text-ink hover:bg-control-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
+      >
+        Retry
+      </button>
+    </div>
   {:else if repos.length === 0}
     <div class="rounded border border-line bg-surface-2-warm p-8 text-center">
       <p class="text-base text-ink-2">
         No repositories have been added yet.
+      </p>
+      <p class="mt-1 text-sm text-ink-3">
+        Connect a repo to start generating release notes.
       </p>
       <a
         href="/repos/add"
@@ -195,18 +245,24 @@
               </td>
               <td class="px-4 py-3 text-ink">{r.owner}/{r.repo}</td>
               <td class="px-4 py-3">
-                <div class="flex items-center gap-2">
+                <label class="flex items-center gap-2">
                   <span
                     class="inline-block h-2 w-2 rounded-sm {r.enabled ? 'bg-ok' : 'bg-line-strong'}"
-                    aria-hidden="true"
-                  ></span>
+                  >
+                    <span class="sr-only">{r.enabled ? "Enabled" : "Disabled"}</span>
+                  </span>
                   <input
                     type="checkbox"
+                    aria-label="Enable {r.owner}/{r.repo}"
                     checked={r.enabled}
+                    disabled={pending[key]?.toggling}
                     onchange={() => toggleEnabled(r)}
-                    class="h-4 w-4 accent-mark focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
+                    class="h-4 w-4 accent-mark focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
                   />
-                </div>
+                </label>
+                {#if toggleErr[key]}
+                  <p class="mt-1 text-xs text-alert">{toggleErr[key]}</p>
+                {/if}
               </td>
               <td class="px-4 py-3">
                 <div class="flex flex-wrap gap-1.5">
@@ -221,6 +277,8 @@
               <td class="px-4 py-3">
                 <button
                   onclick={() => openSettings(r)}
+                  aria-expanded={expanded[key] ?? false}
+                  aria-controls="repo-settings-{key}"
                   class="rounded bg-control px-4 py-2 text-sm font-medium text-ink hover:bg-control-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
                 >
                   Settings
@@ -230,8 +288,8 @@
             {#if expanded[key]}
               {@const d = drafts[key]}
               <tr class="border-t border-line bg-surface-1/60">
-                <td colspan="5" class="px-6 py-4">
-                  <div class="grid gap-4 sm:grid-cols-2">
+                <td id="repo-settings-{key}" colspan="5" class="px-6 py-4">
+                  <div class="grid gap-4 md:grid-cols-2">
                     <label class="flex flex-col gap-1">
                       <span class="text-xs text-ink-3">Tone</span>
                       <select
@@ -243,6 +301,9 @@
                           <option value={p}>{p}</option>
                         {/each}
                       </select>
+                      <p class="text-xs text-ink-3">
+                        Use one of the presets or set a custom persona.
+                      </p>
                     </label>
                     {#if d.toneOption === "custom"}
                       <label class="flex flex-col gap-1">
@@ -254,13 +315,16 @@
                         />
                       </label>
                     {/if}
-                    <label class="flex flex-col gap-1 sm:col-span-2">
+                    <label class="flex flex-col gap-1 md:col-span-2">
                       <span class="text-xs text-ink-3">Instructions</span>
                       <textarea
                         bind:value={d.instructions}
                         rows="3"
                         class="rounded border border-line-strong bg-page px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
                       ></textarea>
+                      <p class="text-xs text-ink-3">
+                        Extra guidance the writer follows for this repo.
+                      </p>
                     </label>
                     <label class="flex flex-col gap-1">
                       <span class="text-xs text-ink-3">Model (blank = inherit)</span>
@@ -268,6 +332,9 @@
                         bind:value={d.model}
                         class="rounded border border-line-strong bg-page px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
                       />
+                      <p class="text-xs text-ink-3">
+                        Override the global model for this repo.
+                      </p>
                     </label>
                     <label class="flex flex-col gap-1">
                       <span class="text-xs text-ink-3">Temperature (blank = inherit)</span>
@@ -279,6 +346,9 @@
                         bind:value={d.temperature}
                         class="rounded border border-line-strong bg-page px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
                       />
+                      <p class="text-xs text-ink-3">
+                        0 = deterministic, 2 = very creative.
+                      </p>
                     </label>
                     <label class="flex flex-col gap-1">
                       <span class="text-xs text-ink-3">Trigger</span>
@@ -289,6 +359,9 @@
                         <option value="auto">auto</option>
                         <option value="manual">manual</option>
                       </select>
+                      <p class="text-xs text-ink-3">
+                        Auto runs on release webhooks; manual disables webhooks.
+                      </p>
                     </label>
                   </div>
 
@@ -304,9 +377,10 @@
                   <div class="mt-4 flex flex-wrap items-center gap-3">
                     <button
                       onclick={() => saveSettings(r)}
-                      class="rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-4 py-2 text-sm font-bold text-page hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
+                      disabled={pending[key]?.saving}
+                      class="rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-4 py-2 text-sm font-bold text-page hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Save
+                      {pending[key]?.saving ? "Saving…" : "Save"}
                     </button>
                     <label class="flex items-center gap-2 text-sm text-ink-2">
                       <input
@@ -319,20 +393,45 @@
                       />
                       Force regenerate
                     </label>
+                  </div>
+
+                  <div class="mt-3 flex flex-wrap items-end gap-3">
+                    <div class="flex flex-col gap-1">
+                      <label class="flex flex-col gap-1">
+                        <span class="text-xs text-ink-3">Release tag</span>
+                        <input
+                          bind:value={regenerateTag[key]}
+                          placeholder="v1.0.0"
+                          class="rounded border border-line-strong bg-page px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
+                        />
+                      </label>
+                      {#if regenTagError[key]}
+                        <p class="text-xs text-alert">{regenTagError[key]}</p>
+                      {/if}
+                    </div>
                     <button
                       onclick={() => regenerate(r)}
-                      class="rounded bg-surface-2 px-4 py-2 text-sm font-medium text-ink hover:bg-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
+                      disabled={pending[key]?.generating}
+                      class="rounded bg-surface-2 px-4 py-2 text-sm font-medium text-ink hover:bg-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Regenerate
+                      {pending[key]?.generating ? "Generating…" : "Regenerate"}
                     </button>
                   </div>
 
-                  {#if genError[key]}
-                    <p class="mt-3 text-sm text-alert">{genError[key]}</p>
-                  {/if}
-                  {#if notesOut[key]}
-                    <pre class="mt-3 max-h-64 overflow-auto rounded border border-line bg-page p-3 font-mono text-xs text-ink-2">{notesOut[key]}</pre>
-                  {/if}
+                  <div aria-live="polite" class="mt-3">
+                    {#if saveMsg[key]}
+                      <p class="text-sm text-ok">{saveMsg[key]}</p>
+                    {/if}
+                    {#if saveErr[key]}
+                      <p class="text-sm text-alert">{saveErr[key]}</p>
+                    {/if}
+                    {#if genError[key]}
+                      <p class="text-sm text-alert">{genError[key]}</p>
+                    {/if}
+                    {#if notesOut[key]}
+                      <pre class="mt-3 max-h-64 overflow-auto rounded border border-line bg-page p-3 font-mono text-xs text-ink-2">{notesOut[key]}</pre>
+                    {/if}
+                  </div>
                 </td>
               </tr>
             {/if}
