@@ -131,7 +131,7 @@
   }
 
   async function loadRepos(): Promise<void> {
-    if (loading || reposVisible) return;
+    if (loading) return;
     loading = true;
     error = "";
     try {
