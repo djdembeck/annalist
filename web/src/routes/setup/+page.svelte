@@ -14,7 +14,6 @@
   type Source = "github" | "forgejo";
 
   const SOURCES: Source[] = ["github", "forgejo"];
-  const PRESET_OPTIONS = ["chronicler", "engineer", "launch"];
   const PRESET_DESCRIPTIONS: Record<string, string> = {
     chronicler: "Narrative. Tells the story of what changed and why it matters.",
     engineer: "Concise. Terse bullet items that get straight to the point.",
@@ -72,6 +71,10 @@
   // --- step 4: voice ---
   let toneOption = $state("inherit");
   let customTone = $state("");
+
+  // --- interaction helpers ---
+  let showToken = $state(false);
+  let showFilters = $state(false);
 
   function platformsConnected(): number {
     if (!status) return 0;
@@ -221,6 +224,7 @@
     }
     try {
       await putSettings({ tone });
+      localStorage.setItem("annalist.setup-complete", "1");
       step = 4;
     } catch (e) {
       saving = false;
@@ -236,6 +240,11 @@
     if (toneOption === "inherit") return "Inherit (server default)";
     if (toneOption === "custom") return customTone.trim() || "Custom";
     return toneOption;
+  }
+
+  // Honest preview of the selected voice, built from known sample commits.
+  function previewNote(): string {
+    return SYNTHETIC_EXAMPLES[toneOption] ?? SYNTHETIC_EXAMPLES.chronicler;
   }
 </script>
 
@@ -302,7 +311,11 @@
     </ol>
   </nav>
 
-  <div aria-live="polite">
+  <div aria-live="polite" class="sr-only">
+    Step {step + 1} of {STEPS.length}: {STEPS[step]}.
+  </div>
+
+  <div role="alert" aria-live="assertive">
     {#if error}
       <p class="mb-4 rounded border border-alert/30 bg-alert/10 p-3 text-sm text-alert">
         {error}
@@ -322,19 +335,35 @@
       </div>
       <form
         class="flex flex-col gap-4"
+        aria-busy={busy}
         onsubmit={(e) => {
           e.preventDefault();
           submitToken();
         }}
       >
         <label class="flex flex-col gap-2">
-          <span class="text-sm text-ink-2">ADMIN_TOKEN</span>
+          <span class="flex items-center justify-between text-sm text-ink-2">
+            ADMIN_TOKEN
+            <button
+              type="button"
+              onclick={() => (showToken = !showToken)}
+              class="text-xs text-ink-3 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            >
+              {showToken ? "Hide" : "Show"}
+            </button>
+          </span>
           <input
-            type="password"
+            type={showToken ? "text" : "password"}
             bind:value={adminToken}
             placeholder="Paste your admin token"
-            class="rounded border border-line-strong bg-page px-4 py-2.5 text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
+            autocomplete="off"
+            class="rounded border border-line-strong bg-page px-4 py-2.5 text-ink outline-none placeholder:text-ink-3 focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           />
+          <span class="text-xs text-ink-3">
+            This is the <span class="font-mono text-ink-2">ADMIN_TOKEN</span> you set in the
+            server's <span class="font-mono text-ink-2">config.yaml</span> or environment. It is
+            kept in your browser only.
+          </span>
         </label>
         <button
           type="submit"
@@ -393,42 +422,25 @@
             </div>
 
             {#if !configured}
-              <ol class="mt-5 list-inside list-decimal space-y-2 text-sm text-ink-2">
-                {#if source === "github"}
-                  <li>
-                    Create a GitHub App at
-                    <span class="text-ink"
-                      >Settings → Developer settings → GitHub Apps → New</span
-                    >.
-                  </li>
-                  <li>
-                    Set the webhook URL to
-                    <span class="break-all text-ink">https://YOUR_ANNALIST_HOST/webhook/github</span>
-                    and subscribe to
-                    <span class="text-ink">Release</span> events.
-                  </li>
-                  <li>
-                    Generate and store a private key; set the env vars
-                    <span class="text-ink"
-                      >GITHUB_APP_ID</span
-                    >, <span class="text-ink">GITHUB_INSTALLATION_ID</span>,
-                    <span class="text-ink">GITHUB_WEBHOOK_SECRET</span> and
-                    <span class="text-ink">GITHUB_PRIVATE_KEY</span>.
-                  </li>
-                  <li>
-                    Install the app on the repositories you want to manage.
-                  </li>
-                {:else}
-                  <li>
-                    In your Forgejo repo or org settings, add a webhook URL
-                    <span class="break-all text-ink">https://YOUR_ANNALIST_HOST/webhook/forgejo</span>.
-                  </li>
-                  <li>
-                    Subscribe to <span class="text-ink">Release</span> events and set the
-                    secret to <span class="text-ink">FORGEJO_WEBHOOK_SECRET</span>.
-                  </li>
-                {/if}
-              </ol>
+              <a
+                href="https://github.com/djdembeck/annalist#platform-setup"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-4 inline-flex items-center gap-1.5 text-sm text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              >
+                How to configure {source}
+                <svg
+                  class="h-3.5 w-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <path d="M7 17L17 7" stroke-linecap="round"></path>
+                  <path d="M9 7h8v8" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+              </a>
             {/if}
           </div>
         {/each}
@@ -467,7 +479,7 @@
             onclick={skipPlatforms}
             class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           >
-            Skip setup for now
+            Skip for now
           </button>
         {/if}
       </div>
@@ -504,45 +516,57 @@
             onclick={() => (step = 3)}
             class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           >
-            Skip — I'll add repositories later
+            Skip for now
           </button>
         </div>
       {:else}
         <div class="flex flex-col gap-3">
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <input
               type="search"
               placeholder="Search repositories…"
               bind:value={search}
-              class="rounded border border-line-strong bg-page px-4 py-2.5 text-ink outline-none placeholder:text-ink-3 focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
+              class="w-full rounded border border-line-strong bg-page px-4 py-2.5 text-ink outline-none placeholder:text-ink-3 focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:flex-1"
             />
-            <label class="flex items-center gap-2 text-sm text-ink-2">
-              Sort
-              <select
-                bind:value={sortBy}
-                class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
-              >
-                <option value="name">Name</option>
-                <option value="activity">Recent activity</option>
-              </select>
-            </label>
+            <button
+              type="button"
+              onclick={() => (showFilters = !showFilters)}
+              aria-expanded={showFilters}
+              class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            >
+              {showFilters ? "Hide filters" : "Show filters"}
+            </button>
           </div>
-          <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
-            <input
-              type="checkbox"
-              bind:checked={showForks}
-              class="h-4 w-4 accent-mark"
-            />
-            Show forks
-          </label>
-          <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
-            <input
-              type="checkbox"
-              bind:checked={showSharedNamespaces}
-              class="h-4 w-4 accent-mark"
-            />
-            Show organization &amp; shared namespaces
-          </label>
+          {#if showFilters}
+            <div class="flex flex-col gap-3 rounded border border-line bg-page p-4 sm:flex-row sm:flex-wrap sm:items-center">
+              <label class="flex items-center gap-2 text-sm text-ink-2">
+                Sort
+                <select
+                  bind:value={sortBy}
+                  class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                >
+                  <option value="name">Name</option>
+                  <option value="activity">Recent activity</option>
+                </select>
+              </label>
+              <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
+                <input
+                  type="checkbox"
+                  bind:checked={showForks}
+                  class="h-4 w-4 accent-mark"
+                />
+                Show forks
+              </label>
+              <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
+                <input
+                  type="checkbox"
+                  bind:checked={showSharedNamespaces}
+                  class="h-4 w-4 accent-mark"
+                />
+                Show organization &amp; shared namespaces
+              </label>
+            </div>
+          {/if}
         </div>
 
         <div class="flex gap-2">
@@ -574,11 +598,11 @@
         </div>
 
         {#if loading}
-          <p class="text-base text-ink-3">Loading…</p>
+          <p class="text-base text-ink-3" aria-busy={loading}>Loading…</p>
         {:else}
           {@const items = filtered()}
           {#if items.length === 0}
-            <p class="text-base text-ink-3">
+            <p class="text-base text-ink-2">
               No available {activeSource} repositories found.
             </p>
           {:else}
@@ -617,6 +641,7 @@
             <button
               onclick={addSelected}
               disabled={selectedCount() === 0 || saving}
+              aria-busy={saving}
               class="mt-5 inline-flex items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
             >
               {saving ? "Adding…" : `Add ${selectedCount()} selected`}
@@ -649,58 +674,54 @@
         <span class="text-sm text-ink-2">Tone</span>
         <select
           bind:value={toneOption}
-          class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
+          class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         >
           <option value="inherit">Inherit (server default)</option>
-          {#each PRESET_OPTIONS as p (p)}
-            <option value={p}>{p}</option>
-          {/each}
+          <option value="chronicler">Chronicler — tells the story of what changed</option>
+          <option value="engineer">Engineer — terse, right to the point</option>
+          <option value="launch">Launch — upbeat and celebratory</option>
           <option value="custom">Custom…</option>
         </select>
       </label>
 
-      {#if toneOption !== "custom" && toneOption !== "inherit"}
-        <p class="text-sm text-ink-2">{PRESET_DESCRIPTIONS[toneOption] ?? ""}</p>
-      {/if}
-
-      {#if toneOption === "custom"}
+      {#if toneOption === "inherit"}
+        <p class="text-sm text-ink-2">
+          Uses the tone configured on the server (config.yaml or environment). You can
+          override the tone per repository later.
+        </p>
+      {:else if toneOption === "custom"}
         <label class="flex flex-col gap-2">
           <span class="text-sm text-ink-2">Custom tone</span>
           <input
             bind:value={customTone}
             placeholder="Freeform persona"
-            class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-focus-ring"
+            class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           />
         </label>
-      {/if}
-
-      <div class="rounded border border-line bg-surface-2 p-4 text-xs text-ink-3">
-        Sample commits used in the synthetic examples below:
-        <ul class="mt-1 list-inside list-disc space-y-0.5">
-          {#each SAMPLE_COMMITS as c (c)}
-            <li class="font-mono">{c}</li>
-          {/each}
-        </ul>
-      </div>
-
-      <div class="space-y-4">
-        {#each PRESET_OPTIONS as p (p)}
-          <div class="rounded border border-line bg-page p-4">
-            <div class="mb-2 flex items-center justify-between">
-              <span class="font-medium capitalize text-ink">{p}</span>
-              <span class="text-xs text-ink-3">Synthetic example</span>
-            </div>
-            <p class="text-sm text-ink-3">{PRESET_DESCRIPTIONS[p]}</p>
-            <p class="mt-3 whitespace-pre-line text-sm text-ink-2">
-              {SYNTHETIC_EXAMPLES[p]}
-            </p>
+      {:else if PRESET_DESCRIPTIONS[toneOption]}
+        <div class="rounded border border-line bg-page p-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-medium capitalize text-ink">{toneOption}</h3>
+            <span class="rounded bg-surface-2 px-2 py-0.5 text-xs text-ink-3">
+              Synthetic example
+            </span>
           </div>
-        {/each}
-      </div>
+          <p class="mt-1 text-sm text-ink-2">{PRESET_DESCRIPTIONS[toneOption]}</p>
+          <pre
+            class="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-line bg-page p-3 font-mono text-xs text-ink-2"
+          >{SYNTHETIC_EXAMPLES[toneOption]}</pre
+          >
+          <p class="mt-2 text-xs text-ink-3">
+            Sample output for these commits:
+            <span class="font-mono">{SAMPLE_COMMITS.join(", ")}</span>
+          </p>
+        </div>
+      {/if}
 
       <button
         onclick={finishSetup}
         disabled={saving}
+        aria-busy={saving}
         class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
       >
         {saving ? "Saving…" : "Finish setup"}
@@ -711,7 +732,13 @@
   <!-- Step 5 — Done -->
   {#if step === 4}
     <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
-      <h2 class="font-display text-2xl text-white">Your forge is ready.</h2>
+      <div class="space-y-2">
+        <h2 class="font-display text-2xl text-white">Your forge is ready.</h2>
+        <p class="text-base text-ink-2">
+          The next release you publish on an added repository gets its notes written
+          automatically.
+        </p>
+      </div>
       <dl class="grid gap-4 text-sm sm:grid-cols-2">
         <div class="flex items-center justify-between rounded border border-line bg-surface-2 px-4 py-3">
           <dt class="text-ink-2">Token</dt>
@@ -730,6 +757,36 @@
           <dd class="text-ink capitalize">{toneLabel()}</dd>
         </div>
       </dl>
+
+      <div class="space-y-3">
+        <h3 class="font-sans text-base font-semibold text-ink">What happens next</h3>
+        <ol class="space-y-2 text-sm text-ink-2">
+          <li>
+            Annalist listens for release events on the repositories you added.
+          </li>
+          <li>
+            On a release, it clones the repo, summarizes the commits in the
+            <span class="text-ink">{toneLabel()}</span> tone, and writes the note into
+            the release body.
+          </li>
+          <li>
+            You can regenerate notes, tweak the voice, or change per-repo settings from
+            the Repos page.
+          </li>
+        </ol>
+      </div>
+
+      <div class="rounded border border-line bg-page p-4">
+        <div class="mb-2 flex items-center justify-between">
+          <span class="text-xs font-medium uppercase tracking-wide text-ink-3">Note preview</span>
+          <span class="text-xs text-ink-3">Synthetic example</span>
+        </div>
+        <pre
+          class="max-h-64 overflow-auto whitespace-pre-wrap rounded border border-line bg-page p-3 font-mono text-xs text-ink-2"
+        >{previewNote()}</pre
+        >
+      </div>
+
       <div class="flex flex-wrap items-center gap-4">
         <a
           href="/repos"
