@@ -28,8 +28,8 @@
 </script>
 
 <div class="mx-auto max-w-2xl">
-  <h1 class="mb-2 font-display text-2xl text-white">Setup</h1>
-  <p class="mb-6 text-sm text-ink-2">
+  <h1 class="mb-2 font-display text-3xl text-white">Setup</h1>
+  <p class="mb-8 text-base text-ink-2">
     Set your admin token to unlock the dashboard.
   </p>
 
@@ -46,12 +46,12 @@
         type="password"
         bind:value={adminToken}
         placeholder="Paste your admin token"
-        class="rounded border border-line-strong bg-surface-1 px-3 py-2 text-ink outline-none focus:border-focus"
+        class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
       />
     </label>
     <button
       type="submit"
-      class="rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-4 py-2 text-sm font-medium text-page hover:brightness-110"
+      class="rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-medium text-page hover:brightness-110 focus:outline-2 focus:outline-focus-ring"
     >
       Continue
     </button>

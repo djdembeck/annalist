@@ -75,8 +75,8 @@
 </script>
 
 <div class="mx-auto max-w-2xl">
-  <h1 class="mb-2 font-display text-2xl tracking-tight text-white">Settings</h1>
-  <p class="mb-6 text-sm text-ink-2">
+  <h1 class="mb-2 font-display text-3xl tracking-tight text-white">Settings</h1>
+  <p class="mb-8 text-base text-ink-2">
     Global defaults used for any repository that doesn't override them.
   </p>
 
@@ -85,14 +85,14 @@
   {/if}
 
   {#if loading}
-    <p class="text-sm text-ink-3">Loading…</p>
+    <p class="text-base text-ink-3">Loading…</p>
   {:else if settings}
-    <div class="grid gap-4">
-      <label class="flex flex-col gap-1">
+    <div class="grid gap-6">
+      <label class="flex flex-col gap-2">
         <span class="text-sm text-ink-2">Tone</span>
         <select
           bind:value={toneOption}
-          class="rounded border border-line-strong bg-surface-1 px-3 py-2 text-sm text-ink"
+          class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
         >
           <option value="inherit">Inherit (neutral)</option>
           {#each PRESET_OPTIONS as p (p)}
@@ -103,35 +103,35 @@
       </label>
 
       {#if toneOption === "custom"}
-        <label class="flex flex-col gap-1">
+        <label class="flex flex-col gap-2">
           <span class="text-sm text-ink-2">Custom tone</span>
           <input
             bind:value={customTone}
             placeholder="Freeform persona"
-            class="rounded border border-line-strong bg-surface-1 px-3 py-2 text-sm text-ink"
+            class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
           />
         </label>
       {/if}
 
-      <label class="flex flex-col gap-1">
+      <label class="flex flex-col gap-2">
         <span class="text-sm text-ink-2">Instructions</span>
         <textarea
           bind:value={instructions}
           rows="4"
           placeholder="Additional instructions for note generation"
-          class="rounded border border-line-strong bg-surface-1 px-3 py-2 text-sm text-ink"
+          class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
         ></textarea>
       </label>
 
-      <div class="grid gap-4 sm:grid-cols-2">
-        <label class="flex flex-col gap-1">
+      <div class="grid gap-6 sm:grid-cols-2">
+        <label class="flex flex-col gap-2">
           <span class="text-sm text-ink-2">Model (blank = server default)</span>
           <input
             bind:value={model}
-            class="rounded border border-line-strong bg-surface-1 px-3 py-2 text-sm text-ink"
+            class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
           />
         </label>
-        <label class="flex flex-col gap-1">
+        <label class="flex flex-col gap-2">
           <span class="text-sm text-ink-2">Temperature (blank = server default)</span>
           <input
             type="number"
@@ -139,27 +139,30 @@
             min="0"
             max="2"
             bind:value={temperature}
-            class="rounded border border-line-strong bg-surface-1 px-3 py-2 text-sm text-ink"
+            class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
           />
         </label>
       </div>
 
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-4">
         <button
           onclick={save}
-          class="rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-4 py-2 text-sm font-medium text-page hover:brightness-110"
+          class="rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-medium text-page hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-focus-ring"
         >
           Save
         </button>
         {#if saved}
-          <span class="text-sm text-ok">Saved</span>
+          <span class="inline-flex items-center gap-1.5 text-sm text-ok">
+            <span class="h-2 w-2 rounded-full bg-ok"></span>
+            Saved
+          </span>
         {/if}
       </div>
     </div>
 
-    <section class="mt-8 rounded border border-line bg-surface-1 p-4 text-sm">
-      <h2 class="mb-2 font-sans text-base font-semibold text-ink">LLM endpoint</h2>
-      <dl class="space-y-1 text-ink-2">
+    <section class="mt-10 rounded border border-line bg-surface-2-warm p-5 text-sm">
+      <h2 class="mb-3 font-sans text-base font-semibold text-ink">LLM endpoint</h2>
+      <dl class="space-y-2 text-ink-2">
         <div class="flex justify-between gap-4">
           <dt>Base URL</dt>
           <dd class="text-ink">{settings.llm.base_url}</dd>
@@ -170,11 +173,27 @@
         </div>
         <div class="flex justify-between gap-4">
           <dt>GitHub</dt>
-          <dd class="text-ink">{settings.github ? "Configured" : "Not configured"}</dd>
+          <dd class="inline-flex items-center gap-1.5 text-ink">
+            {#if settings.github}
+              <span class="h-2 w-2 rounded-full bg-ok"></span>
+              Configured
+            {:else}
+              <span class="h-2 w-2 rounded-full bg-line-strong"></span>
+              Not configured
+            {/if}
+          </dd>
         </div>
         <div class="flex justify-between gap-4">
           <dt>Forgejo</dt>
-          <dd class="text-ink">{settings.forgejo ? "Configured" : "Not configured"}</dd>
+          <dd class="inline-flex items-center gap-1.5 text-ink">
+            {#if settings.forgejo}
+              <span class="h-2 w-2 rounded-full bg-ok"></span>
+              Configured
+            {:else}
+              <span class="h-2 w-2 rounded-full bg-line-strong"></span>
+              Not configured
+            {/if}
+          </dd>
         </div>
       </dl>
     </section>
