@@ -1,5 +1,6 @@
 <script lang="ts">
   import { afterNavigate, goto } from "$app/navigation";
+  import { page } from "$app/stores";
   import { getToken } from "$lib/api";
   import "../app.css";
 
@@ -9,7 +10,8 @@
 
   afterNavigate(() => {
     token = getToken();
-    if (!token) {
+    // The landing page stays public; every other route needs a token.
+    if (!token && $page.url.pathname !== "/") {
       goto("/setup");
     }
   });
@@ -24,7 +26,7 @@
       <a href="/settings" class="text-sm text-ink-2 hover:text-ink">Settings</a>
     </nav>
   {/if}
-  <main class="mx-auto max-w-5xl p-6">
+  <main class={$page.url.pathname === "/" ? "" : "mx-auto max-w-5xl p-6"}>
     {@render children()}
   </main>
 </div>

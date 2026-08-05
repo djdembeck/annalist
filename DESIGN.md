@@ -216,3 +216,50 @@ Uniform precision: **4px radius** (`rounded`) on every control, card, chip, tabl
 - **Don't** use the vermilion as link color, decoration, or ambient fill — its rarity is the point.
 - **Don't** use white text on vermilion buttons; mark buttons carry Midnight Graphite labels.
 - **Don't** change the radius per component; variation in shape reads as error.
+- **Don't** apply the Forged landing world to the dashboard; the dashboard remains The Copy Desk.
+
+---
+
+# Surface: Public Landing Page ("/")
+
+## Mode and World
+
+The landing page operates in **Persuade** mode and uses a separate visual world, **Forged Release Notes**. It dramatizes the pipeline — raw commits are heated, each summary is a measured blow, and a human-sounding release note exits as shaped metal. The dashboard and authenticated routes keep the existing Copy Desk system; this surface is allowed to be expressive because its only job is to explain and drive deployment.
+
+## Palette
+
+- **Forge Page** `#0a0a0c`: ground.
+- **Forge Surface** `#14161a`: first raised panel.
+- **Forge Surface 2** `#1b1e22`: inset and secondary panels.
+- **Forge Line** `#2a2e35`: hairlines.
+- **Forge Line Strong** `#3a3f48`: hover borders.
+- **Forge Ink** `#f3f0ec`: primary text.
+- **Forge Ink 2** `#b8b2a8`: secondary text.
+- **Forge Ink 3** `#8a847b`: muted captions.
+- **Forge Cherry** `#ff3d00`, **Forge Ember** `#ff7b00`, **Forge Heat** `#ffb300`, **Forge White** `#fff7e8`: the workpiece heat ramp and the single committed-action gradient.
+- **Forge Control** `#23262b`, **Forge Control Hover** `#2d3138`: secondary buttons and code-panel chrome.
+
+## Typography
+
+- **Display:** `Saira Stencil One`, self-hosted. Used only for the headline, wordmark, numeric step labels, and small uppercase panel captions.
+- **Body / UI:** `Saira`, self-hosted. Weights 400–600. Tabular numerals for metrics.
+- **Code:** browser monospace stack for commands and synthetic output.
+
+## Composition
+
+- Single full-width dark column.
+- Hero: stacked on narrow, two-column on large (claim left, forge-stage demo right).
+- How-it-works as three full-width "blow rows" separated by 1px hairlines; no cards.
+- Deploy section: copy left, copyable Docker command panel right.
+
+## Components
+
+- **Committed-action button:** gradient from Forge Cherry to Forge Heat, Forge Page label, 4px radius, `brightness-110` hover.
+- **Secondary button:** Forge Surface fill, Forge Ink label, 1px Forge Line border, hover to Forge Surface 2.
+- **Forge stage card:** Forge Surface fill, Forge Line border, animated heat bar, static synthetic output.
+- **Blow row:** Forge Line top border, `Saira Stencil One` label, body description, tabular metric caption.
+- **Code panel:** Forge Surface fill, Forge Line border, Forge Page background for the code block.
+
+## Motion
+
+One controlled animation: commits and heat values animate through the forge-stage bar in a loop; the synthetic output below is always readable so the proof is never hidden. No scattered hover effects.

@@ -1,5 +1,47 @@
 @import "tailwindcss";
 
+/* Self-hosted display and body faces for the Forged landing page */
+@font-face {
+  font-family: "Saira Stencil One";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/saira-stencil-one-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Saira Stencil One";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/saira-stencil-one-latin-ext-400-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+2000-203C, U+2040-206F, U+2074, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Saira";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("/fonts/saira-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Saira";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("/fonts/saira-latin-ext-400-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+2000-203C, U+2040-206F, U+2074, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* Annalist — Graphite Ink palette (The Copy Desk) */
 @theme {
   /* Surfaces (dark-first, cool-lean charcoal) */
@@ -24,6 +66,26 @@
   --color-mark-hover: #e0695d;
   --color-ok: #3fb477;
   --color-alert: #e05252;
+
+  /* Forge palette (Forged landing page) */
+  --color-forge-page: #0a0a0c;
+  --color-forge-surface: #14161a;
+  --color-forge-surface-2: #1b1e22;
+  --color-forge-line: #2a2e35;
+  --color-forge-line-strong: #3a3f48;
+  --color-forge-ink: #f3f0ec;
+  --color-forge-ink-2: #b8b2a8;
+  --color-forge-ink-3: #8a847b;
+  --color-forge-cherry: #ff3d00;
+  --color-forge-ember: #ff7b00;
+  --color-forge-heat: #ffb300;
+  --color-forge-white: #fff7e8;
+  --color-forge-control: #23262b;
+  --color-forge-control-hover: #2d3138;
+
+  /* Faces */
+  --font-display: "Saira Stencil One", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Saira", ui-sans-serif, system-ui, sans-serif;
 }
 
 html,
