@@ -150,7 +150,7 @@
           </p>
         {:else}
           <div class="mb-4 flex items-center justify-between">
-            <span class="text-xs text-ink-3 uppercase tracking-wide">{items.length} available</span>
+            <span class="text-xs text-ink-3">{items.length} available</span>
             <button
               onclick={() => {
                 const allSelected = items.every((r) => selected[repoKey(r)]);
@@ -191,7 +191,7 @@
     {/if}
 
     <div class="mt-8 rounded border border-line bg-surface-1 p-4">
-      <h2 class="mb-4 font-display text-sm text-ember">ADD MANUALLY</h2>
+      <h2 class="mb-4 font-sans text-base font-semibold text-ink">Add manually</h2>
       <div class="grid gap-4 sm:grid-cols-[120px_1fr_1fr_auto]">
         <label class="flex flex-col gap-1">
           <span class="text-xs text-ink-3">Platform</span>

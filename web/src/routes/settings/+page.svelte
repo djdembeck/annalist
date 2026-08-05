@@ -75,7 +75,7 @@
 </script>
 
 <div class="mx-auto max-w-2xl">
-  <h1 class="mb-2 font-display text-2xl tracking-tight text-ink">Settings</h1>
+  <h1 class="mb-2 font-display text-2xl tracking-tight text-white">Settings</h1>
   <p class="mb-6 text-sm text-ink-2">
     Global defaults used for any repository that doesn't override them.
   </p>
@@ -158,7 +158,7 @@
     </div>
 
     <section class="mt-8 rounded border border-line bg-surface-1 p-4 text-sm">
-      <h2 class="mb-2 font-display text-lg tracking-tight text-ink">LLM endpoint</h2>
+      <h2 class="mb-2 font-sans text-base font-semibold text-ink">LLM endpoint</h2>
       <dl class="space-y-1 text-ink-2">
         <div class="flex justify-between gap-4">
           <dt>Base URL</dt>

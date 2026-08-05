@@ -28,7 +28,7 @@
 </script>
 
 <div class="mx-auto max-w-2xl">
-  <h1 class="mb-2 font-display text-2xl text-ink">Setup</h1>
+  <h1 class="mb-2 font-display text-2xl text-white">Setup</h1>
   <p class="mb-6 text-sm text-ink-2">
     Set your admin token to unlock the dashboard.
   </p>
