@@ -10,6 +10,7 @@
     type Status,
     type AvailableRepo,
   } from "$lib/api";
+  import MarkdownPreview from "$lib/components/MarkdownPreview.svelte";
 
   type Source = "github" | "forgejo";
 
@@ -801,10 +802,10 @@
             </span>
           </div>
           <p class="mt-1 text-sm text-ink-2">{PRESET_DESCRIPTIONS[toneOption]}</p>
-          <pre
-            class="mt-3 max-h-96 overflow-auto whitespace-pre-wrap rounded border border-line bg-page p-3 font-mono text-xs text-ink-2"
-          >{SYNTHETIC_EXAMPLES[toneOption]}</pre
-          >
+          <MarkdownPreview
+            source={SYNTHETIC_EXAMPLES[toneOption]}
+            class="mt-3"
+          />
           <p class="mt-2 text-xs text-ink-3">
             Sample output for these commits:
             <span class="font-mono">{SAMPLE_COMMITS.join(", ")}</span>
@@ -870,15 +871,12 @@
         </ol>
       </div>
 
-      <div class="rounded border border-line bg-page p-4">
-        <div class="mb-2 flex items-center justify-between">
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
           <span class="text-xs font-medium uppercase tracking-wide text-ink-3">Note preview</span>
           <span class="text-xs text-ink-3">Synthetic example</span>
         </div>
-        <pre
-          class="max-h-96 overflow-auto whitespace-pre-wrap rounded border border-line bg-page p-3 font-mono text-xs text-ink-2"
-        >{previewNote()}</pre
-        >
+        <MarkdownPreview source={previewNote()} />
       </div>
 
       <div class="flex flex-wrap items-center gap-4">
