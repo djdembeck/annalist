@@ -167,23 +167,23 @@
 </script>
 
 <div>
-  <div class="mb-8 flex flex-wrap items-center justify-between gap-4">
+  <div class="mb-8 flex flex-wrap items-start justify-between gap-4">
     <div>
-      <h1 class="font-display text-3xl tracking-tight text-white">REPOSITORIES</h1>
+      <h1 class="font-display text-2xl tracking-tight text-white sm:text-3xl">REPOSITORIES</h1>
       <p class="mt-1 text-base text-ink-2">
         Manage connected release-note sources.
       </p>
     </div>
-    <div class="flex items-center gap-3">
+    <div class="flex w-full items-center gap-3 sm:w-auto">
       {#if loadState === "success" || loadState === "error"}
         <button
           onclick={refresh}
-          class="btn-base btn-primary"
+          class="btn-base btn-primary w-full sm:w-auto"
         >
           Refresh
         </button>
       {/if}
-      <a href="/repos/add" class="btn-base btn-mark">
+      <a href="/repos/add" class="btn-base btn-mark w-full sm:w-auto">
         Add repositories
       </a>
     </div>
@@ -248,7 +248,7 @@
               </td>
               <td class="px-4 py-3 text-ink">{r.owner}/{r.repo}</td>
               <td class="px-4 py-3">
-                <div class="flex items-center gap-2">
+                <div class="flex min-h-[44px] items-center gap-2">
                   <span
                     class="status-dot {r.enabled ? 'bg-ok' : 'bg-line-strong'}"
                     aria-hidden="true"
@@ -260,7 +260,7 @@
                     checked={r.enabled}
                     disabled={pending[key]?.toggling}
                     onchange={() => toggleEnabled(r)}
-                    class="h-4 w-4 accent-mark focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    class="h-5 w-5 accent-mark focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 sm:h-4 sm:w-4"
                   />
                 </div>
                 {#if toggleErr[key]}
@@ -278,12 +278,12 @@
                 </div>
               </td>
               <td class="px-4 py-3">
-                <div class="flex items-center gap-2">
+                <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
                   <button
                     onclick={() => openGenerate(r)}
                     aria-expanded={openPanel[key] === "generate"}
                     aria-controls="repo-generate-{key}"
-                    class="btn-base btn-secondary"
+                    class="btn-base btn-secondary w-full sm:w-auto"
                   >
                     Generate
                   </button>
@@ -291,7 +291,7 @@
                     onclick={() => openSettings(r)}
                     aria-expanded={openPanel[key] === "settings"}
                     aria-controls="repo-settings-{key}"
-                    class="btn-base btn-primary"
+                    class="btn-base btn-primary w-full sm:w-auto"
                   >
                     Settings
                   </button>
@@ -381,7 +381,7 @@
                     <button
                       onclick={() => saveSettings(r)}
                       disabled={pending[key]?.saving}
-                      class="btn-base btn-mark"
+                      class="btn-base btn-mark w-full sm:w-auto"
                     >
                       {pending[key]?.saving ? "Saving…" : "Save"}
                     </button>
@@ -488,7 +488,7 @@
                     <button
                       onclick={() => runGenerate(r)}
                       disabled={pending[key]?.generating}
-                      class="btn-base btn-mark"
+                      class="btn-base btn-mark w-full sm:w-auto"
                     >
                       {pending[key]?.generating
                         ? "Generating…"

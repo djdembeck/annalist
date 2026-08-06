@@ -75,13 +75,13 @@
 </script>
 
 <div class="mx-auto max-w-2xl">
-  <h1 class="mb-2 font-display text-3xl tracking-tight text-white">Settings</h1>
+  <h1 class="mb-2 font-display text-2xl tracking-tight text-white sm:text-3xl">Settings</h1>
   <p class="mb-8 text-base text-ink-2">
     Global defaults used for any repository that doesn't override them.
   </p>
 
   {#if error}
-    <p class="mb-4 text-sm text-alert">{error}</p>
+    <p class="mb-4 rounded border border-alert/30 bg-alert/10 p-3 text-sm text-alert">{error}</p>
   {/if}
 
   {#if loading}
@@ -144,10 +144,10 @@
         </label>
       </div>
 
-      <div class="flex items-center gap-4">
+      <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
         <button
           onclick={save}
-          class="rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-medium text-page hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-focus-ring"
+          class="inline-flex w-full items-center justify-center rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-medium text-page hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-focus-ring sm:w-auto"
         >
           Save
         </button>
@@ -163,15 +163,15 @@
     <section class="mt-10 rounded border border-line bg-surface-2-warm p-5 text-sm">
       <h2 class="mb-3 font-sans text-base font-semibold text-ink">LLM endpoint</h2>
       <dl class="space-y-2 text-ink-2">
-        <div class="flex justify-between gap-4">
+        <div class="flex flex-wrap justify-between gap-2 sm:gap-4">
           <dt>Base URL</dt>
-          <dd class="text-ink">{settings.llm.base_url}</dd>
+          <dd class="break-all text-right text-ink">{settings.llm.base_url}</dd>
         </div>
-        <div class="flex justify-between gap-4">
+        <div class="flex flex-wrap justify-between gap-2 sm:gap-4">
           <dt>Model</dt>
-          <dd class="text-ink">{settings.llm.model}</dd>
+          <dd class="break-all text-right text-ink">{settings.llm.model}</dd>
         </div>
-        <div class="flex justify-between gap-4">
+        <div class="flex flex-wrap justify-between gap-2 sm:gap-4">
           <dt>GitHub</dt>
           <dd class="inline-flex items-center gap-1.5 text-ink">
             {#if settings.github}
@@ -183,7 +183,7 @@
             {/if}
           </dd>
         </div>
-        <div class="flex justify-between gap-4">
+        <div class="flex flex-wrap justify-between gap-2 sm:gap-4">
           <dt>Forgejo</dt>
           <dd class="inline-flex items-center gap-1.5 text-ink">
             {#if settings.forgejo}

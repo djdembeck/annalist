@@ -294,7 +294,7 @@
   <title>Setup · Annalist</title>
 </svelte:head>
 
-<div class="mx-auto max-w-3xl py-8">
+<div class="mx-auto max-w-3xl py-6 sm:py-8">
   <h1 class="mb-2 font-display text-2xl text-white">Setup</h1>
   <p class="mb-8 text-base text-ink-2">
     A quick walkthrough to get your forge online.
@@ -303,9 +303,9 @@
   <!-- Stepper -->
   <nav
     aria-label="Setup progress"
-    class="sticky top-14 z-10 mb-8 border-b border-line bg-page pb-4"
+    class="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 mb-8 overflow-x-auto border-b border-line bg-page pb-4"
   >
-    <ol class="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <ol class="flex min-w-max items-center gap-x-4 gap-y-3 sm:gap-x-6">
       {#each STEPS as label, i}
         <li>
           {#if i < step}
@@ -323,7 +323,7 @@
               >
                 <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"></path>
               </svg>
-              <span class="capitalize">{label}</span>
+              <span class="hidden capitalize sm:inline">{label}</span>
             </button>
           {:else if i === step}
             <span
@@ -345,7 +345,7 @@
                 class="flex h-5 w-5 items-center justify-center rounded border border-line text-xs"
                 >{i + 1}</span
               >
-              <span class="capitalize">{label}</span>
+              <span class="hidden capitalize sm:inline">{label}</span>
             </span>
           {/if}
         </li>
@@ -389,7 +389,7 @@
             <button
               type="button"
               onclick={() => (showToken = !showToken)}
-              class="text-xs text-ink-3 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              class="rounded px-2 py-1 text-xs text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
             >
               {showToken ? "Hide" : "Show"}
             </button>
@@ -412,7 +412,7 @@
           type="submit"
           disabled={!adminToken.trim() || busy}
           aria-busy={busy}
-          class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
         >
           {#if busy}
             <svg
@@ -518,7 +518,7 @@
         <button
           onclick={advanceToRepos}
           disabled={connectedCount === 0}
-          class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
         >
           Continue
         </button>
@@ -529,7 +529,7 @@
           </p>
           <button
             onclick={continueFromPlatforms}
-            class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            class="inline-flex w-full items-center justify-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
           >
             Continue anyway
           </button>
@@ -539,7 +539,7 @@
           </p>
           <button
             onclick={skipPlatforms}
-            class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            class="inline-flex w-full items-center justify-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
           >
             Skip for now
           </button>
@@ -570,13 +570,13 @@
           </p>
           <button
             onclick={enterRepos}
-            class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
           >
             Load repositories
           </button>
           <button
             onclick={() => (step = 3)}
-            class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            class="inline-flex w-full items-center justify-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
           >
             Skip for now
           </button>
@@ -713,16 +713,16 @@
             <ul class="max-h-80 overflow-auto rounded border border-line">
               {#each items as r (repoKey(r))}
                 <li
-                  class="flex items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 transition-colors hover:bg-row-hover [content-visibility:auto] [contain-intrinsic-size:auto_3rem]"
+                  class="flex min-h-[44px] items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0 transition-colors hover:bg-row-hover [content-visibility:auto] [contain-intrinsic-size:auto_3rem]"
                 >
                   <input
                     type="checkbox"
                     id={repoKey(r)}
                     checked={selected[repoKey(r)] ?? false}
                     onchange={(e) => (selected[repoKey(r)] = e.currentTarget.checked)}
-                    class="h-4 w-4 accent-mark"
+                    class="h-5 w-5 accent-mark sm:h-4 sm:w-4"
                   />
-                  <label for={repoKey(r)} class="flex-1 cursor-pointer text-base text-ink">
+                  <label for={repoKey(r)} class="flex-1 cursor-pointer text-base text-ink sm:text-sm">
                     {r.owner}/{r.repo}
                   </label>
                 </li>
@@ -732,7 +732,7 @@
               onclick={addSelected}
               disabled={selectedCount === 0 || saving}
               aria-busy={saving}
-              class="mt-5 inline-flex items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              class="mt-5 inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
             >
               {saving ? "Adding…" : `Add ${selectedCount} selected`}
             </button>
@@ -817,7 +817,7 @@
         onclick={finishSetup}
         disabled={saving || (toneOption === "custom" && !customTone.trim())}
         aria-busy={saving}
-        class="inline-flex w-fit items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
       >
         {saving ? "Saving…" : "Finish setup"}
       </button>
@@ -879,16 +879,16 @@
         <MarkdownPreview source={previewNote()} />
       </div>
 
-      <div class="flex flex-wrap items-center gap-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <a
           href="/repos"
-          class="inline-flex items-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
         >
           Go to Repos
         </a>
         <a
           href="/settings"
-          class="inline-flex items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+          class="inline-flex w-full items-center justify-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
         >
           Open Settings
         </a>
