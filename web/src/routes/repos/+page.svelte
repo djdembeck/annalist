@@ -25,14 +25,14 @@
   let saveErr = $state<Record<string, string | null>>({});
   let toggleErr = $state<Record<string, string | null>>({});
   let openPanel = $state<
-    Record<string, "settings" | "regenerate" | undefined>
+    Record<string, "settings" | "generate" | undefined>
   >({});
   let drafts = $state<Record<string, Draft>>({});
   let force = $state<Record<string, boolean>>({});
   let notesOut = $state<Record<string, string | null>>({});
   let genError = $state<Record<string, string | null>>({});
-  let regenerateTag = $state<Record<string, string>>({});
-  let regenTagError = $state<Record<string, string | null>>({});
+  let generateTag = $state<Record<string, string>>({});
+  let genTagError = $state<Record<string, string | null>>({});
 
   function rowKey(r: Repo): string {
     return `${r.platform}/${r.owner}/${r.repo}`;
@@ -92,10 +92,10 @@
     openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
   }
 
-  function openRegenerate(r: Repo): void {
+  function openGenerate(r: Repo): void {
     const key = rowKey(r);
-    regenerateTag[key] ??= "";
-    openPanel[key] = openPanel[key] === "regenerate" ? undefined : "regenerate";
+    generateTag[key] ??= "";
+    openPanel[key] = openPanel[key] === "generate" ? undefined : "generate";
   }
 
   async function saveSettings(r: Repo): Promise<void> {
@@ -137,14 +137,14 @@
     }
   }
 
-  async function regenerate(r: Repo): Promise<void> {
+  async function runGenerate(r: Repo): Promise<void> {
     const key = rowKey(r);
-    const toTag = (regenerateTag[key] ?? "").trim();
+    const toTag = (generateTag[key] ?? "").trim();
     notesOut[key] = null;
     genError[key] = null;
-    regenTagError[key] = null;
+    genTagError[key] = null;
     if (!toTag) {
-      regenTagError[key] = "Enter a release tag";
+      genTagError[key] = "Enter a release tag";
       return;
     }
     pending[key] = { ...pending[key], generating: true };
@@ -280,20 +280,20 @@
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2">
                   <button
+                    onclick={() => openGenerate(r)}
+                    aria-expanded={openPanel[key] === "generate"}
+                    aria-controls="repo-generate-{key}"
+                    class="btn-base btn-secondary"
+                  >
+                    Generate
+                  </button>
+                  <button
                     onclick={() => openSettings(r)}
                     aria-expanded={openPanel[key] === "settings"}
                     aria-controls="repo-settings-{key}"
                     class="btn-base btn-primary"
                   >
                     Settings
-                  </button>
-                  <button
-                    onclick={() => openRegenerate(r)}
-                    aria-expanded={openPanel[key] === "regenerate"}
-                    aria-controls="repo-regen-{key}"
-                    class="btn-base btn-secondary"
-                  >
-                    Regenerate
                   </button>
                 </div>
               </td>
@@ -386,7 +386,7 @@
                       {pending[key]?.saving ? "Saving…" : "Save"}
                     </button>
                     <span class="text-xs text-ink-3">
-                      Save settings before regenerating — the writer uses the
+                      Save settings before generating — the writer uses the
                       saved tone.
                     </span>
                   </div>
@@ -403,11 +403,11 @@
               </tr>
             {/if}
 
-            {#if openPanel[key] === "regenerate"}
+            {#if openPanel[key] === "generate"}
               <tr class="border-t border-line bg-surface-1/60">
-                <td id="repo-regen-{key}" colspan="5" class="px-6 py-4">
+                <td id="repo-generate-{key}" colspan="5" class="px-6 py-4">
                   <p class="mb-3 text-xs font-medium uppercase tracking-wide text-ink-3">
-                    Regenerate for {r.owner}/{r.repo}
+                    Generate for {r.owner}/{r.repo}
                   </p>
                   <p class="mb-4 max-w-xl text-sm text-ink-2">
                     Runs the writer for a release tag and writes the note back
@@ -417,7 +417,7 @@
 
                   <div
                     class="grid gap-3 sm:grid-cols-2"
-                    aria-label="Regenerate mode for {r.owner}/{r.repo}"
+                    aria-label="Generate mode for {r.owner}/{r.repo}"
                   >
                     <button
                       type="button"
@@ -438,7 +438,7 @@
                             ? 'bg-ember'
                             : 'bg-line-strong'}"
                         ></span>
-                        Regenerate
+                        Generate
                       </span>
                       <span class="text-xs leading-relaxed text-ink-3">
                         Reuses the note already on file for this tag and never
@@ -464,7 +464,7 @@
                             ? 'bg-alert'
                             : 'bg-line-strong'}"
                         ></span>
-                        Force regenerate
+                        Overwrite
                       </span>
                       <span class="text-xs leading-relaxed text-ink-3">
                         Throws out the existing note and runs the writer again —
@@ -477,24 +477,24 @@
                     <label class="flex flex-col gap-1">
                       <span class="text-xs text-ink-3">Release tag</span>
                       <input
-                        bind:value={regenerateTag[key]}
+                        bind:value={generateTag[key]}
                         placeholder="v1.0.0"
                         class="field"
                       />
-                      {#if regenTagError[key]}
-                        <p class="text-xs text-alert">{regenTagError[key]}</p>
+                      {#if genTagError[key]}
+                        <p class="text-xs text-alert">{genTagError[key]}</p>
                       {/if}
                     </label>
                     <button
-                      onclick={() => regenerate(r)}
+                      onclick={() => runGenerate(r)}
                       disabled={pending[key]?.generating}
                       class="btn-base btn-mark"
                     >
                       {pending[key]?.generating
                         ? "Generating…"
                         : force[key]
-                          ? "Force regenerate"
-                          : "Regenerate"}
+                          ? "Overwrite"
+                          : "Generate"}
                     </button>
                   </div>
 
