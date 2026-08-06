@@ -24,7 +24,9 @@
   let saveMsg = $state<Record<string, string | null>>({});
   let saveErr = $state<Record<string, string | null>>({});
   let toggleErr = $state<Record<string, string | null>>({});
-  let expanded = $state<Record<string, boolean>>({});
+  let openPanel = $state<
+    Record<string, "settings" | "regenerate" | undefined>
+  >({});
   let drafts = $state<Record<string, Draft>>({});
   let force = $state<Record<string, boolean>>({});
   let notesOut = $state<Record<string, string | null>>({});
@@ -87,8 +89,13 @@
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
     };
+    openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
+  }
+
+  function openRegenerate(r: Repo): void {
+    const key = rowKey(r);
     regenerateTag[key] ??= "";
-    expanded[key] = !expanded[key];
+    openPanel[key] = openPanel[key] === "regenerate" ? undefined : "regenerate";
   }
 
   async function saveSettings(r: Repo): Promise<void> {
@@ -271,17 +278,27 @@
                 </div>
               </td>
               <td class="px-4 py-3">
-                <button
-                  onclick={() => openSettings(r)}
-                  aria-expanded={expanded[key] ?? false}
-                  aria-controls="repo-settings-{key}"
-                  class="btn-base btn-primary"
-                >
-                  Settings
-                </button>
+                <div class="flex items-center gap-2">
+                  <button
+                    onclick={() => openSettings(r)}
+                    aria-expanded={openPanel[key] === "settings"}
+                    aria-controls="repo-settings-{key}"
+                    class="btn-base btn-primary"
+                  >
+                    Settings
+                  </button>
+                  <button
+                    onclick={() => openRegenerate(r)}
+                    aria-expanded={openPanel[key] === "regenerate"}
+                    aria-controls="repo-regen-{key}"
+                    class="btn-base btn-secondary"
+                  >
+                    Regenerate
+                  </button>
+                </div>
               </td>
             </tr>
-            {#if expanded[key]}
+            {#if openPanel[key] === "settings"}
               {@const d = drafts[key]}
               <tr class="border-t border-line bg-surface-1/60">
                 <td id="repo-settings-{key}" colspan="5" class="px-6 py-4">
@@ -368,40 +385,10 @@
                     >
                       {pending[key]?.saving ? "Saving…" : "Save"}
                     </button>
-                    <label class="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
-                      <input
-                        type="checkbox"
-                        checked={force[key] ?? false}
-                        onchange={(e) => {
-                          force[key] = e.currentTarget.checked;
-                        }}
-                        class="h-4 w-4 accent-mark"
-                      />
-                      Force regenerate
-                    </label>
-                  </div>
-
-                  <div class="mt-3 flex flex-wrap items-end gap-3">
-                    <div class="flex flex-col gap-1">
-                      <label class="flex flex-col gap-1">
-                        <span class="text-xs text-ink-3">Release tag</span>
-                        <input
-                          bind:value={regenerateTag[key]}
-                          placeholder="v1.0.0"
-                          class="field"
-                        />
-                      </label>
-                      {#if regenTagError[key]}
-                        <p class="text-xs text-alert">{regenTagError[key]}</p>
-                      {/if}
-                    </div>
-                    <button
-                      onclick={() => regenerate(r)}
-                      disabled={pending[key]?.generating}
-                      class="btn-base btn-secondary"
-                    >
-                      {pending[key]?.generating ? "Generating…" : "Regenerate"}
-                    </button>
+                    <span class="text-xs text-ink-3">
+                      Save settings before regenerating — the writer uses the
+                      saved tone.
+                    </span>
                   </div>
 
                   <div aria-live="polite" class="mt-3">
@@ -411,11 +398,118 @@
                     {#if saveErr[key]}
                       <p class="text-sm text-alert">{saveErr[key]}</p>
                     {/if}
+                  </div>
+                </td>
+              </tr>
+            {/if}
+
+            {#if openPanel[key] === "regenerate"}
+              <tr class="border-t border-line bg-surface-1/60">
+                <td id="repo-regen-{key}" colspan="5" class="px-6 py-4">
+                  <p class="mb-3 text-xs font-medium uppercase tracking-wide text-ink-3">
+                    Regenerate for {r.owner}/{r.repo}
+                  </p>
+                  <p class="mb-4 max-w-xl text-sm text-ink-2">
+                    Runs the writer for a release tag and writes the note back
+                    into the published release body. The mode you pick decides
+                    how much of the current release it may replace:
+                  </p>
+
+                  <div
+                    class="grid gap-3 sm:grid-cols-2"
+                    aria-label="Regenerate mode for {r.owner}/{r.repo}"
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={!force[key]}
+                      onclick={() => (force[key] = false)}
+                      class="flex flex-col gap-1.5 rounded border px-4 py-3 text-left transition-colors {!force[key]
+                        ? 'border-mark/70 bg-control'
+                        : 'border-line bg-surface-1 hover:border-line-strong'}"
+                    >
+                      <span
+                        class="flex items-center gap-2 text-sm font-medium {!force[key]
+                          ? 'text-ink'
+                          : 'text-ink-2'}"
+                      >
+                        <span
+                          aria-hidden="true"
+                          class="h-2 w-2 rounded-full {!force[key]
+                            ? 'bg-ember'
+                            : 'bg-line-strong'}"
+                        ></span>
+                        Regenerate
+                      </span>
+                      <span class="text-xs leading-relaxed text-ink-3">
+                        Reuses the note already on file for this tag and never
+                        overwrites a release body you edited by hand.
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={force[key] ?? false}
+                      onclick={() => (force[key] = true)}
+                      class="flex flex-col gap-1.5 rounded border px-4 py-3 text-left transition-colors {force[key]
+                        ? 'border-alert/70 bg-control'
+                        : 'border-line bg-surface-1 hover:border-line-strong'}"
+                    >
+                      <span
+                        class="flex items-center gap-2 text-sm font-medium {force[key]
+                          ? 'text-ink'
+                          : 'text-ink-2'}"
+                      >
+                        <span
+                          aria-hidden="true"
+                          class="h-2 w-2 rounded-full {force[key]
+                            ? 'bg-alert'
+                            : 'bg-line-strong'}"
+                        ></span>
+                        Force regenerate
+                      </span>
+                      <span class="text-xs leading-relaxed text-ink-3">
+                        Throws out the existing note and runs the writer again —
+                        overwriting even a hand-edited release body.
+                      </span>
+                    </button>
+                  </div>
+
+                  <div class="mt-4 flex flex-wrap items-end gap-3">
+                    <label class="flex flex-col gap-1">
+                      <span class="text-xs text-ink-3">Release tag</span>
+                      <input
+                        bind:value={regenerateTag[key]}
+                        placeholder="v1.0.0"
+                        class="field"
+                      />
+                      {#if regenTagError[key]}
+                        <p class="text-xs text-alert">{regenTagError[key]}</p>
+                      {/if}
+                    </label>
+                    <button
+                      onclick={() => regenerate(r)}
+                      disabled={pending[key]?.generating}
+                      class="btn-base btn-mark"
+                    >
+                      {pending[key]?.generating
+                        ? "Generating…"
+                        : force[key]
+                          ? "Force regenerate"
+                          : "Regenerate"}
+                    </button>
+                  </div>
+
+                  <div aria-live="polite" class="mt-3">
                     {#if genError[key]}
                       <p class="text-sm text-alert">{genError[key]}</p>
                     {/if}
                     {#if notesOut[key]}
-                      <pre class="mt-3 max-h-64 overflow-auto rounded border border-line bg-page p-3 font-mono text-xs text-ink-2">{notesOut[key]}</pre>
+                      <div>
+                        <p class="text-xs font-medium uppercase tracking-wide text-ink-3">
+                          Generated notes
+                        </p>
+                        <pre
+                          class="mt-2 max-h-64 overflow-auto rounded border border-line bg-page p-3 font-mono text-xs text-ink-2">{notesOut[key]}</pre>
+                      </div>
                     {/if}
                   </div>
                 </td>
