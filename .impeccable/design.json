@@ -1,221 +1,141 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-04T09:00:24Z",
-  "title": "Design System: Releaser",
+  "generatedAt": "2026-08-07T00:00:00Z",
+  "title": "Design System: Annalist",
   "extensions": {
     "colorMeta": {
-      "page": {
-        "role": "neutral",
-        "displayName": "Midnight Graphite",
-        "canonical": "#0d0f13",
-        "purpose": "Page background. The whole system sits on it."
-      },
-      "surface-1": {
-        "role": "neutral",
-        "displayName": "Carbon Slate",
-        "canonical": "#131722",
-        "purpose": "First raised surface: nav, cards, table headers, form fills."
-      },
-      "surface-2": {
-        "role": "neutral",
-        "displayName": "Toned Iron",
-        "canonical": "#1a1f2c",
-        "purpose": "Second raised step: chips, secondary buttons, inset controls."
-      },
-      "line": {
-        "role": "neutral",
-        "displayName": "Hairline Steel",
-        "canonical": "#232a38",
-        "purpose": "1px borders and row dividers."
-      },
-      "line-strong": {
-        "role": "neutral",
-        "displayName": "Field Edge",
-        "canonical": "#2d3547",
-        "purpose": "Input borders, one step brighter than dividers."
-      },
-      "focus": {
-        "role": "neutral",
-        "displayName": "Correction Steel",
-        "canonical": "#8a93a6",
-        "purpose": "Focus border on focused fields."
-      },
-      "ink": {
-        "role": "neutral",
-        "displayName": "Cold Press Ink",
-        "canonical": "#eef1f6",
-        "purpose": "Primary text and button labels."
-      },
-      "ink-2": {
-        "role": "neutral",
-        "displayName": "Draft Gray",
-        "canonical": "#b9c0cd",
-        "purpose": "Secondary text: field labels, subtitles, table secondary cells."
-      },
-      "ink-3": {
-        "role": "neutral",
-        "displayName": "Footnote Gray",
-        "canonical": "#6f7788",
-        "purpose": "Muted hints, loading/empty states, ghost captions."
-      },
-      "control": {
-        "role": "neutral",
-        "displayName": "Soft Graphite",
-        "canonical": "#2b3342",
-        "purpose": "Quiet primary button fill."
-      },
-      "control-hover": {
-        "role": "neutral",
-        "displayName": "Lifted Graphite",
-        "canonical": "#37415a",
-        "purpose": "Quiet primary button hover."
-      },
-      "mark": {
-        "role": "primary",
-        "displayName": "Editor's Vermilion",
-        "canonical": "#d65a4f",
-        "purpose": "The single accent: committed actions and checkbox accent."
-      },
-      "mark-hover": {
-        "role": "primary",
-        "displayName": "Editor's Vermilion (lifted)",
-        "canonical": "#e0695d",
-        "purpose": "Mark hover state."
-      },
-      "ok": {
-        "role": "neutral",
-        "displayName": "Proofread Green",
-        "canonical": "#3fb477",
-        "purpose": "Configured / saved status signal."
-      },
-      "alert": {
-        "role": "neutral",
-        "displayName": "Red-Pen Red",
-        "canonical": "#e05252",
-        "purpose": "Errors and misconfigured status signal."
-      }
+      "page": { "role": "neutral", "displayName": "Trace Wall", "canonical": "#0b0f14", "purpose": "Dark page plane behind every route.", "tonalRamp": ["#05080b", "#080b10", "#0b0f14", "#111821", "#18212b", "#202d38", "#33434f", "#f3eee5"] },
+      "panel": { "role": "neutral", "displayName": "Powder Panel", "canonical": "#18212b", "purpose": "Base plane for navigation, cards, and fields.", "tonalRamp": ["#070b10", "#0b0f14", "#111821", "#18212b", "#202d38", "#25343e", "#33434f", "#aeb8bd"] },
+      "raised": { "role": "neutral", "displayName": "Raised Panel", "canonical": "#202d38", "purpose": "One-step-up plane for controls, chips, nodes, and row hover.", "tonalRamp": ["#0b0f14", "#111821", "#18212b", "#202d38", "#25343e", "#30444f", "#4a5d68", "#aeb8bd"] },
+      "panel-warm": { "role": "neutral", "displayName": "Warm Panel", "canonical": "#1b2831", "purpose": "Optional warm tonal plane for material variation.", "tonalRamp": ["#090e13", "#101a20", "#1b2831", "#25343e", "#30444f", "#4a5d68", "#96a4aa", "#f3eee5"] },
+      "raised-warm": { "role": "neutral", "displayName": "Warm Raised", "canonical": "#25343e", "purpose": "Optional raised warm plane.", "tonalRamp": ["#0b0f14", "#18212b", "#25343e", "#30444f", "#4a5d68", "#96a4aa", "#aeb8bd", "#f3eee5"] },
+      "line": { "role": "neutral", "displayName": "Trace Line", "canonical": "#33434f", "purpose": "Hairline borders, rails, and dividers.", "tonalRamp": ["#0b0f14", "#111821", "#18212b", "#202d38", "#33434f", "#4a5d68", "#96a4aa", "#f3eee5"] },
+      "line-strong": { "role": "neutral", "displayName": "Strong Trace Line", "canonical": "#4a5d68", "purpose": "Field edges and higher-contrast rails.", "tonalRamp": ["#111821", "#18212b", "#202d38", "#33434f", "#4a5d68", "#96a4aa", "#aeb8bd", "#f3eee5"] },
+      "focus": { "role": "secondary", "displayName": "Trace Cyan Focus", "canonical": "#59c3c3", "purpose": "Keyboard focus ring and active trace signal.", "tonalRamp": ["#123333", "#1d5555", "#2c7777", "#3b9999", "#59c3c3", "#7bd2d2", "#a5e3e3", "#d6f4f4"] },
+      "ink": { "role": "neutral", "displayName": "Paper Ink", "canonical": "#f3eee5", "purpose": "Primary readable copy and note-paper plane.", "tonalRamp": ["#18212b", "#33434f", "#4a5d68", "#96a4aa", "#aeb8bd", "#c7c9c4", "#e1ded5", "#f3eee5"] },
+      "muted": { "role": "neutral", "displayName": "Muted Instrument", "canonical": "#aeb8bd", "purpose": "Secondary instructions, labels, and metadata.", "tonalRamp": ["#18212b", "#33434f", "#4a5d68", "#96a4aa", "#aeb8bd", "#c7c9c4", "#e1ded5", "#f3eee5"] },
+      "ink-soft": { "role": "neutral", "displayName": "Soft Caption", "canonical": "#96a4aa", "purpose": "Quiet captions and low-emphasis copy.", "tonalRamp": ["#111821", "#18212b", "#33434f", "#4a5d68", "#96a4aa", "#aeb8bd", "#c7c9c4", "#f3eee5"] },
+      "control": { "role": "neutral", "displayName": "Control Plane", "canonical": "#263640", "purpose": "Neutral control fill.", "tonalRamp": ["#0b0f14", "#111821", "#18212b", "#263640", "#30444f", "#4a5d68", "#96a4aa", "#f3eee5"] },
+      "control-hover": { "role": "neutral", "displayName": "Control Hover", "canonical": "#30444f", "purpose": "One-step hover plane for neutral controls.", "tonalRamp": ["#111821", "#18212b", "#263640", "#30444f", "#4a5d68", "#96a4aa", "#aeb8bd", "#f3eee5"] },
+      "copper": { "role": "primary", "displayName": "Committed Copper", "canonical": "#f06a3a", "purpose": "The current committed action.", "tonalRamp": ["#5d2416", "#87341f", "#b7472a", "#d95832", "#f06a3a", "#f58b5f", "#f4c95d", "#f3eee5"] },
+      "copper-hover": { "role": "primary", "displayName": "Copper Hover", "canonical": "#f58b5f", "purpose": "Hover state for the committed action.", "tonalRamp": ["#6c2b1a", "#98402a", "#c65536", "#e16c49", "#f58b5f", "#f7a985", "#f4c95d", "#f3eee5"] },
+      "heat": { "role": "secondary", "displayName": "Working Heat", "canonical": "#f4c95d", "purpose": "Received commits, active setup cues, and work-in-progress signals.", "tonalRamp": ["#59491d", "#806a2a", "#ae9138", "#d2af4e", "#f4c95d", "#f7d987", "#fae8b2", "#fff8e0"] },
+      "cyan": { "role": "secondary", "displayName": "Trace Cyan", "canonical": "#59c3c3", "purpose": "Active rails, nodes, navigation, and focus.", "tonalRamp": ["#123333", "#1d5555", "#2c7777", "#3b9999", "#59c3c3", "#7bd2d2", "#a5e3e3", "#d6f4f4"] },
+      "green": { "role": "status", "displayName": "Status Green", "canonical": "#86b574", "purpose": "Configured, saved, complete, or connected only.", "tonalRamp": ["#273722", "#3f5935", "#587849", "#6f965d", "#86b574", "#a4c497", "#c3d9bb", "#e5f0e1"] },
+      "red": { "role": "status", "displayName": "Status Red", "canonical": "#d55c51", "purpose": "Error, invalid, skipped, or misconfigured only.", "tonalRamp": ["#4b1e1b", "#702c27", "#963b34", "#b94c42", "#d55c51", "#e28a82", "#efb6b1", "#f9e0de"] },
+      "paper-edge": { "role": "neutral", "displayName": "Paper Edge", "canonical": "#c2c0b8", "purpose": "Fine border around thermal-paper proof.", "tonalRamp": ["#27313a", "#4a5d68", "#96a4aa", "#aeb8bd", "#c2c0b8", "#d4d1c8", "#e5e1d8", "#f3eee5"] }
     },
     "typographyMeta": {
-      "title": { "displayName": "Page Title", "purpose": "H1 on each surface. Bold 700, 24px." },
-      "headline": { "displayName": "Section Heading", "purpose": "H2s. Semibold 600, 14px." },
-      "body": { "displayName": "Body / Field Label", "purpose": "Default text. Regular 400, 14px." },
-      "label": { "displayName": "Label / Caption", "purpose": "Chips, mini-labels, captions. Regular 400, 12px." }
+      "display": { "displayName": "Trace Display", "purpose": "Saira Stencil One for the wordmark, route identity, and public hero." },
+      "headline": { "displayName": "Panel Heading", "purpose": "Saira semibold for section and panel headings." },
+      "body": { "displayName": "Working Copy", "purpose": "Saira for instructions, labels, and values." },
+      "label": { "displayName": "Instrumentation Label", "purpose": "Tracked monospace uppercase metadata and status labels." },
+      "mono": { "displayName": "Proof Mono", "purpose": "Commit subjects, Docker commands, and generated note output." }
     },
     "shadows": [
-      {
-        "name": "flat",
-        "value": "none",
-        "purpose": "The system has no box-shadows. Depth is tonal stepping, 1px hairlines, and the black/40 note scrim."
-      }
+      { "name": "none", "value": "none", "purpose": "Depth is made with borders and tonal planes, never box shadows." }
     ],
     "motion": [
-      {
-        "name": "state-change",
-        "value": "time-based; Tailwind default transition on hover",
-        "purpose": "Hover state = one tonal step lighter. No keyframes, no entrance motion specified."
-      }
+      { "name": "state-transition", "value": "140ms ease", "purpose": "Restrained button, field, and navigation state changes." },
+      { "name": "trace-journey", "value": "5.4s cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Public synthetic trace signal travels through Receive, Resolve, and Strike." },
+      { "name": "reduced-motion", "value": "prefers-reduced-motion: reduce", "purpose": "Settles the public trace and reduces transitions while keeping proof visible." }
     ],
     "breakpoints": [
-      { "name": "sm", "value": "640px" }
+      { "name": "sm", "value": "640px" },
+      { "name": "console", "value": "680px" },
+      { "name": "workspace", "value": "760px" },
+      { "name": "wide", "value": "768px" }
     ]
   },
   "components": [
     {
-      "name": "Quiet Primary Button",
+      "name": "Copper Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Row and page actions: Refresh, Settings, per-row Save. Soft graphite fill, ink label, hover one step lighter.",
-      "html": "<button class=\"rounded bg-control px-3 py-1.5 text-sm text-ink hover:bg-control-hover\">Refresh</button>",
-      "css": ".rounded { border-radius: 4px; } .bg-control { background-color: #2b3342; } .text-ink { color: #eef1f6; } .hover\\:bg-control-hover:hover { background-color: #37415a; }"
+      "description": "The current committed action, with page-colored text and a direct copper surface.",
+      "html": "<button class=\"ds-btn-primary\">Get started</button>",
+      "css": ".ds-btn-primary { min-height: 44px; border: 1px solid #f06a3a; border-radius: 4px; padding: 8px 12px; background: #f06a3a; color: #0b0f14; font: 600 14px/20px Saira, ui-sans-serif, sans-serif; } .ds-btn-primary:hover { border-color: #f58b5f; background: #f58b5f; } .ds-btn-primary:focus-visible { outline: 2px solid #59c3c3; outline-offset: 3px; }"
     },
     {
-      "name": "Committed Mark Button",
-      "kind": "button",
-      "refersTo": "button-mark",
-      "description": "The one committed action per surface (Setup Continue, Settings Save). Vermilion fill, page-colored label.",
-      "html": "<button type=\"submit\" class=\"rounded bg-mark px-4 py-2 text-sm font-medium text-page hover:bg-mark-hover\">Continue</button>",
-      "css": ".bg-mark { background-color: #d65a4f; } .text-page { color: #0d0f13; } .hover\\:bg-mark-hover:hover { background-color: #e0695d; }"
-    },
-    {
-      "name": "Secondary Button",
+      "name": "Raised Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "Regenerate. Toned Iron fill, ink label, hover to soft graphite.",
-      "html": "<button class=\"rounded bg-surface-2 px-3 py-1.5 text-sm text-ink hover:bg-control\">Regenerate</button>",
-      "css": ".bg-surface-2 { background-color: #1a1f2c; } .hover\\:bg-control:hover { background-color: #2b3342; }"
+      "description": "A non-committing control on the raised panel plane.",
+      "html": "<button class=\"ds-btn-secondary\">View examples</button>",
+      "css": ".ds-btn-secondary { min-height: 44px; border: 1px solid #4a5d68; border-radius: 4px; padding: 8px 12px; background: #202d38; color: #f3eee5; font: 600 14px/20px Saira, ui-sans-serif, sans-serif; } .ds-btn-secondary:hover { background: #30444f; } .ds-btn-secondary:focus-visible { outline: 2px solid #59c3c3; outline-offset: 3px; }"
     },
     {
-      "name": "Field",
+      "name": "Trace Field",
       "kind": "input",
       "refersTo": "field",
-      "description": "Text, password, select, textarea. Carbon slate fill, field-edge border; focus shifts border to correction steel.",
-      "html": "<input class=\"rounded border border-line-strong bg-surface-1 px-3 py-2 text-ink outline-none focus:border-focus\">",
-      "css": ".border-line-strong { border-color: #2d3547; } .bg-surface-1 { background-color: #131722; } .focus\\:border-focus:focus { border-color: #8a93a6; }"
+      "description": "Panel-backed text, password, select, or textarea field with a cyan focus treatment.",
+      "html": "<input class=\"ds-field\" aria-label=\"Admin token\" placeholder=\"Paste your admin token\">",
+      "css": ".ds-field { width: 100%; min-height: 44px; border: 1px solid #4a5d68; border-radius: 4px; padding: 8px 12px; background: #18212b; color: #f3eee5; font: 400 14px/21px Saira, ui-sans-serif, sans-serif; } .ds-field::placeholder { color: #aeb8bd; } .ds-field:focus { border-color: #59c3c3; outline: 2px solid rgba(89,195,195,.35); outline-offset: 1px; }"
     },
     {
-      "name": "Chip",
+      "name": "Trace Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Powder-coated container for one focused workspace or proof section.",
+      "html": "<section class=\"ds-panel\"><h2>Release trace</h2><p>Work moves from input to proof.</p></section>",
+      "css": ".ds-panel { border: 1px solid #33434f; border-radius: 4px; padding: 16px; background: #18212b; color: #f3eee5; font: 400 14px/21px Saira, ui-sans-serif, sans-serif; } .ds-panel h2 { margin: 0; font-weight: 600; }"
+    },
+    {
+      "name": "Trace Rail",
+      "kind": "custom",
+      "refersTo": "trace-rail",
+      "description": "A text-readable Receive, Resolve, Strike progress rail with cyan active nodes.",
+      "html": "<ol class=\"ds-trace-rail\" aria-label=\"Release processing stages\"><li class=\"ds-trace-node ds-trace-node-active\">Receive</li><li>Resolve</li><li>Strike</li></ol>",
+      "css": ".ds-trace-rail { display: flex; gap: 12px; margin: 0; padding: 0; list-style: none; color: #96a4aa; font: 600 11px/14px ui-monospace, monospace; text-transform: uppercase; } .ds-trace-node { border: 1px solid #33434f; border-radius: 9999px; padding: 6px 8px; } .ds-trace-node-active { border-color: #59c3c3; color: #59c3c3; }"
+    },
+    {
+      "name": "Thermal Note Proof",
+      "kind": "custom",
+      "refersTo": "note-paper",
+      "description": "A high-contrast, honestly labeled generated note output plane.",
+      "html": "<article class=\"ds-note-paper\"><p class=\"ds-label\">Synthetic output</p><pre>## What's new\n- A release note takes shape.</pre></article>",
+      "css": ".ds-note-paper { border: 1px solid #c2c0b8; border-radius: 2px; padding: 16px; background: #f3eee5; color: #0b0f14; } .ds-note-paper pre { margin: 12px 0 0; white-space: pre-wrap; font: 400 12px/19px ui-monospace, monospace; } .ds-label { margin: 0; font: 600 11px/13px ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }"
+    },
+    {
+      "name": "Status Signal",
       "kind": "chip",
       "refersTo": "chip",
-      "description": "Read-only effective tone/model value tags.",
-      "html": "<span class=\"rounded bg-surface-2 px-2 py-0.5 text-xs text-ink-2\">motd</span>",
-      "css": ".text-xs { font-size: 0.75rem; } .text-ink-2 { color: #b9c0cd; }"
-    },
-    {
-      "name": "Status Card",
-      "kind": "card",
-      "refersTo": "card",
-      "description": "Platform config status card with signal dot. Flat, hairline border.",
-      "html": "<div class=\"rounded border border-line bg-surface-1 p-4\"><span class=\"h-2.5 w-2.5 inline-block rounded-full bg-ok\"></span><span class=\"font-medium text-ink\">GitHub</span></div>",
-      "css": ".border-line { border-color: #232a38; } .bg-ok { background-color: #3fb477; }"
+      "description": "Compact instrumentation metadata; status color is meaningful rather than decorative.",
+      "html": "<span class=\"ds-status ds-status-ok\" role=\"status\"><span aria-hidden=\"true\"></span>Connected</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: 8px; border: 1px solid currentColor; border-radius: 4px; padding: 4px 8px; font: 600 11px/13px ui-monospace, monospace; letter-spacing: .04em; text-transform: uppercase; } .ds-status > span { width: 8px; height: 8px; border-radius: 9999px; background: currentColor; } .ds-status-ok { color: #86b574; } .ds-status-error { color: #d55c51; }"
     }
   ],
   "narrative": {
-    "northStar": "The Copy Desk",
-    "overview": "Releaser's dashboard is the desk where a release's voice is set before it ships. Like a newsroom's copy desk — where prose is shaped, checked, and released without ceremony — the interface is dark, calm, and entirely in service of the work: repositories, settings, and the machine that writes notes while everyone sleeps.\n\nThe system is editorial restraint rendered in graphite. It is monochrome by conviction: cool-lean charcoal surfaces on a near-black page, a cold-press paper text ramp, and exactly one proofing color — a desaturated vermilion used the way an editor uses a pen, for the single committed action and little else. Hierarchy arrives through weight, size, and tonal stepping, never through color or shadow. The dashboard is flat, quiet, and legible at a glance.",
+    "northStar": "Release Trace Wall",
+    "overview": "Annalist presents each release as a traceable workpiece moving from input to proof. Dark powder-coated panels hold the operator's work; a thermal-paper note proof makes the generated result tangible. Copper marks the committed action, cyan shows the active trace, and compact instrumentation labels keep the system legible without turning the dashboard into decoration. The public page uses the same wall to explain the pipeline, while authenticated routes let an operator configure it.\n\nThe system is deliberately layered rather than glossy. Saira Stencil One establishes position for the wordmark and display headings; Saira carries the working copy; monospace labels and note output read like instrumentation. A 4px control language, hairline borders, and tonal planes create depth without shadows. Green and red are reserved for status so their meaning stays unambiguous.",
     "keyCharacteristics": [
-      "Dark-first, cool-lean graphite palette; near-black page (#0d0f13) with one- and two-step raised surfaces.",
-      "Color is signal: vermilion for the committed action, green/red strictly for platform status, nothing decorative.",
-      "Flat by default — depth comes from 1px hairline borders and tonal steps, never shadows.",
-      "Precise, restrained controls: 4px radius, weight-differentiated states, hover = one tonal step lighter.",
-      "System font stack; typography does hierarchy by weight and size, not by face."
+      "Dark powder-coated page and panel surfaces with one raised tonal step.",
+      "Copper is the committed action; cyan is the active trace; heat is a supporting work signal.",
+      "Thermal-paper note proof is the light, readable output plane.",
+      "Saira Stencil One for display; Saira for UI copy; monospace for labels and generated notes.",
+      "Flat depth: hairline borders and tonal planes, never drop shadows."
     ],
     "rules": [
-      {
-        "name": "The Editor's Mark Rule",
-        "body": "The vermilion appears only for the committed action on a surface (Setup Continue, Settings Save), checkbox accent, and nothing else. Two vermilion elements on one screen is a copy error.",
-        "section": "colors"
-      },
-      {
-        "name": "The Signal-Only Color Rule",
-        "body": "Green and red mean status, never decoration. A page is monochrome until a platform reports configured, saved, or failed.",
-        "section": "colors"
-      },
-      {
-        "name": "The Ink-On-Mark Rule",
-        "body": "Text on vermilion buttons is Midnight Graphite (text-page), because the mark is a working surface, not a bright badge.",
-        "section": "colors"
-      },
-      {
-        "name": "The One-Face Rule",
-        "body": "No display type, no webfonts. If a hierarchy problem needs a new size or weight, use the existing stack. A second typeface is a redesign, not a tweak.",
-        "section": "typography"
-      }
+      { "name": "The Copper Action Rule", "body": "Use copper for the action that commits the current work; do not turn it into ambient decoration or a second primary on the same surface.", "section": "colors" },
+      { "name": "The Signal-Only Color Rule", "body": "Cyan, heat, green, and red each carry a defined operational signal. Green and red never decorate a neutral surface.", "section": "colors" },
+      { "name": "The Instrument-Label Rule", "body": "Use tracked monospace labels for metadata and state; never use them to replace readable headings or instructions.", "section": "typography" },
+      { "name": "The Tonal-Plane Rule", "body": "Add depth with a border or the next named surface tone, never with a shadow, glass treatment, or decorative glow.", "section": "elevation" }
     ],
     "dos": [
-      "Do keep the page on Midnight Graphite and raise surfaces only one or two tonal steps (Carbon Slate, Toned Iron).",
-      "Do use the vermilion mark for exactly one committed action per surface, plus the checkbox accent.",
-      "Do treat green/red strictly as status signal (config dots, Saved, errors).",
-      "Do prefer tonal separation and hairlines over shadows — flat is the system.",
-      "Do keep the 4px radius constant across controls, cards, chips, and inputs.",
-      "Do show hierarchy with weight, size, and tonal stepping within the system font stack."
+      "Do use the named page, panel, raised, line, ink, copper, heat, cyan, green, and red roles rather than one-off colors.",
+      "Do make the trace legible in text and structure before adding motion; label public proof as synthetic.",
+      "Do use copper for the current committed action and cyan for active trace/focus.",
+      "Do preserve the thermal-paper proof as a high-contrast output plane with readable monospace text.",
+      "Do use borders and tonal planes for depth and keep the 4px control rhythm.",
+      "Do preserve focus rings, live status announcements, wrapping text, and reduced-motion behavior."
     ],
     "donts": [
-      "Don't introduce a second accent hue (teal, blue, purple) — the palette is graphite + vermilion + signal green/red.",
-      "Don't add box-shadows, gradients, or glass effects to lift anything.",
-      "Don't fall back to default Tailwind zinc classes; the bespoke graphite ramp is the only allowed neutral.",
-      "Don't use the vermilion as link color, decoration, or ambient fill — its rarity is the point.",
-      "Don't use white text on vermilion buttons; mark buttons carry Midnight Graphite labels.",
-      "Don't change the radius per component; variation in shape reads as error."
+      "Don't revive the old Copy Desk or Forged Release Notes visual language.",
+      "Don't use gradients, glass, glow, or shadows as decorative depth.",
+      "Don't use green or red for emphasis, links, or decoration; they are status semantics.",
+      "Don't use cyan or heat as a generic accent or substitute for readable status text.",
+      "Don't fabricate customers, metrics, release activity, or operational outcomes in public proof.",
+      "Don't create a second radius system or hide long names and note output by clipping."
     ]
   }
 }

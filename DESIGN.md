@@ -1,48 +1,57 @@
 ---
 name: Annalist
-description: Self-hosted AI release notes for GitHub and Forgejo — the Forged Release Notes dashboard.
+description: Self-hosted AI release-note automation for GitHub and Forgejo/Gitea — the Release Trace Wall.
 colors:
-  page: "#0a0a0c"
-  surface-1: "#14161a"
-  surface-2: "#1b1e22"
-  line: "#2a2e35"
-  line-strong: "#3a3f48"
-  focus: "#948e84"
-  ink: "#f3f0ec"
-  ink-2: "#b8b2a8"
-  ink-3: "#8a847b"
-  control: "#23262b"
-  control-hover: "#2d3138"
-  mark: "#ff7b00"
-  mark-hover: "#ffb300"
-  cherry: "#ff3d00"
-  ember: "#ff7b00"
-  heat: "#ffb300"
-  white: "#fff7e8"
-  ok: "#3fb477"
-  alert: "#e05252"
+  page: "#0b0f14"
+  panel: "#18212b"
+  raised: "#202d38"
+  panel-warm: "#1b2831"
+  raised-warm: "#25343e"
+  line: "#33434f"
+  line-strong: "#4a5d68"
+  focus: "#59c3c3"
+  ink: "#f3eee5"
+  muted: "#aeb8bd"
+  ink-soft: "#96a4aa"
+  control: "#263640"
+  control-hover: "#30444f"
+  copper: "#f06a3a"
+  copper-hover: "#f58b5f"
+  heat: "#f4c95d"
+  cyan: "#59c3c3"
+  green: "#86b574"
+  red: "#d55c51"
+  paper-edge: "#c2c0b8"
 typography:
-  title:
-    fontFamily: '"Saira Stencil One", ui-sans-serif, system-ui, sans-serif'
-    fontSize: "1.5rem"
+  display:
+    fontFamily: '"Saira Stencil One", "Saira", ui-sans-serif, system-ui, sans-serif'
+    fontSize: "clamp(2.75rem, 7vw, 5.75rem)"
     fontWeight: 400
-    lineHeight: 1.2
+    lineHeight: 0.95
+    letterSpacing: "-0.035em"
   headline:
     fontFamily: '"Saira", ui-sans-serif, system-ui, sans-serif'
-    fontSize: "0.875rem"
+    fontSize: "1rem"
     fontWeight: 600
-    lineHeight: 1.5
+    lineHeight: 1.3
   body:
     fontFamily: '"Saira", ui-sans-serif, system-ui, sans-serif'
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: '"Saira", ui-sans-serif, system-ui, sans-serif'
+    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace"
+    fontSize: "0.6875rem"
+    fontWeight: 600
+    lineHeight: 1.2
+    letterSpacing: "0.1em"
+  mono:
+    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace"
     fontSize: "0.75rem"
     fontWeight: 400
-    lineHeight: 1.4
+    lineHeight: 1.5
 rounded:
+  paper: "2px"
   sm: "4px"
   full: "9999px"
 spacing:
@@ -50,201 +59,186 @@ spacing:
   "2": "8px"
   "3": "12px"
   "4": "16px"
+  "5": "20px"
   "6": "24px"
 components:
   button-primary:
-    backgroundColor: "#23262b"
-    textColor: "#f3f0ec"
+    backgroundColor: "{colors.copper}"
+    textColor: "{colors.page}"
     typography: "{typography.body}"
     rounded: "{rounded.sm}"
     padding: "8px 12px"
+    height: "44px"
   button-primary-hover:
-    backgroundColor: "#2d3138"
-  button-mark:
-    backgroundColor: "linear-gradient(90deg, #ff3d00, #ff7b00, #ffb300)"
-    textColor: "#0a0a0c"
-    typography: "{typography.body}"
-    rounded: "{rounded.sm}"
-    padding: "8px 16px"
-  button-mark-hover:
-    backgroundColor: "linear-gradient(90deg, #ff7b00, #ffb300, #fff7e8)"
+    backgroundColor: "{colors.copper-hover}"
   button-secondary:
-    backgroundColor: "#1b1e22"
-    textColor: "#f3f0ec"
-    typography: "{typography.body}"
-    rounded: "{rounded.sm}"
-    padding: "6px 12px"
-  button-secondary-hover:
-    backgroundColor: "#23262b"
-  field:
-    backgroundColor: "#14161a"
-    textColor: "#f3f0ec"
+    backgroundColor: "{colors.raised}"
+    textColor: "{colors.ink}"
     typography: "{typography.body}"
     rounded: "{rounded.sm}"
     padding: "8px 12px"
-  card:
-    backgroundColor: "#14161a"
-    textColor: "#b8b2a8"
+    height: "44px"
+  button-ghost:
+    backgroundColor: "transparent"
+    textColor: "{colors.muted}"
+    typography: "{typography.body}"
+    rounded: "{rounded.sm}"
+    padding: "4px 8px"
+  field:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.sm}"
+    padding: "8px 12px"
+    height: "44px"
+  panel:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink}"
     rounded: "{rounded.sm}"
     padding: "16px"
   chip:
-    backgroundColor: "#1b1e22"
-    textColor: "#b8b2a8"
+    backgroundColor: "{colors.raised}"
+    textColor: "{colors.muted}"
     typography: "{typography.label}"
     rounded: "{rounded.sm}"
-    padding: "2px 8px"
+    padding: "4px 8px"
+  note-paper:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.page}"
+    rounded: "{rounded.paper}"
+    padding: "16px"
 ---
 
 # Design System: Annalist
 
 ## Overview
 
-**Creative North Star: "Forged Release Notes"**
+**Creative North Star: "Release Trace Wall"**
 
-Annalist is the forge where raw commits are heated, shaped by settings, and struck into human-sounding release notes. The interface is dark, warm, and industrial: forge-black ground, anvil-steel panels, and a heat ramp from cherry to white-hot for the committed action. Every surface — public landing page and operator dashboard alike — shares this world. There is no chrome, no decoration; every element either carries information or gives the operator room to work.
+Annalist presents each release as a traceable workpiece moving from input to proof. Dark powder-coated panels hold the operator's work; a thermal-paper note proof makes the generated result tangible. Copper marks the committed action, cyan shows the active trace, and compact instrumentation labels keep the system legible without turning the dashboard into decoration. The public page uses the same wall to explain the pipeline, while authenticated routes let an operator configure it.
+
+The system is deliberately layered rather than glossy. Saira Stencil One establishes position for the wordmark and display headings; Saira carries the working copy; monospace labels and note output read like instrumentation. A 4px control language, hairline borders, and tonal planes create depth without shadows. Green and red are reserved for status so their meaning stays unambiguous.
 
 **Key Characteristics:**
-- Dark-first forge palette; near-black page (`#0a0a0c`) with one- and two-step raised steel surfaces.
-- Heat is signal: the cherry-to-ember-to-heat gradient marks the single committed action. Green/red remain strictly for status.
-- Flat by default — depth comes from 1px hairline borders and tonal steps, never shadows.
-- One stenciled display face (`Saira Stencil One`) for titles, wordmark, and measured labels; `Saira` for body and UI. Self-hosted.
-- Uniform 4px radius on every control, card, chip, table, and input.
+- Dark powder-coated page and panel surfaces with one raised tonal step.
+- Copper is the committed action; cyan is the active trace; heat is a supporting work signal.
+- Thermal-paper note proof is the light, readable output plane.
+- Saira Stencil One for display; Saira for UI copy; monospace for labels and generated notes.
+- Flat depth: hairline borders and tonal planes, never drop shadows.
 
 ## Colors
 
-One sentence: forge-black ground under warm paper ink, with an anvil-steel surface ramp and a single heat-ramp accent used like a striking mark.
+The palette is a dark blue-black wall with cool paper ink, copper action, cyan trace, and tightly scoped status signals.
 
 ### Primary
-- **Heat Mark** (`#ff7b00`, hover `#ffb300`): the single accent. Rendered as a horizontal gradient from **Cherry** (`#ff3d00`) through **Ember** (`#ff7b00`) to **Heat** (`#ffb300`). Used for the committed action on a surface and the checkbox accent fill. It is the strike — it makes a mark, then stays off the page.
+- **Copper:** The committed action on a surface. It is direct and solid, not a decorative gradient.
+
+### Secondary
+- **Trace Cyan:** Active rails, nodes, focus rings, selected navigation, and live trace state.
+- **Working Heat:** Received commit signals, active setup indicators, and other in-progress work cues; it is not a success or failure status.
 
 ### Neutral
-- **Forge Black** (`#0a0a0c`): page background.
-- **Anvil Steel** (`#14161a`): first raised surface — nav bar, cards, table headers, input/select/textarea fills.
-- **Pitted Steel** (`#1b1e22`): second raised step — chips, secondary buttons, inset controls. 60% opacity variant backs expandable table rows.
-- **Tool Steel** (`#23262b`) → **Worked Steel** (`#2d3138`): neutral button fill and its hover.
-- **Hairline Scale** (`#2a2e35`): 1px borders and row dividers.
-- **Field Edge** (`#3a3f48`): input borders — one step brighter than dividers so fields read as editable.
-- **Focus Haze** (`#948e84`): focus border on focused fields.
-- **Cold-Press Ink** (`#f3f0ec`): primary text and button labels.
-- **Draft Ash** (`#b8b2a8`): secondary text — field labels, table secondary cells, subtitles.
-- **Slag Gray** (`#8a847b`): muted hints, loading/empty states, ghost captions.
-- **White Hot** (`#fff7e8`): display headline text and the peak of the heat ramp.
+- **Page:** The dark wall behind the shell.
+- **Panel:** The powder-coated base plane for navigation, cards, and fields.
+- **Raised:** The one-step-up plane for controls, chips, trace nodes, and row hover.
+- **Panel Warm / Raised Warm:** Optional warm tonal planes where a surface needs a slight material shift.
+- **Line / Line Strong:** Hairline dividers and stronger field/control edges.
+- **Ink / Muted / Ink Soft:** Primary copy, secondary copy, and quiet captions.
+- **Control / Control Hover:** Neutral control fill and its one-step hover state.
+- **Paper Edge:** The border around the thermal-paper proof.
 
 ### Status
-- **Forged Green** (`#3fb477`): configured / saved status.
-- **Scrap Red** (`#e05252`): errors and misconfigured status.
+- **Green:** Configured, saved, complete, or connected state only.
+- **Red:** Error, invalid input, or explicitly skipped/misconfigured state only.
 
 ### Named Rules
-**The Heat-Mark Rule.** The heat gradient appears only for the committed action on a surface and the checkbox accent. Two heat-ramp elements on one screen is a copy error.
+**The Copper Action Rule.** Use copper for the action that commits the current work; do not turn it into ambient decoration or a second primary on the same surface.
 
-**The Signal-Only Color Rule.** Green and red mean status, never decoration.
-
-**The Ink-On-Mark Rule.** Text on mark buttons is Forge Black (`text-page`) because the mark is a working surface.
+**The Signal-Only Color Rule.** Cyan, heat, green, and red each carry a defined operational signal. Green and red never decorate a neutral surface.
 
 ## Typography
 
-**Display Font:** `Saira Stencil One`, self-hosted. Used for page titles, the wordmark, numeric step labels, and small measured panel labels.
+**Display Font:** `Saira Stencil One`, self-hosted, with Saira and system fallbacks.
+**Body/UI Font:** `Saira`, self-hosted, with a system fallback.
+**Label/Mono Font:** `ui-monospace`, SFMono, Menlo, Consolas, or the platform equivalent.
 
-**Body/UI Font:** `Saira`, self-hosted. Weights 400–600. Tabular numerals for metrics.
-
-**Code Font:** browser monospace stack (`ui-monospace`, SFMono, Menlo, Consolas).
-
-**Character:** Operative and warm. Hierarchy is achieved with the stencil display face for position, weight and size within Saira for detail, and tonal stepping for priority.
+**Character:** The display face gives the wall a measured technical identity without competing with the work. Saira keeps instructions and controls plain; uppercase monospace labels make station, trace, and status metadata easy to scan.
 
 ### Hierarchy
-- **Page Title** (`font-display`, `text-2xl`, White Hot): the H1 on each surface ("REPOSITORIES", "SETTINGS", "SETUP").
-- **Section Heading** (`font-sans` semibold, `text-sm`): H2s like "LLM endpoint" and setup guidance, in Cold-Press Ink.
-- **Body / Field Label** (`font-sans` regular, `text-sm`): labels and values. Labels in Draft Ash; primary values in Cold-Press Ink.
-- **Caption / Metric** (`font-sans` regular, `text-xs`, tabular numerals): chips, field mini-labels, "Effective" summaries, footnote captions — Draft Ash or Slag Gray.
-- **Mono:** code blocks, Docker commands, generated release notes.
+- **Display:** Saira Stencil One, regular 400, responsive hero size (2.75–5.75rem), tight 0.95 line-height; landing headline and major surface identity.
+- **Headline:** Saira, semibold 600, approximately 1rem with 1.3 line-height; section and panel headings.
+- **Title:** Saira Stencil One, regular 400, approximately 1.05rem in the shell brand; compact route identity.
+- **Body:** Saira, regular 400, 0.875rem with 1.5 line-height; instructions, labels, and values.
+- **Label:** Monospace, semibold 600, 0.6875rem, uppercase with tracked lettering; trace labels, station labels, and compact status metadata.
+- **Proof / Code:** Monospace at compact reading sizes; Docker commands, commit subjects, and generated note output.
+
+### Named Rules
+**The Instrument-Label Rule.** Use tracked monospace labels for metadata and state; never use them to replace readable headings or instructions.
 
 ## Layout
 
-- **App shell:** full-width top nav with 1px Hairline Scale bottom border; content column `max-w-5xl` (Repositories, Add repositories) or centered `max-w-3xl` (Setup, Settings) with 24px padding.
-- **Spacing rhythm:** Tailwind's 4px base scale — 4 / 8 / 12 / 16 / 24px.
-- **Responsive:** grids collapse to one column below 640px; tables scroll horizontally inside `overflow-x-auto`.
-- Tables: 16px horizontal cell padding, 12px vertical; header row distinct via Anvil Steel fill.
+The shared shell uses a sticky full-width operator navigation bar and a centered working column. Console routes use a 64rem maximum; the public route uses a 6xl wall. A 12-column console grid and a 4px-based rhythm (4, 8, 12, 16, 20, and 24px) keep panels dense but readable. Public composition is asymmetric on wide screens: copy and action on the left, the synthetic trace wall on the right; feature and tone panels follow below.
+
+At mobile widths, the navigation wraps, console grids become one column, public feature panels collapse to one column, and trace rails/workspaces stack vertically. Setup's progress rail moves above its station workspace at 680px; repository, intake, and settings rails stack at 760px. Horizontal lists remain scrollable where preserving a row is useful. Keep controls at the existing 44px minimum and let long repository names and note text wrap rather than clip.
 
 ## Elevation & Depth
 
-Flat by default. No box-shadows. Depth is conveyed by 1px Hairline Scale borders and tonal stepping from Forge Black → Anvil Steel → Pitted Steel.
+The system has no box shadows. Powder-coated panels sit on the page by tonal separation and 1px borders; raised controls and trace nodes use the next tonal plane. The thermal-paper proof intentionally flips to an ink-on-paper plane so generated notes are easy to read, with a fine paper edge rather than a glow.
+
+### Shadow Vocabulary
+- **None:** `box-shadow: none`; use the page, panel, raised, and paper planes plus hairlines for depth.
+
+### Named Rules
+**The Tonal-Plane Rule.** Add depth with a border or the next named surface tone, never with a shadow, glass treatment, or decorative glow.
 
 ## Shapes
 
-Uniform 4px radius (`rounded`) on every control, card, chip, table, and input. The only exception is the `rounded-full` status dot. No clipping, no pill buttons.
+Controls, panels, chips, trace nodes, and navigation use a restrained 4px radius. Status and signal dots are circular; the thermal-paper proof uses a smaller 2px radius. Borders are explicit and generally 1px. There are no pill-shaped controls or clipped panels.
 
 ## Components
 
 ### Buttons
-- **Quiet Primary** (`button-primary`) — page actions (Refresh, Settings row): Tool Steel fill, Cold-Press Ink label; hover to Worked Steel.
-- **Committed Primary** (`button-mark`) — the action that ships something (Continue, Save, Add repositories): heat-gradient fill, Forge Black label, 4px radius, `brightness-110` hover. Reserve for the single committed action per surface.
-- **Secondary** (`button-secondary`) — Regenerate: Pitted Steel fill, Ink label; hover to Tool Steel.
+- **Primary:** Copper fill with page-colored text, 44px minimum height, 4px radius; hover lightens to copper-hover. Use for the current committed action.
+- **Secondary:** Raised fill with ink text and a strong line; hover shifts to the control plane.
+- **Ghost / Link:** Transparent at rest with muted text; hover adds a raised plane and line. Links retain visible focus and never borrow copper as decoration.
+- **Disabled:** Reduced opacity and not-allowed cursor; disabled controls do not communicate success or failure through color.
 
-### Checkboxes
-Native checkbox with heat accent (`accent-mark`).
+### Chips and Status
+- **Chip:** Raised plane, muted monospace label, 4px radius, compact padding; used for counts, synthetic labels, and station metadata.
+- **Status:** Monospace uppercase text with a current-color border. Green and red communicate status; cyan/heat communicate active work, never success/failure.
 
-### Chips
-Pitted Steel fill, Draft Ash 12px text, 4px radius, 2px 8px padding. Read-only value tags (effective tone/model).
-
-### Cards / Containers
-Anvil Steel fill, Hairline Scale 1px border, 4px radius, 16px padding, flat.
+### Cards / Panels
+- **Panel:** Panel plane, 1px line border, 4px radius, 16px padding; `panel-soft` uses the page plane for an inset workspace.
+- **Trace rail:** A hairline track with circular nodes. Cyan marks active/current progress; the rail remains readable as plain text and list structure.
+- **Note proof:** Ink-colored thermal-paper plane, dark page-colored text, paper edge, 2px radius, scrollable monospace output.
 
 ### Inputs / Fields
-Anvil Steel fill, Field Edge 1px border, 4px radius, 8px 12px padding, Cold-Press Ink text.
-- **Focus:** border shifts to Focus Haze; no glow.
+- **Style:** Panel fill, strong line border, 4px radius, 44px minimum height, ink text, muted placeholder.
+- **Focus:** Cyan border plus a visible 2px outline; do not rely on color alone to identify the focused field.
+- **Error / Disabled:** Red is reserved for an error message or invalid state; disabled fields use opacity and cursor treatment.
 
 ### Navigation
-Anvil Steel bar, full width, Hairline Scale bottom border; wordmark "ANNALIST" in `Saira Stencil One`; links 14px Draft Ash hover → Cold-Press Ink. No active-state styling.
 
-### Tables
-Header row: Anvil Steel fill, Draft Ash medium weight; body rows Hairline Scale top borders; expandable per-repo settings row drops one tone step (`bg-surface-1/60`).
+The sticky shell bar uses a panel plane and hairline bottom border. The ANNALIST wordmark uses the display face; links use Saira and a 4px control shape. The current route gains ink/cyan text, a raised plane, and a short cyan underline. Public and setup remain reachable without an authenticated token; other console routes redirect to setup when no token is present.
 
-### Note Preview
-Generated notes in `<pre>`: Forge Black background, Hairline Scale border, 12px Slag Gray mono, `max-h-64` scroll.
+### Accessibility and Motion
 
-## Onboarding
-
-The `/repos` page lists only repositories the operator has deliberately added. New users are guided to `/repos/add`, where they can:
-- Browse repositories available from each enabled platform (GitHub / Forgejo).
-- Select multiple available repos and add them at once.
-- Add a repository manually by platform, owner, and name.
-
-Empty states explain the next step rather than assuming misconfiguration. Managed repos can be enabled/disabled, tuned per-repo, and regenerated from the list.
+Use semantic headings, labeled form controls, native buttons/inputs, and `aria-current`, `aria-live`, and `role="status"`/`role="alert"` for changing station, loading, and error states. All interactive elements expose a 2px cyan `:focus-visible` ring with offset. The public trace labels its commit subjects and output synthetic; `prefers-reduced-motion` settles the trace and reduces transitions, while visibility pauses the looping public signal.
 
 ## Do's and Don'ts
 
 ### Do:
-- Keep the page on Forge Black and raise surfaces only one or two tonal steps.
-- Use the heat-ramp mark for exactly one committed action per surface, plus the checkbox accent.
-- Treat green/red strictly as status signal.
-- Prefer tonal separation and hairlines over shadows.
-- Keep the 4px radius constant across controls, cards, chips, and inputs.
-- Use the display face for position and the UI face for detail.
+- **Do** use the named page, panel, raised, line, ink, copper, heat, cyan, green, and red roles rather than one-off colors.
+- **Do** make the trace legible in text and structure before adding motion; label public proof as synthetic.
+- **Do** use copper for the current committed action and cyan for active trace/focus.
+- **Do** preserve the thermal-paper proof as a high-contrast output plane with readable monospace text.
+- **Do** use borders and tonal planes for depth and keep the 4px control rhythm.
+- **Do** preserve focus rings, live status announcements, wrapping text, and reduced-motion behavior.
 
 ### Don't:
-- Don't introduce a second accent hue (teal, blue, purple) alongside the heat ramp.
-- Don't add box-shadows, gradients, or glass effects as decoration.
-- Don't fall back to default Tailwind zinc classes; the bespoke forge ramp is the only allowed neutral.
-- Don't use the heat-ramp as link color, decoration, or ambient fill.
-- Don't use white text on mark buttons; mark buttons carry Forge Black labels.
-- Don't change the radius per component.
-
----
-
-# Surface: Public Landing Page ("/")
-
-## Mode and World
-
-Public landing page. Mode: **Persuade**. It dramatizes the pipeline — raw commits are heated, each summary is a measured blow, and a human-sounding release note exits as shaped metal. It shares the same Forged world as the dashboard, but is allowed to be more expressive because its only job is to explain and drive deployment.
-
-## Palette, Typography, Components
-
-Uses the global Forged system. Dedicated accents:
-- Large display headline in `Saira Stencil One`, White Hot.
-- Hero "forge stage" card with an animated heat bar and a static, honestly-labeled synthetic release note.
-- Three "blow rows" explain the pipeline as Receive → Resolve → Strike.
-- Deploy section presents a copyable Docker command.
-
-## Motion
-
-One controlled animation: commits and heat values animate through the forge-stage bar in a loop; the synthetic output below is always readable so the proof is never hidden. Respects `prefers-reduced-motion`.
+- **Don't** revive the old Copy Desk or Forged Release Notes visual language.
+- **Don't** use gradients, glass, glow, or shadows as decorative depth.
+- **Don't** use green or red for emphasis, links, or decoration; they are status semantics.
+- **Don't** use cyan or heat as a generic accent or substitute for readable status text.
+- **Don't** fabricate customers, metrics, release activity, or operational outcomes in public proof.
+- **Don't** create a second radius system or hide long names and note output by clipping.

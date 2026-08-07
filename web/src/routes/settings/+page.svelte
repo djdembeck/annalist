@@ -7,9 +7,9 @@
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
+  let saving = $state(false);
   let error = $state("");
   let saved = $state(false);
-
   let toneOption = $state("inherit");
   let customTone = $state("");
   let instructions = $state("");
@@ -21,11 +21,7 @@
       settings = await getSettings();
       const s = settings;
       const tone = s.tone ?? "";
-      toneOption = !tone
-        ? "inherit"
-        : PRESET_OPTIONS.includes(tone)
-          ? tone
-          : "custom";
+      toneOption = !tone ? "inherit" : PRESET_OPTIONS.includes(tone) ? tone : "custom";
       customTone = PRESET_OPTIONS.includes(tone) ? "" : tone;
       instructions = s.instructions ?? "";
       model = s.model ?? "";
@@ -46,21 +42,17 @@
 
   async function save(): Promise<void> {
     saved = false;
+    saving = true;
     let tone: string | null;
-    if (toneOption === "inherit") {
-      tone = null;
-    } else if (toneOption === "custom") {
-      tone = customTone.trim() ? customTone : null;
-    } else {
-      tone = toneOption;
-    }
+    if (toneOption === "inherit") tone = null;
+    else if (toneOption === "custom") tone = customTone.trim() ? customTone : null;
+    else tone = toneOption;
     try {
       settings = await putSettings({
         tone,
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
-        temperature:
-          temperature === "" ? null : parseFloat(temperature) || null,
+        temperature: temperature === "" ? null : parseFloat(temperature) || null,
       });
       saved = true;
       error = "";
@@ -70,132 +62,73 @@
         return;
       }
       error = e instanceof Error ? e.message : "Failed to save settings";
+    } finally {
+      saving = false;
     }
   }
 </script>
 
-<div class="mx-auto max-w-2xl">
-  <h1 class="mb-2 font-display text-2xl tracking-tight text-white sm:text-3xl">Settings</h1>
-  <p class="mb-8 text-base text-ink-2">
-    Global defaults used for any repository that doesn't override them.
-  </p>
+<div class="trace-wall">
+  <header class="section-head">
+    <div>
+      <p class="trace-label">Operations / global contract</p>
+      <h1>Machine contract &amp; voice proof</h1>
+      <p class="section-head__lede">Set the defaults that shape release notes, then verify the machine connection that will carry them.</p>
+    </div>
+    <a href="/repos" class="btn btn-secondary">Repository inventory</a>
+  </header>
+
+  <section class="panel panel-soft settings-trace" aria-label="Settings trace workflow">
+    <div class="settings-node"><span class="signal-dot signal-dot--cyan" aria-hidden="true"></span><div><p class="trace-label">Contract</p><p class="settings-node__title">Global defaults</p></div></div>
+    <div class="settings-trace__line" aria-hidden="true"></div>
+    <div class="settings-node"><span class="signal-dot" aria-hidden="true"></span><div><p class="trace-label">Machine</p><p class="settings-node__title">Endpoint and sources</p></div></div>
+    <div class="settings-trace__line" aria-hidden="true"></div>
+    <div class="settings-node"><span class="signal-dot signal-dot--heat" aria-hidden="true"></span><div><p class="trace-label">Proof</p><p class="settings-node__title">What generation will use</p></div></div>
+  </section>
 
   {#if error}
-    <p class="mb-4 rounded border border-alert/30 bg-alert/10 p-3 text-sm text-alert">{error}</p>
+    <section class="panel panel--error" role="alert"><p class="trace-label">Contract update needs attention</p><p class="mt-2 text-sm text-alert">{error}</p></section>
   {/if}
 
   {#if loading}
-    <p class="text-base text-ink-3">Loading…</p>
+    <section class="panel" aria-busy="true" aria-label="Loading settings"><p class="trace-label">Reading machine contract</p><div class="skeleton mt-4 h-12 w-full"></div><div class="skeleton mt-3 h-28 w-full"></div><div class="skeleton mt-3 h-12 w-1/2"></div></section>
   {:else if settings}
-    <div class="grid gap-6">
-      <label class="flex flex-col gap-2">
-        <span class="text-sm text-ink-2">Tone</span>
-        <select
-          bind:value={toneOption}
-          class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
-        >
-          <option value="inherit">Inherit (neutral)</option>
-          {#each PRESET_OPTIONS as p (p)}
-            <option value={p}>{p}</option>
-          {/each}
-          <option value="custom">Custom…</option>
-        </select>
-      </label>
+    <div class="settings-layout">
+      <section class="panel settings-form" aria-label="Global release note defaults">
+        <div class="section-head section-head--compact"><div><p class="trace-label">Voice contract</p><h2>Global defaults</h2></div><span class="status status--healthy"><span class="signal-dot signal-dot--cyan" aria-hidden="true"></span>Editable</span></div>
+        <div class="grid gap-5">
+          <label class="field-group"><span class="field-group__label">Tone</span><select bind:value={toneOption} class="field"><option value="inherit">Inherit (neutral)</option>{#each PRESET_OPTIONS as p (p)}<option value={p}>{p}</option>{/each}<option value="custom">Custom…</option></select><span class="field-group__hint">Choose the voice used when a repository does not override it.</span></label>
+          {#if toneOption === "custom"}<label class="field-group"><span class="field-group__label">Custom tone</span><input bind:value={customTone} placeholder="Freeform persona" class="field" /></label>{/if}
+          <label class="field-group"><span class="field-group__label">Instructions</span><textarea bind:value={instructions} rows="5" placeholder="Additional instructions for note generation" class="field"></textarea><span class="field-group__hint">These instructions travel with the global voice contract.</span></label>
+          <div class="grid gap-5 sm:grid-cols-2">
+            <label class="field-group"><span class="field-group__label">Model <span class="field-group__hint">(blank = server default)</span></span><input bind:value={model} class="field" /></label>
+            <label class="field-group"><span class="field-group__label">Temperature <span class="field-group__hint">(blank = server default)</span></span><input type="number" step="0.1" min="0" max="2" bind:value={temperature} class="field" /><span class="field-group__hint">0 = deterministic, 2 = very creative.</span></label>
+          </div>
+          <div class="flex flex-wrap items-center gap-3"><button onclick={save} disabled={saving} class="btn btn-primary">{saving ? "Saving…" : "Save contract"}</button>{#if saved}<span class="status status--healthy" role="status"><span class="signal-dot signal-dot--healthy" aria-hidden="true"></span>Saved</span>{/if}</div>
+        </div>
+      </section>
 
-      {#if toneOption === "custom"}
-        <label class="flex flex-col gap-2">
-          <span class="text-sm text-ink-2">Custom tone</span>
-          <input
-            bind:value={customTone}
-            placeholder="Freeform persona"
-            class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
-          />
-        </label>
-      {/if}
+      <aside class="settings-proof">
+        <section class="panel panel-soft" aria-label="Machine contract">
+          <div class="section-head section-head--compact"><div><p class="trace-label">Machine contract</p><h2>Connection state</h2></div><span class="signal-dot signal-dot--healthy" aria-hidden="true"></span></div>
+          <dl class="contract-list">
+            <div><dt>Base URL</dt><dd>{settings.llm.base_url}</dd></div>
+            <div><dt>Model</dt><dd>{settings.llm.model}</dd></div>
+            <div><dt>GitHub</dt><dd><span class="status {settings.github ? 'status--healthy' : 'status--quiet'}"><span class="signal-dot {settings.github ? 'signal-dot--healthy' : 'signal-dot--muted'}" aria-hidden="true"></span>{settings.github ? "Configured" : "Not configured"}</span></dd></div>
+            <div><dt>Forgejo</dt><dd><span class="status {settings.forgejo ? 'status--healthy' : 'status--quiet'}"><span class="signal-dot {settings.forgejo ? 'signal-dot--healthy' : 'signal-dot--muted'}" aria-hidden="true"></span>{settings.forgejo ? "Configured" : "Not configured"}</span></dd></div>
+          </dl>
+        </section>
 
-      <label class="flex flex-col gap-2">
-        <span class="text-sm text-ink-2">Instructions</span>
-        <textarea
-          bind:value={instructions}
-          rows="4"
-          placeholder="Additional instructions for note generation"
-          class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
-        ></textarea>
-      </label>
-
-      <div class="grid gap-6 sm:grid-cols-2">
-        <label class="flex flex-col gap-2">
-          <span class="text-sm text-ink-2">Model (blank = server default)</span>
-          <input
-            bind:value={model}
-            class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
-          />
-        </label>
-        <label class="flex flex-col gap-2">
-          <span class="text-sm text-ink-2">Temperature (blank = server default)</span>
-          <input
-            type="number"
-            step="0.1"
-            min="0"
-            max="2"
-            bind:value={temperature}
-            class="rounded border border-line-strong bg-surface-1 px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus:outline-2 focus:outline-focus-ring"
-          />
-        </label>
-      </div>
-
-      <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-        <button
-          onclick={save}
-          class="inline-flex w-full items-center justify-center rounded bg-mark bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-medium text-page hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-focus-ring sm:w-auto"
-        >
-          Save
-        </button>
-        {#if saved}
-          <span class="inline-flex items-center gap-1.5 text-sm text-ok">
-            <span class="h-2 w-2 rounded-full bg-ok"></span>
-            Saved
-          </span>
-        {/if}
-      </div>
+        <section class="panel panel-soft" aria-label="Voice proof">
+          <p class="trace-label">Voice proof</p>
+          <h2 class="mt-1">Current contract at a glance</h2>
+          <pre class="note-paper mt-4">Tone: {toneOption === "custom" ? (customTone.trim() || "inherit") : toneOption === "inherit" ? "neutral" : toneOption}
+Model: {model.trim() || settings.llm.model || "server default"}
+Temperature: {temperature || "server default"}
+Instructions: {instructions.trim() || "No additional instructions."}</pre>
+          <p class="mt-3 text-xs text-ink-3">This proof reflects the values in the form. Repository-level settings can override the global contract.</p>
+        </section>
+      </aside>
     </div>
-
-    <section class="mt-10 rounded border border-line bg-surface-2-warm p-5 text-sm">
-      <h2 class="mb-3 font-sans text-base font-semibold text-ink">LLM endpoint</h2>
-      <dl class="space-y-2 text-ink-2">
-        <div class="flex flex-wrap justify-between gap-2 sm:gap-4">
-          <dt>Base URL</dt>
-          <dd class="break-all text-right text-ink">{settings.llm.base_url}</dd>
-        </div>
-        <div class="flex flex-wrap justify-between gap-2 sm:gap-4">
-          <dt>Model</dt>
-          <dd class="break-all text-right text-ink">{settings.llm.model}</dd>
-        </div>
-        <div class="flex flex-wrap justify-between gap-2 sm:gap-4">
-          <dt>GitHub</dt>
-          <dd class="inline-flex items-center gap-1.5 text-ink">
-            {#if settings.github}
-              <span class="h-2 w-2 rounded-full bg-ok"></span>
-              Configured
-            {:else}
-              <span class="h-2 w-2 rounded-full bg-line-strong"></span>
-              Not configured
-            {/if}
-          </dd>
-        </div>
-        <div class="flex flex-wrap justify-between gap-2 sm:gap-4">
-          <dt>Forgejo</dt>
-          <dd class="inline-flex items-center gap-1.5 text-ink">
-            {#if settings.forgejo}
-              <span class="h-2 w-2 rounded-full bg-ok"></span>
-              Configured
-            {:else}
-              <span class="h-2 w-2 rounded-full bg-line-strong"></span>
-              Not configured
-            {/if}
-          </dd>
-        </div>
-      </dl>
-    </section>
   {/if}
 </div>

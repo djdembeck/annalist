@@ -29,41 +29,66 @@
   });
 </script>
 
-<div class="min-h-dvh">
-  <nav
-    class="sticky top-0 z-40 flex items-center gap-4 sm:gap-6 border-b border-line bg-surface-1 px-4 sm:px-6 pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] py-3 sm:py-4"
-  >
-    <a href="/" class="focus-ring font-display text-lg tracking-tight text-white">ANNALIST</a>
-    <div class="ml-auto flex items-center gap-2 sm:gap-6">
+<!--
+  THESIS: Every release is a traceable workpiece moving from commit input to shaped note; this shell refuses the interchangeable admin dashboard.
+  OWN-WORLD: Dark powder-coated panels, thermal-paper proof, copper action rails, cyan trace signals, and compact instrumentation labels.
+  STORY: Operators see what is connected, what is active, which voice is applied, and what note will ship.
+  FIRST VIEWPORT: A release trace occupies the primary field; the note proof and next action sit beside it on desktop and stack on mobile.
+  FORM: Release Trace Wall, seed aa4fba49.
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+<div class="app-shell">
+  <header class="operator-nav">
+    <nav class="nav-inner" aria-label="Primary navigation">
+      <a href="/" class="brand-lockup focus-ring" aria-label="Annalist home">
+        <span class="brand-name">ANNALIST</span>
+        <span class="brand-subtitle">RELEASE CONTROL</span>
+      </a>
+
       {#if token}
-        <a
-          href="/setup"
-          class="focus-ring nav-link p-1.5 text-sm {isActive('/setup') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
-        >Setup{#if setupComplete}<span
-              class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-ok"
-              aria-hidden="true"
-            ></span
-            ><span class="sr-only"> (complete)</span>{/if}</a>
-        <a
-          href="/repos"
-          class="focus-ring nav-link p-1.5 text-sm {isActive('/repos') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
-        >Repos</a>
-        <a
-          href="/settings"
-          class="focus-ring nav-link p-1.5 text-sm {isActive('/settings') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
-        >Settings</a>
+        <div class="nav-actions">
+          <span
+            class="readiness {setupComplete ? 'status-ok' : 'status-warn'}"
+            role="status"
+            aria-label={setupComplete ? "Setup ready" : "Setup pending"}
+          >
+            <span class="signal-dot" aria-hidden="true"></span>
+            {setupComplete ? "SETUP READY" : "SETUP PENDING"}
+          </span>
+          <div class="nav-links">
+            <a
+              href="/setup"
+              aria-current={isActive('/setup') ? 'page' : undefined}
+              class="nav-link focus-ring {isActive('/setup') ? 'active' : ''}"
+            >Setup{#if setupComplete}<span class="sr-only"> (complete)</span>{/if}</a>
+            <a
+              href="/repos"
+              aria-current={isActive('/repos') ? 'page' : undefined}
+              class="nav-link focus-ring {isActive('/repos') ? 'active' : ''}"
+            >Repos</a>
+            <a
+              href="/settings"
+              aria-current={isActive('/settings') ? 'page' : undefined}
+              class="nav-link focus-ring {isActive('/settings') ? 'active' : ''}"
+            >Settings</a>
+          </div>
+        </div>
       {:else}
-        <a
-          href="/setup"
-          class="focus-ring nav-link p-1.5 text-sm {isActive('/setup') ? 'active text-heat' : 'text-ink-2 hover:text-ink'}"
-        >Dashboard</a>
+        <div class="nav-actions">
+          <div class="nav-links">
+            <a
+              href="/setup"
+              aria-current={isActive('/setup') ? 'page' : undefined}
+              class="nav-link focus-ring {isActive('/setup') ? 'active' : ''}"
+            >Setup</a>
+          </div>
+        </div>
       {/if}
-    </div>
-  </nav>
+    </nav>
+  </header>
+
   <main
-    class={$page.url.pathname === "/"
-      ? ""
-      : "mx-auto w-full max-w-5xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8 pb-[max(2rem,env(safe-area-inset-bottom))]"}
+    class="shell-main {$page.url.pathname === '/' ? 'shell-main-public' : 'shell-main-console'}"
   >
     {@render children()}
   </main>

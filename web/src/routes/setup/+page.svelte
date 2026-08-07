@@ -294,605 +294,545 @@
   <title>Setup · Annalist</title>
 </svelte:head>
 
-<div class="mx-auto max-w-3xl py-6 sm:py-8">
-  <h1 class="mb-2 font-display text-2xl text-white">Setup</h1>
-  <p class="mb-8 text-base text-ink-2">
-    A quick walkthrough to get your forge online.
-  </p>
-
-  <!-- Stepper -->
-  <nav
-    aria-label="Setup progress"
-    class="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-10 mb-8 overflow-x-auto border-b border-line bg-page pb-4"
-  >
-    <ol class="flex min-w-max items-center gap-x-4 gap-y-3 sm:gap-x-6">
-      {#each STEPS as label, i}
-        <li>
-          {#if i < step}
-            <button
-              onclick={() => goTo(i)}
-              class="inline-flex items-center gap-2 rounded text-sm text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-            >
-              <svg
-                class="h-4 w-4 text-ok"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                aria-hidden="true"
-              >
-                <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"></path>
-              </svg>
-              <span class="hidden capitalize sm:inline">{label}</span>
-            </button>
-          {:else if i === step}
-            <span
-              aria-current="step"
-              class="relative inline-flex items-center gap-2 rounded text-sm font-medium text-heat"
-            >
-              <span
-                class="flex h-5 w-5 items-center justify-center rounded border border-heat text-xs"
-                >{i + 1}</span
-              >
-              <span class="capitalize">{label}</span>
-              <span
-                class="absolute -bottom-2 left-0 right-0 h-px bg-gradient-to-r from-cherry via-ember to-heat"
-              ></span>
-            </span>
-          {:else}
-            <span class="inline-flex items-center gap-2 rounded text-sm text-ink-3">
-              <span
-                class="flex h-5 w-5 items-center justify-center rounded border border-line text-xs"
-                >{i + 1}</span
-              >
-              <span class="hidden capitalize sm:inline">{label}</span>
-            </span>
-          {/if}
-        </li>
-      {/each}
-    </ol>
-  </nav>
-
-  <div aria-live="polite" class="sr-only">
-    Step {step + 1} of {STEPS.length}: {STEPS[step]}.
-  </div>
-
-  <div role="alert" aria-live="assertive">
-    {#if error}
-      <p class="mb-4 rounded border border-alert/30 bg-alert/10 p-3 text-sm text-alert">
-        {error}
+<div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+  <header class="section-head mb-6 flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <p class="trace-label mb-2">FIRST-RUN ACTIVATION</p>
+      <h1 class="font-display text-3xl text-ink sm:text-4xl">Make the next release legible.</h1>
+      <p class="mt-2 max-w-2xl text-base text-ink-2">
+        Connect your forge, choose the repositories Annalist can read, and shape the voice
+        that will ship with every release note.
       </p>
-    {/if}
-  </div>
+    </div>
+    <span class="chip shrink-0">
+      <span class="signal-dot" aria-hidden="true"></span>
+      Station {step + 1} of {STEPS.length}
+    </span>
+  </header>
 
-  <!-- Step 1 — Welcome & Token -->
-  {#if step === 0}
-    <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
-      <div class="space-y-2">
-        <h2 class="font-display text-2xl text-white">Welcome to your forge</h2>
-        <p class="text-base text-ink-2">
-          Annalist is self-hosted. The admin token you provide protects every admin
-          action on this instance, so keep it private.
-        </p>
+  <div class="console-grid setup-layout items-start gap-6 lg:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)]">
+    <aside class="panel setup-track lg:sticky lg:top-24" aria-label="Setup progress">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <p class="trace-label">RELEASE TRACE</p>
+        <span class="text-xs text-ink-3">{step + 1}/{STEPS.length}</span>
       </div>
-      <form
-        class="flex flex-col gap-4"
-        aria-busy={busy}
-        onsubmit={(e) => {
-          e.preventDefault();
-          submitToken();
-        }}
-      >
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <label for="admin-token" class="text-sm text-ink-2">ADMIN_TOKEN</label>
-            <button
-              type="button"
-              onclick={() => (showToken = !showToken)}
-              class="rounded px-2 py-1 text-xs text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-            >
-              {showToken ? "Hide" : "Show"}
-            </button>
-          </div>
-          <input
-            id="admin-token"
-            type={showToken ? "text" : "password"}
-            bind:value={adminToken}
-            placeholder="Paste your admin token"
-            autocomplete="off"
-            class="rounded border border-line-strong bg-page px-4 py-2.5 text-ink outline-none placeholder:text-ink-3 focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-          />
-          <span class="text-xs text-ink-3">
-            This is the <span class="font-mono text-ink-2">ADMIN_TOKEN</span> you set in the
-            server's <span class="font-mono text-ink-2">config.yaml</span> or environment. It is
-            kept in your browser only.
-          </span>
-        </div>
-        <button
-          type="submit"
-          disabled={!adminToken.trim() || busy}
-          aria-busy={busy}
-          class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-        >
-          {#if busy}
-            <svg
-              class="h-4 w-4 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              ></path>
-            </svg>
-          {/if}
-          {busy ? "Connecting…" : "Continue"}
-        </button>
-      </form>
-    </section>
-  {/if}
-
-  <!-- Step 2 — Connect platforms -->
-  {#if step === 1}
-    <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
-      <div class="grid gap-6 sm:grid-cols-2">
-        {#each SOURCES as source}
-          {@const configured = status?.[source] ?? false}
-          <div class="flex flex-col gap-3">
-            <div class="flex items-center gap-3">
-              {#if configured}
-                <span class="flex h-6 w-6 items-center justify-center rounded bg-ok/15 text-ok">
-                  <svg
-                    class="h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    aria-hidden="true"
-                  >
-                    <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"></path>
-                  </svg>
+      <nav aria-label="Setup progress">
+        <ol class="space-y-1">
+          {#each STEPS as label, i}
+            <li>
+              {#if i < step}
+                <button
+                  onclick={() => goTo(i)}
+                  class="setup-node group w-full text-left"
+                  aria-label={`Return to completed step ${i + 1}: ${label}`}
+                >
+                  <span class="signal-dot bg-ok text-ok" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                      <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                  </span>
+                  <span class="min-w-0 flex-1 truncate text-sm text-ink-2 group-hover:text-ink">{label}</span>
+                  <span class="status status-ok">Done</span>
+                </button>
+              {:else if i === step}
+                <span class="setup-node setup-node-active w-full" aria-current="step">
+                  <span class="signal-dot bg-control text-heat" aria-hidden="true"></span>
+                  <span class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{label}</span>
+                  <span class="status status-active">Active</span>
                 </span>
               {:else}
-                <span
-                  class="flex h-6 w-6 items-center justify-center rounded border border-line text-ink-3"
-                >
-                  <svg
-                    class="h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    aria-hidden="true"
-                  >
-                    <line x1="6" y1="12" x2="18" y2="12" stroke-linecap="round"></line>
-                  </svg>
+                <span class="setup-node w-full opacity-60">
+                  <span class="signal-dot" aria-hidden="true"></span>
+                  <span class="min-w-0 flex-1 truncate text-sm text-ink-3">{label}</span>
+                  <span class="status">Queued</span>
                 </span>
               {/if}
-              <div>
-                <p class="font-medium capitalize text-ink">{source}</p>
-                <p class="text-sm text-ink-2">{configured ? "Configured" : "Not configured"}</p>
-              </div>
-            </div>
-            {#if !configured}
-              <a
-                href="https://github.com/djdembeck/annalist#platform-setup"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex w-fit items-center gap-1.5 text-sm text-ink-2 transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-              >
-                How to configure {source}
-                <svg
-                  class="h-3.5 w-3.5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  aria-hidden="true"
-                >
-                  <path d="M7 17L17 7" stroke-linecap="round"></path>
-                  <path d="M9 7h8v8" stroke-linecap="round" stroke-linejoin="round"></path>
-                </svg>
-              </a>
-            {/if}
-          </div>
-        {/each}
+            </li>
+          {/each}
+        </ol>
+      </nav>
+      <div class="mt-5 border-t border-line pt-4">
+        <p class="text-xs leading-5 text-ink-3">
+          Each station leaves evidence on the trace. Completed stations stay available above.
+        </p>
       </div>
+    </aside>
 
-      <p class="border-t border-line pt-4 text-sm text-ink-2">
-        Annalist only reads release events and commit history. It cannot merge PRs,
-        push code, or access source outside the repositories you add.
-      </p>
-
-      <div class="flex flex-col gap-3 border-t border-line pt-4">
-        <button
-          onclick={advanceToRepos}
-          disabled={connectedCount === 0}
-          class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-        >
-          Continue
-        </button>
-        {#if skipWarning}
-          <p class="text-sm text-alert">
-            No platform is configured yet, so you won't be able to add repositories.
-            You can still continue and configure things later.
-          </p>
-          <button
-            onclick={continueFromPlatforms}
-            class="inline-flex w-full items-center justify-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-          >
-            Continue anyway
-          </button>
-        {:else if connectedCount === 0}
-          <p class="text-sm text-ink-3">
-            Connect at least one platform to continue, or skip below.
-          </p>
-          <button
-            onclick={skipPlatforms}
-            class="inline-flex w-full items-center justify-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-          >
-            Skip for now
-          </button>
+    <main class="panel panel-soft min-w-0" aria-labelledby="station-heading">
+      <div class="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+        <div>
+          <p class="trace-label">STATION {String(step + 1).padStart(2, "0")}</p>
+          <h2 id="station-heading" class="mt-1 text-xl font-semibold text-ink">{STEPS[step]}</h2>
+        </div>
+        {#if busy || loading || saving}
+          <span class="status status-active" aria-live="polite">
+            <span class="signal-dot" aria-hidden="true"></span>
+            {busy ? "Checking token" : loading ? "Reading repositories" : "Writing settings"}
+          </span>
+        {:else}
+          <span class="status status-ready">Ready</span>
         {/if}
       </div>
-    </section>
-  {/if}
-  <!-- Step 3 — Add repositories -->
-  <!-- Step 3 — Add repositories -->
-  {#if step === 2}
-    <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
-      {#if connectedCount === 0}
-        <div class="space-y-4">
-          <p class="text-base text-ink-2">
-            No platforms are configured, so there are no repositories to add yet.
+
+      <div aria-live="polite" class="sr-only">
+        Step {step + 1} of {STEPS.length}: {STEPS[step]}.
+      </div>
+
+      <div role="alert" aria-live="assertive">
+        {#if error}
+          <p class="mb-6 border border-alert/40 bg-alert/10 p-3 text-sm text-alert">
+            {error}
           </p>
-          <button
-            onclick={() => (step = 1)}
-            class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-          >
-            Go back and connect a platform
-          </button>
-        </div>
-      {:else if !reposVisible}
-        <div class="flex flex-col gap-3">
-          <p class="text-base text-ink-2">
-            Load the repositories Annalist can see from your connected platforms.
-          </p>
-          <button
-            onclick={enterRepos}
-            class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-          >
-            Load repositories
-          </button>
-          <button
-            onclick={() => (step = 3)}
-            class="inline-flex w-full items-center justify-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-          >
-            Skip for now
-          </button>
-        </div>
-      {:else}
-        <div class="flex flex-col gap-3">
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <input
-              type="search"
-              placeholder="Search repositories…"
-              bind:value={search}
-              class="w-full rounded border border-line-strong bg-page px-4 py-2.5 text-ink outline-none placeholder:text-ink-3 focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:flex-1"
-            />
-            <button
-              type="button"
-              onclick={() => (showFilters = !showFilters)}
-              aria-expanded={showFilters}
-              class="inline-flex w-fit items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-            >
-              {showFilters ? "Hide filters" : "Show filters"}
-            </button>
+        {/if}
+      </div>
+
+      <!-- Step 1 — Welcome & Token -->
+      {#if step === 0}
+        <section class="space-y-6" aria-labelledby="welcome-heading">
+          <div class="section-head block">
+            <p class="trace-label mb-2">COMMIT INPUT</p>
+            <h3 id="welcome-heading" class="text-2xl font-semibold text-ink">Connect the control plane.</h3>
+            <p class="mt-2 max-w-2xl text-base text-ink-2">
+              Annalist is self-hosted. The admin token you provide protects every admin
+              action on this instance, so keep it private.
+            </p>
           </div>
-          {#if showFilters}
-            <div class="flex flex-col gap-3 rounded border border-line bg-page p-4 sm:flex-row sm:flex-wrap sm:items-center">
-              <label class="flex items-center gap-2 text-sm text-ink-2">
-                Sort
-                <select
-                  bind:value={sortBy}
-                  class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                >
-                  <option value="name">Name</option>
-                  <option value="activity">Recent activity</option>
-                </select>
-              </label>
-              <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
-                <input
-                  type="checkbox"
-                  bind:checked={showForks}
-                  class="h-4 w-4 accent-mark"
-                />
-                Show forks
-              </label>
-              <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
-                <input
-                  type="checkbox"
-                  bind:checked={showSharedNamespaces}
-                  class="h-4 w-4 accent-mark"
-                />
-                Show organization &amp; shared namespaces
-              </label>
-            </div>
-          {/if}
-        </div>
-
-        <div class="flex gap-2">
-          {#each SOURCES as source}
-            {@const isEnabled = status?.[source] ?? false}
-            <button
-              onclick={() => (activeSource = source)}
-              disabled={!isEnabled}
-              class="relative rounded px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-              class:bg-surface-2={activeSource !== source}
-              class:text-ink-2={activeSource !== source}
-              class:hover:bg-surface-1={activeSource !== source}
-              class:bg-surface-1={activeSource === source}
-              class:text-heat={activeSource === source}
-              class:opacity-50={!isEnabled}
-              class:after:absolute={activeSource === source}
-              class:after:bottom-0={activeSource === source}
-              class:after:left-0={activeSource === source}
-              class:after:right-0={activeSource === source}
-              class:after:h-px={activeSource === source}
-              class:after:bg-gradient-to-r={activeSource === source}
-              class:after:from-cherry={activeSource === source}
-              class:after:via-ember={activeSource === source}
-              class:after:to-heat={activeSource === source}
-            >
-              {source}
-            </button>
-          {/each}
-        </div>
-
-        {#if loading}
-          <div
-            class="max-h-80 overflow-auto rounded border border-line"
-            aria-busy={loading}
+          <form
+            class="flex flex-col gap-5"
+            aria-busy={busy}
+            onsubmit={(e) => {
+              e.preventDefault();
+              submitToken();
+            }}
           >
-            {#each [1, 2, 3, 4, 5] as _}
-              <div
-                class="flex items-center gap-3 border-b border-line px-4 py-3 last:border-b-0"
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center justify-between gap-3">
+                <label for="admin-token" class="trace-label">ADMIN_TOKEN</label>
+                <button
+                  type="button"
+                  onclick={() => (showToken = !showToken)}
+                  class="btn btn-ghost px-2 py-1 text-xs"
+                >
+                  {showToken ? "Hide" : "Show"}
+                </button>
+              </div>
+              <input
+                id="admin-token"
+                type={showToken ? "text" : "password"}
+                bind:value={adminToken}
+                placeholder="Paste your admin token"
+                autocomplete="off"
+                class="field"
+              />
+              <span class="text-xs leading-5 text-ink-3">
+                This is the <span class="font-mono text-ink-2">ADMIN_TOKEN</span> you set in the
+                server's <span class="font-mono text-ink-2">config.yaml</span> or environment. It is
+                kept in your browser only.
+              </span>
+            </div>
+            <div class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center">
+              <button
+                type="submit"
+                disabled={!adminToken.trim() || busy}
+                aria-busy={busy}
+                class="btn btn-primary w-full sm:w-auto"
               >
-                <div class="h-4 w-4 animate-pulse rounded bg-surface-2"></div>
-                <div class="h-4 flex-1 animate-pulse rounded bg-surface-2"></div>
+                {#if busy}
+                  <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                {/if}
+                {busy ? "Connecting…" : "Continue"}
+              </button>
+              {#if busy}
+                <span class="text-sm text-ink-2" aria-live="polite">Checking the token against Annalist…</span>
+              {/if}
+            </div>
+          </form>
+        </section>
+      {/if}
+
+      <!-- Step 2 — Connect platforms -->
+      {#if step === 1}
+        <section class="space-y-6" aria-labelledby="platform-heading">
+          <div class="section-head block">
+            <p class="trace-label mb-2">SIGNAL SOURCES</p>
+            <h3 id="platform-heading" class="text-2xl font-semibold text-ink">Connect the platforms that emit releases.</h3>
+            <p class="mt-2 max-w-2xl text-base text-ink-2">
+              Annalist only reads release events and commit history. It cannot merge PRs,
+              push code, or access source outside the repositories you add.
+            </p>
+          </div>
+
+          <div class="grid gap-3 sm:grid-cols-2">
+            {#each SOURCES as source}
+              {@const configured = status?.[source] ?? false}
+              <div class="panel-soft flex min-w-0 flex-col gap-3 p-4">
+                <div class="flex items-center gap-3">
+                  <span class="signal-dot" class:bg-ok={configured} class:text-ok={configured} aria-hidden="true">
+                    {#if configured}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                        <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"></path>
+                      </svg>
+                    {/if}
+                  </span>
+                  <div class="min-w-0">
+                    <p class="font-medium capitalize text-ink">{source}</p>
+                    <p class="text-sm text-ink-2">{configured ? "Configured" : "Not configured"}</p>
+                  </div>
+                  <span class:status-ok={configured} class:status-muted={!configured} class="status ml-auto">
+                    {configured ? "Connected" : "Offline"}
+                  </span>
+                </div>
+                {#if !configured}
+                  <a
+                    href="https://github.com/djdembeck/annalist#platform-setup"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn btn-ghost w-fit px-0 text-sm"
+                  >
+                    How to configure {source}
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M7 17L17 7" stroke-linecap="round"></path>
+                      <path d="M9 7h8v8" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
+                  </a>
+                {/if}
               </div>
             {/each}
           </div>
-        {:else}
-          {@const items = filteredRepos}
-          {#if items.length === 0}
-            <div class="space-y-2 rounded border border-line bg-page p-4">
-              <p class="text-base text-ink-2">
-                No available {activeSource} repositories found.
+
+          <div class="flex flex-col gap-3 border-t border-line pt-5">
+            <button
+              onclick={advanceToRepos}
+              disabled={connectedCount === 0}
+              class="btn btn-primary w-full sm:w-auto"
+            >
+              Continue to repositories
+            </button>
+            {#if skipWarning}
+              <p class="status status-error max-w-xl" role="status">
+                No platform is configured yet, so you won't be able to add repositories.
+                You can still continue and configure things later.
               </p>
+              <button onclick={continueFromPlatforms} class="btn btn-secondary w-full sm:w-auto">
+                Continue anyway
+              </button>
+            {:else if connectedCount === 0}
               <p class="text-sm text-ink-3">
-                Try clearing the search, enabling organization namespaces or forks, or
-                checking your platform token's repository access.
+                Connect at least one platform to continue, or skip below.
               </p>
-              {#if search.trim()}
-                <button
-                  onclick={() => (search = "")}
-                  class="text-sm text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                >
-                  Clear search
-                </button>
-              {/if}
-            </div>
-          {:else}
-            <div class="mb-4 flex items-center justify-between">
-              <span class="text-sm text-ink-3">{items.length} available</span>
-              <button
-                onclick={() => {
-                  const allSelected = items.every((r) => selected[repoKey(r)]);
-                  const next = { ...selected };
-                  for (const r of items) {
-                    next[repoKey(r)] = !allSelected;
-                  }
-                  selected = next;
-                }}
-                class="text-sm text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-              >
-                {items.every((r) => selected[repoKey(r)]) ? "Deselect all" : "Select all"}
+              <button onclick={skipPlatforms} class="btn btn-ghost w-full sm:w-auto">
+                Skip for now
+              </button>
+            {/if}
+          </div>
+        </section>
+      {/if}
+
+      <!-- Step 3 — Add repositories -->
+      {#if step === 2}
+        <section class="space-y-6" aria-labelledby="repository-heading">
+          <div class="section-head block">
+            <p class="trace-label mb-2">REPOSITORY WORKPIECE</p>
+            <h3 id="repository-heading" class="text-2xl font-semibold text-ink">Choose what Annalist can read.</h3>
+            <p class="mt-2 max-w-2xl text-base text-ink-2">
+              Add repositories to give release webhooks and commit history a clear path
+              into the note pipeline.
+            </p>
+          </div>
+
+          {#if connectedCount === 0}
+            <div class="panel-soft space-y-4 p-5">
+              <p class="text-base text-ink-2">
+                No platforms are configured, so there are no repositories to add yet.
+              </p>
+              <button onclick={() => (step = 1)} class="btn btn-secondary w-full sm:w-auto">
+                Go back and connect a platform
               </button>
             </div>
-            <ul class="max-h-80 overflow-auto rounded border border-line">
-              {#each items as r (repoKey(r))}
-                <li
-                  class="flex min-h-[44px] items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0 transition-colors hover:bg-row-hover [content-visibility:auto] [contain-intrinsic-size:auto_3rem]"
+          {:else if !reposVisible}
+            <div class="panel-soft flex flex-col gap-4 p-5">
+              <p class="text-base text-ink-2">
+                Load the repositories Annalist can see from your connected platforms.
+              </p>
+              <div class="flex flex-col gap-3 sm:flex-row">
+                <button onclick={enterRepos} class="btn btn-primary w-full sm:w-auto">
+                  Load repositories
+                </button>
+                <button onclick={() => (step = 3)} class="btn btn-ghost w-full sm:w-auto">
+                  Skip for now
+                </button>
+              </div>
+            </div>
+          {:else}
+            <div class="flex flex-col gap-3">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <label for="repository-search" class="sr-only">Search repositories</label>
+                <input
+                  id="repository-search"
+                  type="search"
+                  placeholder="Search repositories…"
+                  bind:value={search}
+                  class="field sm:flex-1"
+                />
+                <button
+                  type="button"
+                  onclick={() => (showFilters = !showFilters)}
+                  aria-expanded={showFilters}
+                  class="btn btn-secondary w-full sm:w-auto"
                 >
-                  <input
-                    type="checkbox"
-                    id={repoKey(r)}
-                    checked={selected[repoKey(r)] ?? false}
-                    onchange={(e) => (selected[repoKey(r)] = e.currentTarget.checked)}
-                    class="h-5 w-5 accent-mark sm:h-4 sm:w-4"
-                  />
-                  <label for={repoKey(r)} class="flex-1 cursor-pointer text-base text-ink sm:text-sm">
-                    {r.owner}/{r.repo}
+                  {showFilters ? "Hide filters" : "Show filters"}
+                </button>
+              </div>
+              {#if showFilters}
+                <div class="panel-soft flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center">
+                  <label class="flex items-center gap-2 text-sm text-ink-2">
+                    Sort
+                    <select bind:value={sortBy} class="field w-auto min-w-40">
+                      <option value="name">Name</option>
+                      <option value="activity">Recent activity</option>
+                    </select>
                   </label>
-                </li>
+                  <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
+                    <input type="checkbox" bind:checked={showForks} class="h-4 w-4 accent-mark" />
+                    Show forks
+                  </label>
+                  <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
+                    <input type="checkbox" bind:checked={showSharedNamespaces} class="h-4 w-4 accent-mark" />
+                    Show organization &amp; shared namespaces
+                  </label>
+                </div>
+              {/if}
+            </div>
+
+            <div class="flex flex-wrap gap-2" aria-label="Repository platforms">
+              {#each SOURCES as source}
+                {@const isEnabled = status?.[source] ?? false}
+                <button
+                  onclick={() => (activeSource = source)}
+                  disabled={!isEnabled}
+                  aria-pressed={activeSource === source}
+                  class="btn btn-secondary capitalize"
+                  class:btn-primary={activeSource === source}
+                  class:opacity-50={!isEnabled}
+                >
+                  {source}
+                </button>
               {/each}
-            </ul>
-            <button
-              onclick={addSelected}
-              disabled={selectedCount === 0 || saving}
-              aria-busy={saving}
-              class="mt-5 inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-            >
-              {saving ? "Adding…" : `Add ${selectedCount} selected`}
-            </button>
+            </div>
+
+            {#if loading}
+              <div class="panel-soft max-h-80 overflow-auto p-2" aria-busy={loading} aria-label="Loading repositories">
+                {#each [1, 2, 3, 4, 5] as _}
+                  <div class="flex items-center gap-3 border-b border-line px-3 py-3 last:border-b-0">
+                    <div class="h-4 w-4 animate-pulse bg-surface-2"></div>
+                    <div class="h-4 flex-1 animate-pulse bg-surface-2"></div>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              {@const items = filteredRepos}
+              {#if items.length === 0}
+                <div class="panel-soft space-y-2 p-5">
+                  <p class="text-base text-ink-2">
+                    No available {activeSource} repositories found.
+                  </p>
+                  <p class="text-sm text-ink-3">
+                    Try clearing the search, enabling organization namespaces or forks, or
+                    checking your platform token's repository access.
+                  </p>
+                  {#if search.trim()}
+                    <button onclick={() => (search = "")} class="btn btn-ghost px-0 text-sm">
+                      Clear search
+                    </button>
+                  {/if}
+                </div>
+              {:else}
+                <div class="flex items-center justify-between gap-3">
+                  <span class="trace-label">{items.length} AVAILABLE</span>
+                  <button
+                    onclick={() => {
+                      const allSelected = items.every((r) => selected[repoKey(r)]);
+                      const next = { ...selected };
+                      for (const r of items) {
+                        next[repoKey(r)] = !allSelected;
+                      }
+                      selected = next;
+                    }}
+                    class="btn btn-ghost px-0 text-sm"
+                  >
+                    {items.every((r) => selected[repoKey(r)]) ? "Deselect all" : "Select all"}
+                  </button>
+                </div>
+                <ul class="panel-soft max-h-80 overflow-auto p-1" aria-label="Available repositories">
+                  {#each items as r (repoKey(r))}
+                    <li class="flex min-h-11 items-center gap-3 border-b border-line px-3 py-3 last:border-b-0 transition-colors hover:bg-row-hover [content-visibility:auto] [contain-intrinsic-size:auto_3rem]">
+                      <input
+                        type="checkbox"
+                        id={repoKey(r)}
+                        checked={selected[repoKey(r)] ?? false}
+                        onchange={(e) => (selected[repoKey(r)] = e.currentTarget.checked)}
+                        class="h-5 w-5 accent-mark sm:h-4 sm:w-4"
+                      />
+                      <label for={repoKey(r)} class="flex-1 cursor-pointer text-base text-ink sm:text-sm">
+                        {r.owner}/{r.repo}
+                      </label>
+                    </li>
+                  {/each}
+                </ul>
+                <button
+                  onclick={addSelected}
+                  disabled={selectedCount === 0 || saving}
+                  aria-busy={saving}
+                  class="btn btn-primary w-full sm:w-auto"
+                >
+                  {saving ? "Adding…" : `Add ${selectedCount} selected`}
+                </button>
+              {/if}
+            {/if}
           {/if}
-        {/if}
+
+          <aside class="note-paper text-sm text-ink-2">
+            <p>
+              When you add a repository, Annalist can read its release webhooks and commit
+              history to write release notes. It writes only to the release body.
+            </p>
+          </aside>
+        </section>
       {/if}
 
-      <div class="rounded border border-line bg-surface-1 p-4 text-sm text-ink-2">
-        <p>
-          When you add a repository, Annalist can read its release webhooks and commit
-          history to write release notes. It writes only to the release body.
-        </p>
-      </div>
-    </section>
-  {/if}
-
-  <!-- Step 4 — Choose voice -->
-  {#if step === 3}
-    <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
-      <div class="space-y-2">
-        <h2 class="font-display text-2xl text-white">Choose your voice</h2>
-        <p class="text-base text-ink-2">
-          This becomes the default tone for every release note. You can override it
-          per repository later.
-        </p>
-      </div>
-
-      <label class="flex flex-col gap-2">
-        <span class="text-sm text-ink-2">Tone</span>
-        <select
-          bind:value={toneOption}
-          class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-        >
-          <option value="inherit">Inherit (server default)</option>
-          <option value="chronicler">Chronicler — tells the story of what changed</option>
-          <option value="engineer">Engineer — terse, right to the point</option>
-          <option value="launch">Launch — upbeat and celebratory</option>
-          <option value="custom">Custom…</option>
-        </select>
-      </label>
-
-      {#if toneOption === "inherit"}
-        <p class="text-sm text-ink-2">
-          Uses the tone configured on the server (config.yaml or environment). You can
-          override the tone per repository later.
-        </p>
-      {:else if toneOption === "custom"}
-        <label class="flex flex-col gap-2">
-          <span class="text-sm text-ink-2">Custom tone</span>
-          <input
-            bind:value={customTone}
-            placeholder="Freeform persona"
-            class="rounded border border-line-strong bg-page px-4 py-2.5 text-base text-ink outline-none focus:border-focus focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-          />
-          {#if !customTone.trim()}
-            <span class="text-sm text-alert">
-              Enter a custom tone before finishing.
-            </span>
-          {/if}
-        </label>
-      {:else if PRESET_DESCRIPTIONS[toneOption]}
-        <div class="rounded border border-line bg-page p-4">
-          <div class="flex items-center justify-between">
-            <h3 class="font-medium capitalize text-ink">{toneOption}</h3>
-            <span class="rounded bg-surface-2 px-2 py-0.5 text-xs text-ink-3">
-              Synthetic example
-            </span>
+      <!-- Step 4 — Choose voice -->
+      {#if step === 3}
+        <section class="space-y-6" aria-labelledby="voice-heading">
+          <div class="section-head block">
+            <p class="trace-label mb-2">NOTE SHAPING</p>
+            <h3 id="voice-heading" class="text-2xl font-semibold text-ink">Choose the voice on the note.</h3>
+            <p class="mt-2 max-w-2xl text-base text-ink-2">
+              This becomes the default tone for every release note. You can override it
+              per repository later.
+            </p>
           </div>
-          <p class="mt-1 text-sm text-ink-2">{PRESET_DESCRIPTIONS[toneOption]}</p>
-          <MarkdownPreview
-            source={SYNTHETIC_EXAMPLES[toneOption]}
-            class="mt-3"
-          />
-          <p class="mt-2 text-xs text-ink-3">
-            Sample output for these commits:
-            <span class="font-mono">{SAMPLE_COMMITS.join(", ")}</span>
-          </p>
-        </div>
+
+          <label class="flex flex-col gap-2">
+            <span class="trace-label">TONE PRESET</span>
+            <select bind:value={toneOption} class="field">
+              <option value="inherit">Inherit (server default)</option>
+              <option value="chronicler">Chronicler — tells the story of what changed</option>
+              <option value="engineer">Engineer — terse, right to the point</option>
+              <option value="launch">Launch — upbeat and celebratory</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </label>
+
+          {#if toneOption === "inherit"}
+            <div class="panel-soft p-4 text-sm text-ink-2">
+              Uses the tone configured on the server (config.yaml or environment). You can
+              override the tone per repository later.
+            </div>
+          {:else if toneOption === "custom"}
+            <label class="flex flex-col gap-2">
+              <span class="trace-label">CUSTOM TONE</span>
+              <input bind:value={customTone} placeholder="Freeform persona" class="field" />
+              {#if !customTone.trim()}
+                <span class="status status-error" role="status">
+                  Enter a custom tone before finishing.
+                </span>
+              {/if}
+            </label>
+          {:else if PRESET_DESCRIPTIONS[toneOption]}
+            <div class="note-paper space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h4 class="font-semibold capitalize text-ink">{toneOption}</h4>
+                <span class="chip">Synthetic example</span>
+              </div>
+              <p class="text-sm text-ink-2">{PRESET_DESCRIPTIONS[toneOption]}</p>
+              <MarkdownPreview source={SYNTHETIC_EXAMPLES[toneOption]} />
+              <p class="text-xs leading-5 text-ink-3">
+                Sample output for these commits:
+                <span class="font-mono text-ink-2">{SAMPLE_COMMITS.join(", ")}</span>
+              </p>
+            </div>
+          {/if}
+
+          <div class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center">
+            <button
+              onclick={finishSetup}
+              disabled={saving || (toneOption === "custom" && !customTone.trim())}
+              aria-busy={saving}
+              class="btn btn-primary w-full sm:w-auto"
+            >
+              {saving ? "Saving…" : "Finish setup"}
+            </button>
+            {#if saving}
+              <span class="text-sm text-ink-2" aria-live="polite">Writing your default tone…</span>
+            {/if}
+          </div>
+        </section>
       {/if}
 
-      <button
-        onclick={finishSetup}
-        disabled={saving || (toneOption === "custom" && !customTone.trim())}
-        aria-busy={saving}
-        class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-      >
-        {saving ? "Saving…" : "Finish setup"}
-      </button>
-    </section>
-  {/if}
+      <!-- Step 5 — Done -->
+      {#if step === 4}
+        <section class="space-y-6" aria-labelledby="done-heading">
+          <div class="section-head block">
+            <p class="trace-label mb-2">RELEASE READY</p>
+            <h3 id="done-heading" class="text-2xl font-semibold text-ink">Your forge is ready.</h3>
+            <p class="mt-2 max-w-2xl text-base text-ink-2">
+              The next release you publish on an added repository gets its notes written
+              automatically.
+            </p>
+          </div>
 
-  <!-- Step 5 — Done -->
-  {#if step === 4}
-    <section class="space-y-6 rounded border border-line bg-surface-1 p-6">
-      <div class="space-y-2">
-        <h2 class="font-display text-2xl text-white">Your forge is ready.</h2>
-        <p class="text-base text-ink-2">
-          The next release you publish on an added repository gets its notes written
-          automatically.
-        </p>
-      </div>
-      <dl class="grid gap-4 text-sm sm:grid-cols-2">
-        <div class="flex items-center justify-between rounded border border-line bg-surface-2 px-4 py-3">
-          <dt class="text-ink-2">Token</dt>
-          <dd class="text-ok">{adminToken.trim() ? "Set" : "Not set"}</dd>
-        </div>
-        <div class="flex items-center justify-between rounded border border-line bg-surface-2 px-4 py-3">
-          <dt class="text-ink-2">Platforms connected</dt>
-          <dd class="text-ink">{connectedCount}</dd>
-        </div>
-        <div class="flex items-center justify-between rounded border border-line bg-surface-2 px-4 py-3">
-          <dt class="text-ink-2">Repositories added</dt>
-          <dd class="text-ink">{reposAdded}</dd>
-        </div>
-        <div class="flex items-center justify-between rounded border border-line bg-surface-2 px-4 py-3">
-          <dt class="text-ink-2">Default tone</dt>
-          <dd class="text-ink capitalize">{toneLabel()}</dd>
-        </div>
-      </dl>
+          <dl class="console-grid gap-3 text-sm sm:grid-cols-2">
+            <div class="panel-soft flex items-center justify-between gap-3 p-4">
+              <dt class="text-ink-2">Token</dt>
+              <dd class="status status-ok">{adminToken.trim() ? "Set" : "Not set"}</dd>
+            </div>
+            <div class="panel-soft flex items-center justify-between gap-3 p-4">
+              <dt class="text-ink-2">Platforms connected</dt>
+              <dd class="text-ink">{connectedCount}</dd>
+            </div>
+            <div class="panel-soft flex items-center justify-between gap-3 p-4">
+              <dt class="text-ink-2">Repositories added</dt>
+              <dd class="text-ink">{reposAdded}</dd>
+            </div>
+            <div class="panel-soft flex items-center justify-between gap-3 p-4">
+              <dt class="text-ink-2">Default tone</dt>
+              <dd class="text-right capitalize text-ink">{toneLabel()}</dd>
+            </div>
+          </dl>
 
-      <div class="space-y-3">
-        <h3 class="font-sans text-base font-semibold text-ink">What happens next</h3>
-        <ol class="space-y-2 text-sm text-ink-2">
-          <li>
-            Annalist listens for release events on the repositories you added.
-          </li>
-          <li>
-            On a release, it clones the repo, summarizes the commits in the
-            <span class="text-ink">{toneLabel()}</span> tone, and writes the note into
-            the release body.
-          </li>
-          <li>
-            You can regenerate notes, tweak the voice, or change per-repo settings from
-            the Repos page.
-          </li>
-        </ol>
-      </div>
+          <div class="space-y-3 border-t border-line pt-5">
+            <h4 class="text-base font-semibold text-ink">What happens next</h4>
+            <ol class="space-y-2 text-sm leading-6 text-ink-2">
+              <li>1. Annalist listens for release events on the repositories you added.</li>
+              <li>
+                2. On a release, it clones the repo, summarizes the commits in the
+                <span class="text-ink">{toneLabel()}</span> tone, and writes the note into
+                the release body.
+              </li>
+              <li>
+                3. You can regenerate notes, tweak the voice, or change per-repo settings from
+                the Repos page.
+              </li>
+            </ol>
+          </div>
 
-      <div class="space-y-2">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium uppercase tracking-wide text-ink-3">Note preview</span>
-          <span class="text-xs text-ink-3">Synthetic example</span>
-        </div>
-        <MarkdownPreview source={previewNote()} />
-      </div>
+          <div class="note-paper space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="trace-label">NOTE PROOF</span>
+              <span class="chip">Synthetic example</span>
+            </div>
+            <MarkdownPreview source={previewNote()} />
+          </div>
 
-      <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-        <a
-          href="/repos"
-          class="inline-flex w-full items-center justify-center gap-2 rounded bg-gradient-to-r from-cherry via-ember to-heat px-5 py-2.5 text-sm font-bold text-page hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-        >
-          Go to Repos
-        </a>
-        <a
-          href="/settings"
-          class="inline-flex w-full items-center justify-center gap-2 rounded border border-line-strong px-4 py-2 text-sm text-ink-2 hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:w-auto sm:self-start"
-        >
-          Open Settings
-        </a>
-      </div>
-    </section>
-  {/if}
+          <div class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:flex-wrap">
+            <a href="/repos" class="btn btn-primary w-full sm:w-auto">Go to Repos</a>
+            <a href="/settings" class="btn btn-secondary w-full sm:w-auto">Open Settings</a>
+          </div>
+        </section>
+      {/if}
+    </main>
+  </div>
 </div>
