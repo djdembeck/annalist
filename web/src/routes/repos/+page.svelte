@@ -97,7 +97,48 @@
     }
   }
 
+  // Cached in-repo instructions, populated after page load in parallel.
+  let inRepoInstructions = $state<Record<string, string | null>>({});
   let inRepoPending = $state<Record<string, boolean>>({});
+
+  function loadInRepoInstructions(repo: Repo): void {
+    const key = repoKey(repo);
+    if (inRepoInstructions[key] !== undefined) return; // Already loaded.
+    inRepoPending[key] = true;
+    getInRepoInstructions(repo.platform, repo.owner, repo.repo)
+      .then((content) => {
+        inRepoInstructions[key] = content;
+        inRepoPending[key] = false;
+        // Update settings drafts if panel is open.
+        if (openPanel[key] === "settings" && content && drafts[key]) {
+          drafts[key].instructions = content;
+        }
+      })
+      .catch(() => {
+        inRepoInstructions[key] = null;
+        inRepoPending[key] = false;
+      });
+  }
+
+  async function refresh(): Promise<void> {
+    loadError = "";
+    loadState = "loading";
+    try {
+      repos = await getRepos();
+      loadState = "success";
+      // Kick off in-repo instruction fetches in parallel (non-blocking).
+      for (const r of repos) {
+        loadInRepoInstructions(r);
+      }
+    } catch (e) {
+      if (handleAuthError(e)) return;
+      loadState = "error";
+      loadError = formatError(
+        e,
+        "Could not load repositories — check your connection and try again.",
+      );
+    }
+  }
 
   function openSettings(r: Repo): void {
     const key = repoKey(r);
@@ -106,29 +147,20 @@
     drafts[key] = {
       toneOption: !tone ? "inherit" : isPreset ? tone : "custom",
       customTone: isPreset ? "" : tone,
-      instructions: r.instructions ?? "",
+      instructions: (inRepoInstructions[key] ?? r.instructions) ?? "",
       model: r.model ?? "",
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
     };
     openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
-    // Load in-repo instructions in the background.
-    inRepoPending[key] = true;
-    getInRepoInstructions(r.platform, r.owner, r.repo)
-      .then((content) => {
-        if (content && openPanel[key] === "settings" && drafts[key]) {
-          // Prepend in-repo instructions below existing DB instructions.
-          const existing = drafts[key].instructions;
-          if (content === existing) {
-            return; // Already identical — no change needed.
-          }
-          drafts[key].instructions = content;
-        }
-        inRepoPending[key] = false;
-      })
-      .catch(() => {
-        inRepoPending[key] = false;
-      });
+    // Ensure in-repo instructions are loaded.
+    loadInRepoInstructions(r);
+  }
+
+  // Computed: get the effective instructions for display,
+  // preferring in-repo if loaded, else resolved.
+  function getEffectiveInstructions(r: Repo): string {
+    return inRepoInstructions[repoKey(r)] ?? r.effective.instructions ?? "neutral (default)";
   }
 
   function openGenerate(r: Repo): void {
@@ -278,7 +310,7 @@
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="chip">{r.platform}</span>
-                {#if r.effective.instructions}
+                {#if inRepoInstructions[key] || r.effective.instructions}
                   <span class="chip" title="Custom voice/prompt configured">Voice</span>
                 {/if}
                 <span
@@ -308,7 +340,7 @@
             <div>
               <p class="trace-label">Effective tone</p>
               <p class="mt-1 text-sm text-ink">
-                {r.effective.tone ?? "neutral"}
+                {inRepoInstructions[key] ? "custom" : r.effective.tone ?? "neutral"}
               </p>
             </div>
             <div>
@@ -320,8 +352,8 @@
             <div>
               <p class="trace-label">Effective voice</p>
               <p class="mt-1 text-sm text-ink break-all max-h-8 overflow-hidden"
-                 title={r.effective.instructions ?? ""}>
-                {r.effective.instructions ?? "neutral (default)"}
+                 title={getEffectiveInstructions(r) !== "neutral (default)" ? getEffectiveInstructions(r) : ""}>
+                {inRepoPending[key] ? "loading…" : getEffectiveInstructions(r)}
               </p>
             </div>
             <div>
@@ -435,7 +467,7 @@
               </div>
               <p class="mt-4 text-xs text-ink-3">
                 Effective: tone <span class="text-ink"
-                  >{r.effective.tone ?? "neutral"}</span
+                  >{inRepoInstructions[key] ? "custom" : r.effective.tone ?? "neutral"}</span
                 >
                 · model
                 <span class="text-ink">{r.effective.model ?? "inherit"}</span>
@@ -448,14 +480,18 @@
                 >
                 · voice
                 <span class="text-ink"
-                  >{r.effective.instructions ? "custom" : "neutral (default)"}</span
+                  >{inRepoInstructions[key] ? "custom (in-repo)" : (r.effective.instructions ? "custom" : "neutral (default)")}</span
                 >
               </p>
-              {#if r.effective.instructions}
+              {#if inRepoInstructions[key] || r.effective.instructions}
                 <details class="mt-4">
                   <summary class="trace-label cursor-pointer select-none">View effective voice/prompt</summary>
                   <div class="note-paper mt-2 text-sm whitespace-pre-wrap overflow-auto max-h-64 font-mono">
-                    {r.effective.instructions}
+                    {#if inRepoInstructions[key]}
+                      In-repo instructions (.github/release-notes-instructions.md):\n\n{inRepoInstructions[key]}
+                    {:else}
+                      {r.effective.instructions}
+                    {/if}
                   </div>
                 </details>
               {/if}
