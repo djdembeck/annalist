@@ -57,9 +57,9 @@ func (f *fakePip) GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pi
 
 // fakeClient is a controllable ghClient/fjClient double.
 type fakeClient struct {
-	repos          []pipeline.OwnerRepo
-	err            error
-	fileContents   map[string]string
+	repos        []pipeline.OwnerRepo
+	err          error
+	fileContents map[string]string
 }
 
 func (f *fakeClient) WebhookHandler(p *pipeline.Pipeline) http.Handler {

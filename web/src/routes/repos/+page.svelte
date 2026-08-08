@@ -58,22 +58,6 @@
       : undefined,
   );
 
-  async function refresh(): Promise<void> {
-    loadError = "";
-    loadState = "loading";
-    try {
-      repos = await getRepos();
-      loadState = "success";
-    } catch (e) {
-      if (handleAuthError(e)) return;
-      loadState = "error";
-      loadError = formatError(
-        e,
-        "Could not load repositories — check your connection and try again.",
-      );
-    }
-  }
-
   onMount(refresh);
 
   async function toggleEnabled(r: Repo): Promise<void> {
