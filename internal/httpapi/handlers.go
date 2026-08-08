@@ -54,11 +54,12 @@ func decodePresenceMap(r *http.Request) (map[string]json.RawMessage, error) {
 	return m, nil
 }
 
-// effective is the resolved (inherited) tone/model/temperature preview.
+// effective is the resolved (inherited) tone/model/temperature/instructions preview.
 type effective struct {
-	Tone        string  `json:"tone"`
-	Model       string  `json:"model"`
-	Temperature float64 `json:"temperature"`
+	Tone         string  `json:"tone"`
+	Model        string  `json:"model"`
+	Temperature  float64 `json:"temperature"`
+	Instructions string  `json:"instructions"`
 }
 
 // repoItemResp is the JSON shape for a repo in /api/repos and the settings PUT.
@@ -93,9 +94,10 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 		Temperature:  row.Temperature,
 		Trigger:      row.Trigger,
 		Effective: effective{
-			Tone:        eff.Tone,
-			Model:       eff.Model,
-			Temperature: eff.Temperature,
+			Tone:         eff.Tone,
+			Model:        eff.Model,
+			Temperature:  eff.Temperature,
+			Instructions: eff.Instructions,
 		},
 	}, nil
 }

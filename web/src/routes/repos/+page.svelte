@@ -258,7 +258,11 @@
           <header class="repo-workpiece__header">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
-                <span class="chip">{r.platform}</span><span
+                <span class="chip">{r.platform}</span>
+                {#if r.effective.instructions}
+                  <span class="chip" title="Custom voice/prompt configured">Voice</span>
+                {/if}
+                <span
                   class="status {r.enabled
                     ? 'status--healthy'
                     : 'status--quiet'}"
@@ -292,6 +296,13 @@
               <p class="trace-label">Model</p>
               <p class="mt-1 break-all text-sm text-ink">
                 {r.effective.model ?? "inherit"}
+              </p>
+            </div>
+            <div>
+              <p class="trace-label">Effective voice</p>
+              <p class="mt-1 text-sm text-ink break-all max-h-8 overflow-hidden"
+                 title={r.effective.instructions ?? ""}>
+                {r.effective.instructions ?? "neutral (default)"}
               </p>
             </div>
             <div>
@@ -415,7 +426,19 @@
                     ? r.effective.temperature
                     : "inherit"}</span
                 >
+                · voice
+                <span class="text-ink"
+                  >{r.effective.instructions ? "custom" : "neutral (default)"}</span
+                >
               </p>
+              {#if r.effective.instructions}
+                <details class="mt-4">
+                  <summary class="trace-label cursor-pointer select-none">View effective voice/prompt</summary>
+                  <div class="note-paper mt-2 text-sm whitespace-pre-wrap overflow-auto max-h-64 font-mono">
+                    {r.effective.instructions}
+                  </div>
+                </details>
+              {/if}
               <div class="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   onclick={() => saveSettings(r)}

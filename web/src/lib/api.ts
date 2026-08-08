@@ -25,6 +25,7 @@ export type Repo = {
     tone: string | null;
     model: string | null;
     temperature: number | null;
+    instructions: string | null;
   };
 };
 
