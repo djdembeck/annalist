@@ -115,7 +115,7 @@ components:
 
 **Creative North Star: "Release Trace Wall"**
 
-Annalist presents each release as a traceable workpiece moving from input to proof. Dark powder-coated panels hold the operator's work; a thermal-paper note proof makes the generated result tangible. Copper marks the committed action, cyan shows the active trace, and compact instrumentation labels keep the system legible without turning the dashboard into decoration. The public page uses the same wall to explain the pipeline, while authenticated routes let an operator configure it.
+Annalist presents each release as a traceable workpiece moving from input to proof. Dark powder-coated panels hold the operator's work; a thermal-paper note proof makes the generated result tangible. Copper marks the committed action, cyan shows the active trace, and compact instrumentation labels keep the system legible without turning the dashboard into decoration. The installed home uses the same wall to explain setup and the release path, while authenticated routes let an operator configure it.
 
 The system is deliberately layered rather than glossy. Saira Stencil One establishes position for the wordmark and display headings; Saira carries the working copy; monospace labels and note output read like instrumentation. A 4px control language, hairline borders, and tonal planes create depth without shadows. Green and red are reserved for status so their meaning stays unambiguous.
 
@@ -177,9 +177,9 @@ The palette is a dark blue-black wall with cool paper ink, copper action, cyan t
 
 ## Layout
 
-The shared shell uses a sticky full-width operator navigation bar and a centered working column. Console routes use a 64rem maximum; the public route uses a 6xl wall. A 12-column console grid and a 4px-based rhythm (4, 8, 12, 16, 20, and 24px) keep panels dense but readable. Public composition is asymmetric on wide screens: copy and action on the left, the synthetic trace wall on the right; feature and tone panels follow below.
+The shared shell uses a sticky full-width operator navigation bar and a centered working column. Console routes use a 64rem maximum; the home route uses a 6xl wall. A 12-column console grid and a 4px-based rhythm (4, 8, 12, 16, 20, and 24px) keep panels dense but readable. The installed home opens with setup guidance beside a four-stage release path, then moves through rendered proof and tone control.
 
-At mobile widths, the navigation wraps, console grids become one column, public feature panels collapse to one column, and trace rails/workspaces stack vertically. Setup's progress rail moves above its station workspace at 680px; repository, intake, and settings rails stack at 760px. Horizontal lists remain scrollable where preserving a row is useful. Keep controls at the existing 44px minimum and let long repository names and note text wrap rather than clip.
+At mobile widths, the navigation wraps, console grids become one column, the home setup path stacks its release-flow panel below the headline, and trace rails/workspaces stack vertically. Setup's progress rail moves above its station workspace at 680px; repository, intake, and settings rails stack at 760px. Horizontal lists remain scrollable where preserving a row is useful. Keep controls at the existing 44px minimum and let long repository names and note text wrap rather than clip.
 
 ## Elevation & Depth
 
@@ -204,7 +204,7 @@ Controls, panels, chips, trace nodes, and navigation use a restrained 4px radius
 - **Disabled:** Reduced opacity and not-allowed cursor; disabled controls do not communicate success or failure through color.
 
 ### Chips and Status
-- **Chip:** Raised plane, muted monospace label, 4px radius, compact padding; used for counts, synthetic labels, and station metadata.
+- **Chip:** Raised plane, muted monospace label, 4px radius, compact padding; used for counts, preview labels, and station metadata.
 - **Status:** Monospace uppercase text with a current-color border. Green and red communicate status; cyan/heat communicate active work, never success/failure.
 
 ### Cards / Panels
@@ -223,13 +223,13 @@ The sticky shell bar uses a panel plane and hairline bottom border. The ANNALIST
 
 ### Accessibility and Motion
 
-Use semantic headings, labeled form controls, native buttons/inputs, and `aria-current`, `aria-live`, and `role="status"`/`role="alert"` for changing station, loading, and error states. All interactive elements expose a 2px cyan `:focus-visible` ring with offset. The public trace labels its commit subjects and output synthetic; `prefers-reduced-motion` settles the trace and reduces transitions, while visibility pauses the looping public signal.
+Use semantic headings, labeled form controls, native buttons/inputs, and `aria-current`, `aria-live`, and `role="status"`/`role="alert"` for changing station, loading, and error states. All interactive elements expose a 2px cyan `:focus-visible` ring with offset. The release trace labels its commit subjects and output as an example; `prefers-reduced-motion` settles the trace and reduces transitions, while visibility pauses the looping signal.
 
 ## Do's and Don'ts
 
 ### Do:
 - **Do** use the named page, panel, raised, line, ink, copper, heat, cyan, green, and red roles rather than one-off colors.
-- **Do** make the trace legible in text and structure before adding motion; label public proof as synthetic.
+- **Do** make the trace legible in text and structure before adding motion; label example proof clearly.
 - **Do** use copper for the current committed action and cyan for active trace/focus.
 - **Do** preserve the thermal-paper proof as a high-contrast output plane with readable monospace text.
 - **Do** use borders and tonal planes for depth and keep the 4px control rhythm.

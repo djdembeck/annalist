@@ -24,11 +24,11 @@
     "Welcome & Token",
     "Connect platforms",
     "Add repositories",
-    "Choose voice",
+    "Choose tone",
     "Done",
   ];
 
-  // Shared sample commits used to render honest synthetic tone examples below.
+  // Shared sample commits used to render honest preview tone examples below.
   const SAMPLE_COMMITS = [
     "fix: correct pagination on release history",
     "feat: add webhook delivery health check",
@@ -36,7 +36,7 @@
     "chore: drop deprecated v1 endpoints",
   ];
 
-  const SYNTHETIC_EXAMPLES: Record<string, string> = {
+  const PREVIEW_EXAMPLES: Record<string, string> = {
     chronicler:
       `This release hardens the forge. Webhook deliveries now surface a live health check, so you can see at a glance whether GitHub is reaching your instance. Note generation runs faster under load thanks to result caching, and the retired v1 endpoints step aside after a long farewell tour.
 
@@ -164,7 +164,7 @@
     });
   })());
 
-  // --- step 4: voice ---
+  // --- step 4: tone ---
   let toneOption = $state("inherit");
   let customTone = $state("");
 
@@ -385,7 +385,7 @@
       }
       error = e instanceof Error ? e.message : "Failed to save default tone";
     } finally {
-      // Reset even on success so stepping back to the voice step (step 3)
+      // Reset even on success so stepping back to the tone step (step 3)
       // doesn't leave the Finish button stuck at "Saving…".
       saving = false;
     }
@@ -397,9 +397,9 @@
     return toneOption;
   }
 
-  // Honest preview of the selected voice, built from known sample commits.
+  // Honest preview of the selected tone, built from known sample commits.
   function previewNote(): string {
-    return SYNTHETIC_EXAMPLES[toneOption] ?? SYNTHETIC_EXAMPLES.chronicler;
+    return PREVIEW_EXAMPLES[toneOption] ?? PREVIEW_EXAMPLES.chronicler;
   }
 </script>
 
@@ -413,7 +413,7 @@
       <p class="trace-label mb-2">FIRST-RUN ACTIVATION</p>
       <h1 class="font-display text-3xl text-ink sm:text-4xl">Make the next release legible.</h1>
       <p class="mt-2 max-w-2xl text-base text-ink-2">
-        Connect your forge, choose the repositories Annalist can read, and shape the voice
+        Connect your forge, choose the repositories Annalist can read, and shape the tone
         that will ship with every release note.
       </p>
     </div>
@@ -665,7 +665,7 @@
               </p>
               <p class="text-sm text-ink-2">
                 Automation — release note generation — stays inactive until a platform
-                and repository are configured. You can still set a default voice now and
+                and repository are configured. You can still set a default tone now and
                 configure sources later.
               </p>
               <div class="flex flex-col gap-3 sm:flex-row">
@@ -673,7 +673,7 @@
                   Go back and connect a platform
                 </button>
                 <button onclick={() => (step = 3)} class="btn btn-ghost w-full sm:w-auto">
-                  Continue to voice
+                  Continue to tone
                 </button>
               </div>
             </div>
@@ -846,7 +846,7 @@
                         disabled={saving}
                         class="btn btn-primary w-full sm:w-auto"
                       >
-                        Continue to voice
+                        Continue to tone
                       </button>
                     {/if}
                   </div>
@@ -873,16 +873,16 @@
         </section>
       {/if}
 
-      <!-- Step 4 — Choose voice -->
+      <!-- Step 4 — Choose tone -->
       {#if step === 3}
-        <section class="space-y-6" aria-labelledby="voice-heading">
+        <section class="space-y-6" aria-labelledby="tone-heading">
           <div class="section-head block">
             <p class="trace-label mb-2">NOTE SHAPING</p>
-            <h3 id="voice-heading" class="text-2xl font-semibold text-ink">
+            <h3 id="tone-heading" class="text-2xl font-semibold text-ink">
               {#if connectedCount === 0}
-                Choose the voice for when your forge connects.
+                Choose the tone for when your forge connects.
               {:else}
-                Choose the voice on the note.
+                Choose the tone on the note.
               {/if}
             </h3>
             <p class="mt-2 max-w-2xl text-base text-ink-2">
@@ -926,10 +926,10 @@
             <div class="note-paper space-y-3">
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h4 class="font-semibold capitalize text-ink">{toneOption}</h4>
-                <span class="chip">Synthetic example</span>
+                <span class="chip">Preview example</span>
               </div>
               <p class="text-sm text-ink-2">{PRESET_DESCRIPTIONS[toneOption]}</p>
-              <MarkdownPreview source={SYNTHETIC_EXAMPLES[toneOption]} />
+              <MarkdownPreview source={PREVIEW_EXAMPLES[toneOption]} />
               <p class="text-xs leading-5 text-ink-3">
                 Sample output for these commits:
                 <span class="font-mono text-ink-2">{SAMPLE_COMMITS.join(", ")}</span>
@@ -1022,7 +1022,7 @@
                 the release body.
               </li>
               <li>
-                3. You can regenerate notes, tweak the voice, or change per-repo settings from
+                3. You can regenerate notes, tweak the tone, or change per-repo settings from
                 the Repos page.
               </li>
             </ol>
@@ -1031,7 +1031,7 @@
           <div class="note-paper space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <span class="trace-label">NOTE PROOF</span>
-              <span class="chip">Synthetic example</span>
+              <span class="chip">Preview example</span>
             </div>
             <MarkdownPreview source={previewNote()} />
           </div>

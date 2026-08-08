@@ -89,7 +89,7 @@
   <header class="section-head">
     <div>
       <p class="trace-label">Operations / global contract</p>
-      <h1>Machine contract &amp; voice proof</h1>
+      <h1>Machine contract &amp; tone proof</h1>
       {#if settings}
         <p class="section-head__lede">
           {#if settings.github && settings.forgejo}Both GitHub and Forgejo are configured.{:else if settings.github}GitHub configured, Forgejo not configured.{:else if settings.forgejo}Forgejo configured, GitHub not configured. {:else}No platforms configured yet — add a platform below to start.{/if}
@@ -109,11 +109,11 @@
   {:else if settings}
     <div class="settings-layout">
       <section class="panel settings-form" aria-label="Global release note defaults">
-        <div class="section-head section-head--compact"><div><p class="trace-label">Voice contract</p><h2>Global defaults</h2></div><span class="status status--healthy"><span class="signal-dot signal-dot--cyan" aria-hidden="true"></span>Editable</span></div>
+        <div class="section-head section-head--compact"><div><p class="trace-label">Tone contract</p><h2>Global defaults</h2></div><span class="status status--healthy"><span class="signal-dot signal-dot--cyan" aria-hidden="true"></span>Editable</span></div>
         <div class="grid gap-5">
-          <label class="field-group"><span class="field-group__label">Tone</span><select bind:value={toneOption} class="field"><option value="inherit">Inherit (neutral)</option>{#each PRESET_OPTIONS as p (p)}<option value={p}>{p}</option>{/each}<option value="custom">Custom…</option></select><span class="field-group__hint">Choose the voice used when a repository does not override it.</span></label>
+          <label class="field-group"><span class="field-group__label">Tone</span><select bind:value={toneOption} class="field"><option value="inherit">Inherit (neutral)</option>{#each PRESET_OPTIONS as p (p)}<option value={p}>{p}</option>{/each}<option value="custom">Custom…</option></select><span class="field-group__hint">Choose the tone used when a repository does not override it.</span></label>
           {#if toneOption === "custom"}<label class="field-group"><span class="field-group__label">Custom tone</span><input bind:value={customTone} placeholder="Freeform persona" class="field" /></label>{/if}
-          <label class="field-group"><span class="field-group__label">Instructions</span><textarea bind:value={instructions} rows="5" placeholder="Additional instructions for note generation" class="field"></textarea><span class="field-group__hint">These instructions travel with the global voice contract.</span></label>
+          <label class="field-group"><span class="field-group__label">Instructions</span><textarea bind:value={instructions} rows="5" placeholder="Additional instructions for note generation" class="field"></textarea><span class="field-group__hint">These instructions travel with the global tone contract.</span></label>
           <div class="grid gap-5 sm:grid-cols-2">
             <label class="field-group"><span class="field-group__label">Model <span class="field-group__hint">(blank = server default)</span></span><input bind:value={model} class="field" /></label>
             <label class="field-group"><span class="field-group__label">Temperature <span class="field-group__hint">(blank = server default)</span></span><input type="number" step="0.1" min="0" max="2" bind:value={temperature} class="field" /><span class="field-group__hint">0 = deterministic, 2 = very creative.</span>{#if temperatureError}<span class="field-group__error" role="alert">{temperatureError}</span>{/if}</label>
@@ -133,8 +133,8 @@
           </dl>
         </section>
 
-        <section class="panel panel-soft" aria-label="Voice proof">
-          <p class="trace-label">Voice proof</p>
+        <section class="panel panel-soft" aria-label="Tone proof">
+          <p class="trace-label">Tone proof</p>
           <h2 class="mt-1">Current contract at a glance</h2>
           <pre class="note-paper mt-4">Tone: {toneOption === "custom" ? (customTone.trim() || "inherit") : toneOption === "inherit" ? "neutral" : toneOption}
 Model: {model.trim() || settings.llm.model || "server default"}

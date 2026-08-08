@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import MarkdownPreview from "$lib/components/MarkdownPreview.svelte";
 
   const commits = [
     "feat(gateway): add circuit-breaker middleware",
@@ -19,7 +20,7 @@
     },
     {
       label: "Strike",
-      detail: "voice applied to the note",
+      detail: "tone applied to the note",
     },
   ];
 
@@ -76,7 +77,7 @@
 >
   <header class="forge-demo-head">
     <div>
-      <p class="trace-label">Synthetic release trace / v1.4.0</p>
+      <p class="trace-label">Example release trace / v1.4.0</p>
       <h2 id="trace-title">A release note taking shape.</h2>
     </div>
     <span class="status" data-tone="signal">{reducedMotion ? "Settled" : "Tracing"}</span>
@@ -88,12 +89,12 @@
         <h3>Commit subjects</h3>
         <span class="chip">4 received</span>
       </div>
-      <ul class="commit-list" aria-label="Synthetic commit subjects">
+      <ul class="commit-list" aria-label="Example commit subjects">
         {#each commits as commit, index}
           <li class:commit-seen={activeStage >= 1 || reducedMotion}>
             <span class="signal-dot signal-dot-heat" aria-hidden="true"></span>
             <code>{commit}</code>
-            <span class="sr-only">Synthetic commit {index + 1}</span>
+            <span class="sr-only">Commit example {index + 1}</span>
           </li>
         {/each}
       </ul>
@@ -125,13 +126,13 @@
         <p class="trace-label">Shaped note proof</p>
         <h3 id="proof-title">v1.4.0 — circuit breaker &amp; staleness fixes</h3>
       </div>
-      <span class="chip">Synthetic output</span>
+      <span class="chip">Example output</span>
     </header>
-    <pre>{output}</pre>
+    <MarkdownPreview source={output} class="trace-markdown" />
   </article>
 
   <p class="trace-caption">
-    This demonstration is synthetic. Annalist uses your configured tone and repository history when a real release arrives.
+    This preview shows the path. Annalist uses your configured tone and repository history when a real release arrives.
   </p>
 </section>
 
@@ -355,16 +356,37 @@
     color: var(--trace-page);
   }
 
-  .trace-proof pre {
+  :global(.trace-markdown) {
+    margin-top: 0.95rem;
+    border: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  :global(.trace-markdown) :global(.prose-forge) {
     max-height: 14rem;
+    padding: 0;
     overflow: auto;
-    margin: 0;
-    padding-top: 0.95rem;
+  }
+
+  :global(.trace-markdown) :global(.prose-forge *) {
     color: var(--trace-page);
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    line-height: 1.6;
-    white-space: pre-wrap;
+  }
+
+  :global(.trace-markdown) :global(.prose-forge h2) {
+    border-color: color-mix(in srgb, var(--trace-page) 30%, transparent);
+  }
+
+  :global(.trace-markdown) :global(.prose-forge li) {
+    color: color-mix(in srgb, var(--trace-page) 78%, var(--trace-ink));
+  }
+
+  :global(.trace-markdown) :global(.prose-forge li::marker) {
+    color: var(--trace-copper);
+  }
+
+  :global(.trace-markdown) :global(.prose-forge code) {
+    background: color-mix(in srgb, var(--trace-page) 12%, var(--trace-ink));
   }
 
   .trace-caption {

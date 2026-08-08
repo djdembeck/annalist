@@ -221,7 +221,7 @@
             <label class="repo-switch"><span class="trace-label">In trace</span><input type="checkbox" aria-label="Enable {r.owner}/{r.repo}" checked={r.enabled} disabled={pending[key]?.toggling} onchange={() => toggleEnabled(r)} /></label>
           </header>
 
-          <div class="repo-workpiece__details"><div><p class="trace-label">Effective voice</p><p class="mt-1 text-sm text-ink">{r.effective.tone ?? "neutral"}</p></div><div><p class="trace-label">Model</p><p class="mt-1 break-all text-sm text-ink">{r.effective.model ?? "inherit"}</p></div><div><p class="trace-label">Trigger</p><p class="mt-1 text-sm text-ink">{r.trigger ?? "auto"}</p></div></div>
+          <div class="repo-workpiece__details"><div><p class="trace-label">Effective tone</p><p class="mt-1 text-sm text-ink">{r.effective.tone ?? "neutral"}</p></div><div><p class="trace-label">Model</p><p class="mt-1 break-all text-sm text-ink">{r.effective.model ?? "inherit"}</p></div><div><p class="trace-label">Trigger</p><p class="mt-1 text-sm text-ink">{r.trigger ?? "auto"}</p></div></div>
           {#if toggleErr[key]}<p class="mt-3 text-xs text-alert" role="alert">{toggleErr[key]}</p>{/if}
 
           <div class="repo-workpiece__actions">
@@ -232,7 +232,7 @@
           {#if openPanel[key] === "settings"}
             {@const d = drafts[key]}
             <section id="repo-settings-{key}" class="trace-panel" aria-label="Settings for {r.owner}/{r.repo}">
-              <p class="trace-label">Voice contract / {r.owner}/{r.repo}</p>
+              <p class="trace-label">Tone contract / {r.owner}/{r.repo}</p>
               <div class="grid gap-4 md:grid-cols-2">
                 <label class="field-group"><span class="field-group__label">Tone</span><select bind:value={d.toneOption} class="field"><option value="inherit">Inherit</option>{#each PRESET_OPTIONS as p (p)}<option value={p}>{p}</option>{/each}</select><span class="field-group__hint">Use a preset or choose a custom persona.</span></label>
                 {#if d.toneOption === "custom"}<label class="field-group"><span class="field-group__label">Custom tone</span><input bind:value={d.customTone} placeholder="Freeform persona" class="field" /></label>{/if}
@@ -242,7 +242,7 @@
                 <label class="field-group"><span class="field-group__label">Trigger</span><select bind:value={d.trigger} class="field"><option value="auto">auto</option><option value="manual">manual</option></select><span class="field-group__hint">Auto runs on release webhooks; manual disables webhooks.</span></label>
               </div>
               <p class="mt-4 text-xs text-ink-3">Effective: tone <span class="text-ink">{r.effective.tone ?? "neutral"}</span> · model <span class="text-ink">{r.effective.model ?? "inherit"}</span> · temperature <span class="text-ink">{r.effective.temperature !== null && r.effective.temperature !== undefined ? r.effective.temperature : "inherit"}</span></p>
-              <div class="mt-4 flex flex-wrap items-center gap-3"><button onclick={() => saveSettings(r)} disabled={pending[key]?.saving} class="btn btn-primary">{pending[key]?.saving ? "Saving…" : "Save settings"}</button><span class="text-xs text-ink-3">Save before generating; the writer uses the saved voice.</span></div>
+              <div class="mt-4 flex flex-wrap items-center gap-3"><button onclick={() => saveSettings(r)} disabled={pending[key]?.saving} class="btn btn-primary">{pending[key]?.saving ? "Saving…" : "Save settings"}</button><span class="text-xs text-ink-3">Save before generating; the writer uses the saved tone.</span></div>
               <div aria-live="polite" class="mt-3">{#if saveMsg[key]}<p class="text-sm text-ok">{saveMsg[key]}</p>{/if}{#if saveErr[key]}<p class="text-sm text-alert" role="alert">{saveErr[key]}</p>{/if}</div>
             </section>
           {/if}

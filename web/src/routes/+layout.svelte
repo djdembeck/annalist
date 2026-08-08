@@ -32,8 +32,8 @@
 <!--
   THESIS: Every release is a traceable workpiece moving from commit input to shaped note; this shell refuses the interchangeable admin dashboard.
   OWN-WORLD: Dark powder-coated panels, thermal-paper proof, copper action rails, cyan trace signals, and compact instrumentation labels.
-  STORY: Operators see what is connected, what is active, which voice is applied, and what note will ship.
-  FIRST VIEWPORT: A release trace occupies the primary field; the note proof and next action sit beside it on desktop and stack on mobile.
+  STORY: Operators know what to configure, what is active, which tone is applied, and what note will ship.
+  FIRST VIEWPORT: The setup-first home pairs a clear next action with the four-stage release path; detailed proof follows below.
   FORM: Release Trace Wall, seed aa4fba49.
   FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 -->

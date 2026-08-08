@@ -1,30 +1,29 @@
 <script lang="ts">
   import ForgeDemo from "$lib/components/ForgeDemo.svelte";
+  import MarkdownPreview from "$lib/components/MarkdownPreview.svelte";
 
-  let copied = $state(false);
-  let copyError = $state(false);
+  let selectedTone = $state("chronicler");
 
-  const features = [
+  const setupSteps = [
     {
-      label: "CROSS-PLATFORM",
-      title: "One pipeline, both forges",
-      body: "A single annalist instance listens for GitHub Apps webhooks and Forgejo webhooks. Configure your sources once; every repo flows through the same forge.",
+      title: "Open setup",
+      body: "Save the admin token that protects this instance, then connect GitHub or Forgejo.",
     },
     {
-      label: "VOICE CONTROL",
-      title: "A tone for every repo",
-      body: "Pick chronicler, engineer, or launch — or write a custom persona — and tune temperature and instructions per repository, not globally.",
+      title: "Choose repositories",
+      body: "Give Annalist the repositories it can read and publish notes for.",
     },
     {
-      label: "SELF-HOSTED",
-      title: "Your stack, your data",
-      body: "Point annalist at your own OpenAI-compatible LLM endpoint. Commits and generated notes never leave your infrastructure. No SaaS lock-in.",
+      title: "Set the tone",
+      body: "Pick chronicler, engineer, launch, or your own instructions for the note.",
     },
-    {
-      label: "ZERO-TOUCH",
-      title: "Ship, and the notes follow",
-      body: "When a release ships, annalist reads the commit history and writes the notes back — unattended, idempotent, and ready on every publish.",
-    },
+  ];
+
+  const releaseFlow = [
+    { title: "A release ships", detail: "Your normal GitHub or Forgejo release flow continues." },
+    { title: "The webhook arrives", detail: "Annalist receives the event and checks it once." },
+    { title: "Commits become context", detail: "The configured repository history is read." },
+    { title: "A note is written back", detail: "The selected tone shapes the release body." },
   ];
 
   const toneExamples = [
@@ -45,7 +44,7 @@
     {
       tone: "engineer",
       blurb: "Terse, technical — the commit log, summarized.",
-      notes: `v1.4.0
+      notes: `# v1.4.0
 
 - gateway: circuit-breaker middleware; cascade-safe.
 - rate-limit: reset counter on config reload (#128).
@@ -67,424 +66,648 @@ No breaking changes — just upgrade and ship.`,
     },
   ];
 
-  async function copyDocker(): Promise<void> {
-    const command = "docker pull ghcr.io/djdembeck/annalist:latest";
-    copyError = false;
-    try {
-      await navigator.clipboard.writeText(command);
-      copied = true;
-      setTimeout(() => (copied = false), 2000);
-    } catch {
-      copied = false;
-      copyError = true;
-      setTimeout(() => (copyError = false), 4000);
-    }
-  }
+  const selectedExample = $derived(
+    toneExamples.find((tone) => tone.tone === selectedTone) ?? toneExamples[0],
+  );
 </script>
 
-<div class="release-wall min-h-dvh bg-page font-body text-ink">
+<svelte:head>
+  <title>Home · Annalist</title>
+  <meta
+    name="description"
+    content="Configure Annalist once, then let each release arrive with a readable note."
+  />
+</svelte:head>
+
+<div class="home-page min-h-dvh bg-page font-body text-ink">
   <!--
-    THESIS: Make every release legible as a traceable workpiece, not an interchangeable admin dashboard.
-    OWN-WORLD: Dark powder-coated panels, thermal-paper proof, copper action rails, and cyan trace signals.
-    STORY: The operator sees commits received, resolved, struck into a voice, and ready to publish as a note.
-    FIRST VIEWPORT: A release trace fills the primary field; its synthetic note proof and Get started action sit alongside it, then stack on mobile.
-    FORM: Release Trace Wall, seed aa4fba49.
+    THESIS: Turn the installed home into a calm first-run station, not a marketing landing page.
+    OWN-WORLD: Dark powder-coated panels, copper actions, cyan trace signals, and thermal-paper note proofs.
+    STORY: The operator knows what to configure, what happens next, and how tone changes the output.
+    FIRST VIEWPORT: A setup-first headline and primary action sit beside the four-stage release path; detailed proof follows below.
+    FORM: Release Trace Wall, adapted for Operate onboarding, seed aa4fba49.
     FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
   -->
-  <section class="landing-hero mx-auto max-w-6xl px-4 pb-14 pt-10 sm:px-6 sm:pb-20 sm:pt-16 lg:pb-24 lg:pt-20">
-    <div class="landing-hero-grid">
-      <div class="landing-intro">
-        <h1 class="landing-title text-balance">Turn release commits into release notes.</h1>
-        <p class="landing-lede text-balance">
-          Annalist listens for release webhooks on GitHub and Forgejo, reads your commit history,
-          and writes human-sounding notes back to the release — unattended.
+  <section class="home-hero mx-auto max-w-6xl px-4 pb-12 pt-10 sm:px-6 sm:pb-16 sm:pt-14 lg:pb-20 lg:pt-18">
+    <div class="home-hero-grid">
+      <div class="home-intro">
+        <h1 class="home-title text-balance">Get the path from release to note ready.</h1>
+        <p class="home-lede text-balance">
+          Annalist is running on your infrastructure. Complete three short setup steps, then each
+          release can arrive, pick up its configured tone, and leave with a readable note.
         </p>
-        <div class="landing-actions">
+        <div class="home-actions">
           <a href="/setup" class="btn btn-primary">
-            Get started
+            Open setup
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </a>
           <a
-            href="https://github.com/djdembeck/annalist"
+            href="https://github.com/djdembeck/annalist#platform-setup"
             target="_blank"
             rel="noopener noreferrer"
             class="btn btn-secondary"
           >
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.419-1.305.762-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12c0-6.627-5.373-12-12-12"/>
-            </svg>
-            View on GitHub
+            Read the setup guide
           </a>
         </div>
-        <p class="landing-proof-note"><span class="signal-dot signal-dot-cyan" aria-hidden="true"></span>Self-hosted AI release notes for teams that ship on their own infrastructure.</p>
       </div>
 
-      <ForgeDemo />
-    </div>
-  </section>
-
-  <section class="wall-section border-y border-line bg-surface-1">
-    <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
-      <div class="section-head">
-        <div>
-          <h2>One release, one traceable pass.</h2>
-          <p>From webhook to release body, the work stays on your stack and the writing voice stays yours.</p>
-        </div>
-      </div>
-      <div class="console-grid feature-console">
-        {#each features as feature}
-          <article class="panel-soft feature-panel">
-            <h3>{feature.title}</h3>
-            <p>{feature.body}</p>
-            <span class="chip">{feature.label}</span>
-          </article>
-        {/each}
-      </div>
-    </div>
-  </section>
-
-  <section class="wall-section mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-24">
-    <div class="section-head">
-      <div>
-        <h2>The voice is a setting, not a template.</h2>
-        <p>Choose chronicler, engineer, launch, or a custom persona per repository. These note samples are synthetic examples.</p>
-      </div>
-    </div>
-    <div class="console-grid tone-console">
-      {#each toneExamples as tone}
-        <article class="panel tone-panel">
-          <div class="tone-panel-head">
-            <div>
-              <h3>{tone.tone}</h3>
-              <p>{tone.blurb}</p>
-            </div>
-            <span class="chip">Synthetic</span>
+      <aside class="panel home-flow-panel" aria-labelledby="flow-heading">
+        <div class="home-panel-head">
+          <div>
+            <h2 id="flow-heading">After setup</h2>
+            <p>Nothing changes in the way your team ships.</p>
           </div>
-          <pre class="note-paper">{tone.notes}</pre>
-        </article>
-      {/each}
+          <span class="status status--quiet">READY WHEN YOU ARE</span>
+        </div>
+        <ol class="home-flow">
+          {#each releaseFlow as stage, index}
+            <li class="home-flow-item">
+              <span class="home-flow-marker" aria-hidden="true">{index + 1}</span>
+              <div>
+                <h3>{stage.title}</h3>
+                <p>{stage.detail}</p>
+              </div>
+            </li>
+          {/each}
+        </ol>
+      </aside>
     </div>
   </section>
 
-  <section id="deploy" class="wall-section border-y border-line bg-surface-1">
-    <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-24">
-      <div class="deploy-grid">
-        <div class="deploy-copy">
-          <h2>Run it next to the systems that ship.</h2>
-          <p>
-            Pull the image, set your admin token and LLM endpoint, and run. Then wire the
-            examples pack to make every release ship with notes.
-          </p>
-          <a
-            href="https://github.com/djdembeck/annalist/tree/main/examples"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn btn-secondary"
-          >
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M14.9 3H6c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8.3c0-.5-.2-1-.6-1.4l-4.7-4.7c-.4-.4-.9-.6-1.4-.6zM16 4.6l3.4 3.4H16V4.6zM6 19V5h8v5h5v9H6Z" />
-            </svg>
-            Read the examples pack
-          </a>
-        </div>
+  <section class="home-section home-section--band border-y border-line bg-surface-1" aria-labelledby="steps-heading">
+    <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
+      <div class="home-section-heading">
+        <h2 id="steps-heading">Three things to configure</h2>
+        <p>Start here if this is the first time you have opened this Annalist instance.</p>
+      </div>
 
-        <div class="panel deploy-console">
-          <div class="deploy-console-head">
-            <span class="trace-label">Docker command</span>
-            <button type="button" onclick={copyDocker} class="btn btn-ghost" aria-live="polite">
-              {#if copied}
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <path d="M20 6 9 17l-5-5" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-                Copied
+      <div class="home-steps panel-soft">
+        <ol>
+          {#each setupSteps as item, index}
+            <li class="home-step">
+              <span class="home-step-number" aria-hidden="true">{index + 1}</span>
+              <div class="home-step-copy">
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+              </div>
+              {#if index === 0}
+                <a href="/setup" class="btn btn-ghost">Begin <span aria-hidden="true">→</span></a>
               {:else}
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <rect x="9" y="9" width="13" height="13" rx="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
-                Copy
+                <a href="/setup" class="btn btn-ghost">In setup <span aria-hidden="true">→</span></a>
               {/if}
-            </button>
+            </li>
+          {/each}
+        </ol>
+      </div>
+
+      <div class="home-expectations">
+        <div>
+          <h2>What to have nearby</h2>
+          <p>Setup is easier when these are ready before you start.</p>
+        </div>
+        <ul>
+          <li><strong>Admin token</strong><span>the key for this dashboard</span></li>
+          <li><strong>Forge access</strong><span>a GitHub App or Forgejo token</span></li>
+          <li><strong>LLM endpoint</strong><span>an OpenAI-compatible URL and key</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="home-section mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16" aria-labelledby="preview-heading">
+    <div class="home-section-heading home-section-heading--wide">
+      <h2 id="preview-heading">See the release path before you connect it.</h2>
+      <p>
+        This preview shows the same sequence Annalist uses for a real release. Your repository history
+        and configured tone replace the example content.
+      </p>
+    </div>
+    <ForgeDemo />
+  </section>
+
+  <section class="home-section home-section--tone border-t border-line bg-surface-1" aria-labelledby="tone-heading">
+    <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
+      <div class="home-section-heading">
+        <h2 id="tone-heading">Tone control belongs next to the repository.</h2>
+        <p>Choose the shape of the note once globally, then override it where a repository needs a different register.</p>
+      </div>
+
+      <div class="tone-control">
+        <div class="panel tone-picker">
+          <div class="tone-picker-head">
+            <h3>Choose a preview</h3>
+            <span class="chip">Same release</span>
           </div>
-          <pre class="command-line"><code>docker pull ghcr.io/djdembeck/annalist:latest</code></pre>
-          {#if copyError}
-            <p class="mt-2 text-xs text-alert" role="status">Copy unavailable — select the command above.</p>
-          {/if}
-          <div class="deploy-env">
-            <p class="trace-label">Then set these environment variables</p>
-            <ul>
-              <li><span class="chip">ADMIN_TOKEN</span><span>Gate the UI and API.</span></li>
-              <li><span class="chip">LLM_BASE_URL</span><span>Your OpenAI-compatible endpoint.</span></li>
-              <li><span class="chip">GITHUB_APP_ID</span><span>or</span><span class="chip">FORGEJO_WEBHOOK_SECRET</span><span>Platform credentials.</span></li>
-            </ul>
+          <div class="tone-tabs" role="tablist" aria-label="Tone previews">
+            {#each toneExamples as tone}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tone.tone === selectedTone}
+                aria-controls="tone-preview"
+                class:active={tone.tone === selectedTone}
+                onclick={() => (selectedTone = tone.tone)}
+              >
+                <span>{tone.tone}</span>
+                <small>{tone.blurb}</small>
+              </button>
+            {/each}
           </div>
-          <p class="deploy-footnote">Full credential setup for both platforms is in the README.</p>
+          <a href="/setup" class="btn btn-secondary tone-picker-action">Set the tone in setup <span aria-hidden="true">→</span></a>
+        </div>
+
+        <div id="tone-preview" class="tone-preview" role="tabpanel" aria-label={`${selectedExample.tone} tone preview`}>
+          <div class="tone-preview-head">
+            <div>
+              <span class="trace-label">{selectedExample.tone} tone</span>
+              <p>{selectedExample.blurb}</p>
+            </div>
+            <span class="status status--quiet">PREVIEW</span>
+          </div>
+          <MarkdownPreview source={selectedExample.notes} class="home-markdown" />
         </div>
       </div>
     </div>
   </section>
 
-  <footer class="wall-footer border-t border-line bg-page">
-    <div class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 sm:flex-row sm:px-6">
-      <span class="font-display text-lg tracking-tight text-white">ANNALIST</span>
-      <div class="flex items-center gap-6 text-sm text-ink-3">
-        <a href="https://github.com/djdembeck/annalist" target="_blank" rel="noopener noreferrer" class="focus-ring hover:text-ink-2">GitHub</a>
-        <a href="https://github.com/djdembeck/annalist/tree/main/examples" target="_blank" rel="noopener noreferrer" class="focus-ring hover:text-ink-2">Examples</a>
-        <a href="/setup" class="focus-ring hover:text-ink-2">Get started</a>
+  <footer class="home-footer border-t border-line bg-page">
+    <div class="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 px-4 py-8 sm:flex-row sm:items-center sm:px-6">
+      <div>
+        <span class="font-display text-lg tracking-tight text-white">ANNALIST</span>
+        <p>Self-hosted release notes for GitHub and Forgejo.</p>
       </div>
-      <span class="text-xs text-ink-3">UNLICENSED</span>
+      <div class="home-footer-links">
+        <a href="/setup" class="focus-ring">Setup</a>
+        <a href="https://github.com/djdembeck/annalist" target="_blank" rel="noopener noreferrer" class="focus-ring">GitHub</a>
+        <a href="https://github.com/djdembeck/annalist/tree/main/examples" target="_blank" rel="noopener noreferrer" class="focus-ring">Examples</a>
+      </div>
     </div>
   </footer>
 </div>
 
 <style>
-  .release-wall {
+  .home-page {
     overflow: hidden;
   }
 
-  .landing-hero-grid {
+  .home-hero-grid {
     display: grid;
-    gap: 2.5rem;
-    align-items: center;
+    gap: 2rem;
+    align-items: stretch;
   }
 
-  .landing-intro {
-    max-width: 36rem;
+  .home-intro {
+    display: flex;
+    max-width: 42rem;
+    flex-direction: column;
+    justify-content: center;
   }
 
-  .landing-title {
-    max-width: 10ch;
+  .home-title {
+    max-width: 12ch;
     color: var(--color-ink);
     font-family: var(--font-display);
-    font-size: clamp(2.75rem, 7vw, 5.75rem);
+    font-size: clamp(2.65rem, 7vw, 5rem);
     font-weight: 400;
     letter-spacing: -0.035em;
-    line-height: 0.95;
+    line-height: 0.96;
   }
 
-  .landing-lede {
-    max-width: 36rem;
+  .home-lede {
+    max-width: 54ch;
     margin-top: 1.5rem;
     color: var(--color-ink-2);
-    font-size: clamp(1rem, 1.7vw, 1.2rem);
+    font-size: clamp(1rem, 1.7vw, 1.15rem);
     line-height: 1.55;
   }
 
-  .landing-actions {
+  .home-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 0.75rem;
     margin-top: 1.75rem;
   }
 
-  .landing-proof-note {
+  .home-flow-panel {
+    min-width: 0;
+  }
+
+  .home-panel-head,
+  .tone-picker-head,
+  .tone-preview-head {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 1.25rem;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .home-panel-head h2,
+  .tone-picker h3 {
+    color: var(--color-ink);
+    font-size: 1.15rem;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  .home-panel-head p,
+  .tone-preview-head p {
+    margin-top: 0.4rem;
     color: var(--color-ink-3);
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     line-height: 1.4;
   }
 
-  .wall-section h2,
-  .deploy-copy h2 {
-    max-width: 22ch;
+  .home-flow {
+    display: grid;
+    gap: 0;
+    margin-top: 1.5rem;
+  }
+
+  .home-flow-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0.75rem;
+    min-width: 0;
+    padding-bottom: 1.1rem;
+  }
+
+  .home-flow-item:last-child {
+    padding-bottom: 0;
+  }
+
+  .home-flow-marker {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border: 1px solid var(--trace-cyan);
+    border-radius: 50%;
+    background: var(--trace-panel);
+    color: var(--trace-cyan);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+  }
+
+  .home-flow-item:not(:last-child) .home-flow-marker::after {
+    position: absolute;
+    top: 2rem;
+    left: calc(50% - 0.5px);
+    width: 1px;
+    height: calc(100% + 1.1rem);
+    background: var(--trace-line-strong);
+    content: "";
+  }
+
+  .home-flow-item h3 {
     color: var(--color-ink);
-    font-size: clamp(1.6rem, 3vw, 2.25rem);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .home-flow-item p {
+    margin-top: 0.25rem;
+    color: var(--color-ink-2);
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
+  .home-section-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .home-section-heading h2,
+  .home-expectations h2 {
+    max-width: 25ch;
+    color: var(--color-ink);
+    font-size: clamp(1.55rem, 3vw, 2.15rem);
     font-weight: 600;
     letter-spacing: -0.02em;
     line-height: 1.05;
   }
 
-  .section-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 1.5rem;
-  }
-
-  .section-head p,
-  .deploy-copy p {
-    max-width: 58ch;
-    margin-top: 0.75rem;
+  .home-section-heading p,
+  .home-expectations > div p {
+    max-width: 54ch;
+    margin-top: 0.65rem;
     color: var(--color-ink-2);
     line-height: 1.55;
   }
 
-  .feature-console {
+  .home-steps {
+    padding: 0;
+  }
+
+  .home-step {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    margin-top: 2.5rem;
+    grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+    gap: 1rem;
+    align-items: center;
+    min-width: 0;
+    padding: 1.25rem 1.5rem;
   }
 
-  .feature-panel {
-    display: flex;
-    flex-direction: column;
-    min-height: 13rem;
+  .home-step + .home-step {
+    border-top: 1px solid var(--trace-line);
   }
 
-  .feature-panel h3,
-  .tone-panel h3 {
+  .home-step-number {
+    display: grid;
+    width: 2.25rem;
+    height: 2.25rem;
+    place-items: center;
+    border: 1px solid var(--trace-line-strong);
+    border-radius: 50%;
+    color: var(--trace-cyan);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  .home-step-copy {
+    min-width: 0;
+  }
+
+  .home-step-copy h3 {
     color: var(--color-ink);
     font-size: 1rem;
     font-weight: 600;
     line-height: 1.3;
   }
 
-  .feature-panel p {
-    margin-top: 0.65rem;
+  .home-step-copy p {
+    max-width: 58ch;
+    margin-top: 0.3rem;
     color: var(--color-ink-2);
-    font-size: 0.9rem;
-    line-height: 1.55;
-  }
-
-  .feature-panel .chip {
-    align-self: flex-start;
-    margin-top: auto;
-  }
-
-  .tone-console {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin-top: 2.5rem;
-  }
-
-  .tone-panel {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .tone-panel-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .tone-panel-head h3 {
-    text-transform: capitalize;
-  }
-
-  .tone-panel-head p {
-    margin-top: 0.35rem;
-    color: var(--color-ink-3);
-    font-size: 0.8rem;
-    line-height: 1.4;
-  }
-
-  .tone-panel .note-paper {
-    min-height: 14rem;
-    flex: 1;
-    overflow: auto;
-  }
-
-  .deploy-grid {
-    display: grid;
-    gap: 2.5rem;
-    align-items: start;
-  }
-
-  .deploy-copy {
-    max-width: 34rem;
-  }
-
-  .deploy-copy .btn {
-    margin-top: 1.5rem;
-  }
-
-  .deploy-console {
-    min-width: 0;
-  }
-
-  .deploy-console-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .command-line {
-    overflow-x: auto;
-    margin-top: 0.75rem;
-    padding: 0.9rem 1rem;
-    border: 1px solid var(--color-line);
-    background: var(--color-page);
-    color: var(--color-ink-2);
-    font-family: var(--font-mono);
-    font-size: 0.8rem;
+    font-size: 0.875rem;
     line-height: 1.5;
+  }
+
+  .home-step .btn {
     white-space: nowrap;
   }
 
-  .deploy-env {
-    margin-top: 1.25rem;
-  }
-
-  .deploy-env ul {
+  .home-expectations {
     display: grid;
-    gap: 0.6rem;
-    margin-top: 0.65rem;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 2rem;
+    align-items: start;
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--trace-line);
   }
 
-  .deploy-env li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.45rem;
+  .home-expectations h2 {
+    font-size: 1.25rem;
+  }
+
+  .home-expectations ul {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .home-expectations li {
+    display: grid;
+    gap: 0.3rem;
+    min-width: 0;
+    padding-top: 0.75rem;
+    border-top: 2px solid var(--trace-copper);
+  }
+
+  .home-expectations strong {
+    color: var(--color-ink);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .home-expectations li span {
     color: var(--color-ink-2);
     font-size: 0.8rem;
     line-height: 1.4;
   }
 
-  .deploy-footnote {
-    margin-top: 1.25rem;
-    color: var(--color-ink-3);
-    font-size: 0.75rem;
-    line-height: 1.45;
+  .home-section-heading--wide {
+    display: block;
   }
 
-  .wall-footer a {
+  .home-section-heading--wide p {
+    max-width: 62ch;
+  }
+
+  .home-section--tone {
+    padding-bottom: 1rem;
+  }
+
+  .tone-control {
+    display: grid;
+    grid-template-columns: minmax(15rem, 0.72fr) minmax(0, 1.28fr);
+    gap: 1rem;
+    align-items: stretch;
+  }
+
+  .tone-picker {
+    min-width: 0;
+  }
+
+  .tone-tabs {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+  }
+
+  .tone-tabs button {
+    display: grid;
+    gap: 0.3rem;
+    min-height: 2.75rem;
+    border: 1px solid var(--trace-line);
+    border-radius: 0.25rem;
+    background: var(--trace-page);
+    padding: 0.75rem;
+    color: var(--color-ink-2);
+    font-family: inherit;
+    text-align: left;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+  }
+
+  .tone-tabs button:hover {
+    border-color: var(--trace-line-strong);
+    background: var(--trace-raised);
+    color: var(--color-ink);
+  }
+
+  .tone-tabs button:focus-visible {
+    outline: 2px solid var(--trace-cyan);
+    outline-offset: 3px;
+  }
+
+  .tone-tabs button.active {
+    border-color: var(--trace-cyan);
+    background: color-mix(in srgb, var(--trace-cyan) 8%, var(--trace-panel));
+    color: var(--color-ink);
+  }
+
+  .tone-tabs button span {
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+
+  .tone-tabs button small {
+    color: var(--color-ink-3);
+    font-size: 0.76rem;
+    line-height: 1.4;
+  }
+
+  .tone-picker-action {
+    width: 100%;
+    margin-top: 1.25rem;
+  }
+
+  .tone-preview {
+    min-width: 0;
+    border: 1px solid var(--trace-line);
+    border-radius: 0.25rem;
+    background: var(--trace-ink);
+    padding: 1rem;
+  }
+
+  .tone-preview-head {
+    align-items: center;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--trace-page);
+  }
+
+  .tone-preview-head .trace-label {
+    color: var(--trace-page);
+  }
+
+  .tone-preview-head p {
+    color: color-mix(in srgb, var(--trace-page) 72%, var(--trace-ink));
+  }
+
+  .tone-preview-head .status {
+    color: var(--trace-page);
+  }
+
+  :global(.home-markdown) {
+    margin-top: 1rem;
+    border-color: var(--trace-page) !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  :global(.home-markdown) :global(.prose-forge) {
+    max-height: 22rem;
+    padding: 0.25rem 0 0;
+  }
+
+  :global(.home-markdown) :global(.prose-forge *) {
+    color: var(--trace-page);
+  }
+
+  :global(.home-markdown) :global(.prose-forge h2) {
+    border-color: color-mix(in srgb, var(--trace-page) 30%, transparent);
+  }
+
+  :global(.home-markdown) :global(.prose-forge li) {
+    color: color-mix(in srgb, var(--trace-page) 78%, var(--trace-ink));
+  }
+
+  :global(.home-markdown) :global(.prose-forge li::marker) {
+    color: var(--trace-copper);
+  }
+
+  :global(.home-markdown) :global(.prose-forge code) {
+    background: color-mix(in srgb, var(--trace-page) 12%, var(--trace-ink));
+  }
+
+  .home-footer {
+    color: var(--color-ink-3);
+  }
+
+  .home-footer p {
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
+  }
+
+  .home-footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    font-size: 0.875rem;
+  }
+
+  .home-footer-links a {
     display: inline-flex;
     min-height: 2.75rem;
     align-items: center;
-    padding-inline: var(--trace-space-2);
-    transition: color 120ms ease;
+    color: var(--color-ink-3);
+  }
+
+  .home-footer-links a:hover {
+    color: var(--color-ink);
   }
 
   @media (min-width: 768px) {
-    .landing-hero-grid {
-      grid-template-columns: minmax(15rem, 0.76fr) minmax(0, 1.24fr);
-      gap: 3rem;
-    }
-
-    .deploy-grid {
-      grid-template-columns: minmax(0, 0.8fr) minmax(24rem, 1.2fr);
-      gap: 4rem;
+    .home-hero-grid {
+      grid-template-columns: minmax(0, 1.08fr) minmax(18rem, 0.92fr);
+      gap: 3.5rem;
     }
   }
 
   @media (min-width: 1024px) {
-    .landing-hero-grid {
-      gap: 4.5rem;
+    .home-hero-grid {
+      gap: 5rem;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .home-step {
+      grid-template-columns: 2.25rem minmax(0, 1fr);
+    }
+
+    .home-step .btn {
+      grid-column: 2;
+      justify-self: start;
+    }
+
+    .home-expectations,
+    .tone-control {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
 
   @media (max-width: 639px) {
-    .feature-console,
-    .tone-console {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .landing-actions .btn {
+    .home-actions .btn {
       width: 100%;
     }
 
-    .section-head p,
-    .deploy-copy p {
-      font-size: 0.95rem;
+    .home-section-heading {
+      display: block;
+    }
+
+    .home-expectations ul {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .home-step {
+      padding-inline: 1rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tone-tabs button {
+      transition: none;
     }
   }
 </style>
