@@ -43,6 +43,7 @@ func TestHandler(t *testing.T) {
 
 	t.Run("unknown path serves index fallback", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "http://test/some/spa/route", nil)
+		req.Header.Set("Accept", "text/html")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -50,6 +51,27 @@ func TestHandler(t *testing.T) {
 		}
 		if !strings.Contains(w.Body.String(), "<html") {
 			t.Errorf("body does not look like index.html: %s", w.Body.String())
+		}
+	})
+
+	t.Run("missing static asset is a hard 404, not the html shell", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "http://test/fonts/missing.woff2", nil)
+		req.Header.Set("Accept", "application/font-woff2;q=1.0,font/woff2;q=1.0,*/*;q=0.1")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404; body starts %q (must not be the HTML shell)",
+				w.Code, w.Body.String()[:min(len(w.Body.String()), 32)])
+		}
+	})
+
+	t.Run("asset-shaped path serves 404 even with html accept", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "http://test/_app/immutable/nope.js", nil)
+		req.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404 for missing asset path", w.Code)
 		}
 	})
 

@@ -1,0 +1,15 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -buildvcs=false -tags webui -o ./tmp/main ./cmd/annalist"
+entrypoint = ["./tmp/main", "serve"]
+delay = 200
+exclude_dir = ["data", "web", "tmp"]
+include_ext = ["go"]
+log = "build.log"
+send_interrupt = true
+stop_on_error = false
+
+[misc]
+clean_on_exit = true

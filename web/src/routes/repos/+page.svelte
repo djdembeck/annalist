@@ -1,12 +1,19 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { goto } from "$app/navigation";
   import {
-    getRepos,
-    putRepoSettings,
-    generate,
-    type Repo,
-  } from "$lib/api";
+    repoKey,
+    parseTemperature,
+    resolveTone,
+    SAVE_MSG_TIMEOUT,
+  } from "$lib/repoUtils";
+  import { getRepos, putRepoSettings, generate, type Repo } from "$lib/api";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import ErrorBanner from "$lib/components/ErrorBanner.svelte";
+  import SectionHead from "$lib/components/SectionHead.svelte";
+  import {
+    formatError,
+    handleAuthError,
+  } from "$lib/composables/useAuthErrorHandler";
 
   const PRESETS = ["chronicler", "engineer", "launch"];
   const PRESET_OPTIONS = [...PRESETS, "custom"];
@@ -21,45 +28,77 @@
   };
 
   let repos = $state<Repo[]>([]);
-  let loading = $state(true);
-  let error = $state("");
-  let expanded = $state<Record<string, boolean>>({});
+  let loadState = $state<"idle" | "loading" | "success" | "error">("idle");
+  let loadError = $state("");
+  let pending = $state<
+    Record<
+      string,
+      { saving?: boolean; toggling?: boolean; generating?: boolean }
+    >
+  >({});
+  let saveMsg = $state<Record<string, string | null>>({});
+  let saveErr = $state<Record<string, string | null>>({});
+  let toggleErr = $state<Record<string, string | null>>({});
+  let openPanel = $state<Record<string, "settings" | "generate" | undefined>>(
+    {},
+  );
   let drafts = $state<Record<string, Draft>>({});
   let force = $state<Record<string, boolean>>({});
+  let publish = $state<Record<string, boolean>>({});
   let notesOut = $state<Record<string, string | null>>({});
   let genError = $state<Record<string, string | null>>({});
+  let generateTag = $state<Record<string, string>>({});
+  let genTagError = $state<Record<string, string | null>>({});
+  let overwriteConfirm = $state<Record<string, boolean>>({});
+  let temperatureError = $state<Record<string, string | null>>({});
 
-  function rowKey(r: Repo): string {
-    return `${r.platform}/${r.owner}/${r.repo}`;
-  }
+  let inventoryLede = $derived(
+    (loadState === "success" || loadState === "error")
+      ? `${repos.length} ${repos.length === 1 ? "repository" : "repositories"} connected, ${repos.filter((r) => r.enabled).length} enabled.`
+      : undefined,
+  );
 
   async function refresh(): Promise<void> {
+    loadError = "";
+    loadState = "loading";
     try {
       repos = await getRepos();
-      error = "";
+      loadState = "success";
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      error = e instanceof Error ? e.message : "Failed to load repos";
-    } finally {
-      loading = false;
+      if (handleAuthError(e)) return;
+      loadState = "error";
+      loadError = formatError(
+        e,
+        "Could not load repositories — check your connection and try again.",
+      );
     }
   }
 
   onMount(refresh);
 
-  function toggleEnabled(r: Repo): void {
-    putRepoSettings(r.platform, r.owner, r.repo, { enabled: !r.enabled })
-      .then(refresh)
-      .catch((e) => {
-        error = e instanceof Error ? e.message : "Failed to update";
+  async function toggleEnabled(r: Repo): Promise<void> {
+    const key = repoKey(r);
+    const nextEnabled = !r.enabled;
+    toggleErr[key] = null;
+    pending[key] = { ...(pending[key] ?? {}), toggling: true };
+    try {
+      await putRepoSettings(r.platform, r.owner, r.repo, {
+        enabled: nextEnabled,
       });
+      await refresh();
+    } catch (e) {
+      if (handleAuthError(e)) return;
+      toggleErr[key] = formatError(
+        e,
+        "Could not update — check your connection and try again.",
+      );
+    } finally {
+      pending[key] = { ...(pending[key] ?? {}), toggling: false };
+    }
   }
 
   function openSettings(r: Repo): void {
-    const key = rowKey(r);
+    const key = repoKey(r);
     const tone = r.tone ?? "";
     const isPreset = PRESETS.includes(tone);
     drafts[key] = {
@@ -70,249 +109,470 @@
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
     };
-    expanded[key] = !expanded[key];
+    openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
+  }
+
+  function openGenerate(r: Repo): void {
+    const key = repoKey(r);
+    generateTag[key] ??= "";
+    overwriteConfirm[key] = false;
+    force[key] = false;
+    publish[key] = false;
+    openPanel[key] = openPanel[key] === "generate" ? undefined : "generate";
   }
 
   async function saveSettings(r: Repo): Promise<void> {
-    const d = drafts[rowKey(r)];
-    let tone: string | null;
-    if (d.toneOption === "inherit") {
-      tone = null;
-    } else if (d.toneOption === "custom") {
-      tone = d.customTone.trim() ? d.customTone : null;
-    } else {
-      tone = d.toneOption;
+    const key = repoKey(r);
+    const d = drafts[key];
+    saveErr[key] = null;
+    saveMsg[key] = null;
+    temperatureError[key] = null;
+    const tempResult = parseTemperature(d.temperature);
+    if (tempResult.error) {
+      temperatureError[key] = tempResult.error;
+      return;
     }
+    pending[key] = { ...(pending[key] ?? {}), saving: true };
+    const tone = resolveTone(d.toneOption, d.customTone);
     try {
       await putRepoSettings(r.platform, r.owner, r.repo, {
         tone,
         instructions: d.instructions.trim() ? d.instructions : null,
         model: d.model.trim() ? d.model : null,
-        temperature:
-          d.temperature === "" ? null : parseFloat(d.temperature) || null,
+        temperature: tempResult.value,
         trigger: d.trigger,
       });
       await refresh();
+      saveMsg[key] = "Saved";
+      temperatureError[key] = null;
+      window.setTimeout(() => {
+        saveMsg[key] = null;
+      }, SAVE_MSG_TIMEOUT);
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      error = e instanceof Error ? e.message : "Failed to save settings";
+      if (handleAuthError(e)) return;
+      saveErr[key] = formatError(
+        e,
+        "Could not save — check your connection and try again.",
+      );
+    } finally {
+      pending[key] = { ...(pending[key] ?? {}), saving: false };
     }
   }
 
-  async function regenerate(r: Repo): Promise<void> {
-    const key = rowKey(r);
-    const toTag = window.prompt(`Release tag to generate notes for (${r.owner}/${r.repo}):`);
+  async function runGenerate(r: Repo): Promise<void> {
+    const key = repoKey(r);
+    const toTag = (generateTag[key] ?? "").trim();
     notesOut[key] = null;
     genError[key] = null;
-    if (!toTag) return;
+    genTagError[key] = null;
+    if (!toTag) {
+      genTagError[key] = "Enter a release tag";
+      return;
+    }
+    if ((force[key] ?? false) && !overwriteConfirm[key]) {
+      overwriteConfirm[key] = true;
+      return;
+    }
+    pending[key] = { ...pending[key], generating: true };
     try {
       const result = await generate(r.platform, r.owner, r.repo, {
         to_tag: toTag,
         force: force[key] ?? false,
+        publish: publish[key] ?? false,
       });
       notesOut[key] = result.notes;
+      overwriteConfirm[key] = false;
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      genError[key] = e instanceof Error ? e.message : "Generate failed";
+      if (handleAuthError(e)) return;
+      genError[key] =
+        `Generation failed for ${toTag}. ${formatError(e, "Check that the tag exists and the LLM endpoint is reachable.")}`;
+    } finally {
+      pending[key] = { ...pending[key], generating: false };
     }
   }
 </script>
 
-<div>
-  <div class="mb-6 flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-ink">Repositories</h1>
-    {#if !loading}
-      <button
-        onclick={refresh}
-        class="rounded bg-control px-3 py-1.5 text-sm text-ink hover:bg-control-hover"
-      >
-        Refresh
-      </button>
-    {/if}
-  </div>
+<svelte:head>
+  <title>Repositories · Annalist</title>
+  <meta
+    name="description"
+    content="Manage connected repositories and release-note generation."
+  />
+</svelte:head>
 
-  {#if error}
-    <p class="mb-4 text-sm text-alert">{error}</p>
-  {/if}
+<div class="trace-wall">
+  <SectionHead
+    label="Operations / connected sources"
+    title="Repository trace inventory"
+    lede={inventoryLede}
+  >
+    {#snippet actions()}
+      {#if loadState === "loading"}
+        <button
+          disabled
+          class="btn btn-secondary"
+          aria-label="Refreshing repository inventory">Refreshing…</button
+        >
+      {:else if loadState === "success" || loadState === "error"}
+        <button
+          onclick={refresh}
+          class="btn btn-secondary"
+          aria-label="Refresh repository inventory">Refresh</button
+        >
+      {/if}
+      <a href="/repos/add" class="btn btn-primary">Add repositories</a>
+    {/snippet}
+  </SectionHead>
 
-  {#if loading}
-    <p class="text-sm text-ink-3">Loading…</p>
+  {#if loadState === "loading" || loadState === "idle"}
+    <section class="panel" aria-busy="true" aria-label="Loading repositories">
+      <p class="trace-label">Reading source inventory</p>
+      <div class="skeleton mt-4 h-12 w-full"></div>
+      <div class="skeleton mt-3 h-24 w-full"></div>
+      <div class="skeleton mt-3 h-24 w-full"></div>
+    </section>
+  {:else if loadState === "error"}
+    <ErrorBanner
+      label="Source read failed"
+      message="Couldn't load repositories."
+      detail={loadError}
+      actionLabel="Retry"
+      onAction={refresh}
+    />
   {:else if repos.length === 0}
-    <p class="text-sm text-ink-3">
-      No repositories found. Check your platform configuration and webhook
-      setup.
-    </p>
+    <EmptyState
+      label="No connected sources"
+      heading="The trace starts with a repository."
+      description="Connect a GitHub or Forgejo repository to put release commits on the wall and shape the first note."
+      actionLabel="Add your first repository"
+      href="/repos/add"
+    />
   {:else}
-    <div class="overflow-x-auto rounded border border-line">
-      <table class="w-full text-left text-sm">
-        <thead class="bg-surface-1 text-ink-2">
-          <tr>
-            <th class="px-4 py-2 font-medium">Platform</th>
-            <th class="px-4 py-2 font-medium">Owner/Repo</th>
-            <th class="px-4 py-2 font-medium">Enabled</th>
-            <th class="px-4 py-2 font-medium">Tone / Model</th>
-            <th class="px-4 py-2 font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each repos as r (rowKey(r))}
-            {@const key = rowKey(r)}
-            <tr class="border-t border-line">
-              <td class="px-4 py-2 capitalize text-ink-2">{r.platform}</td>
-              <td class="px-4 py-2 text-ink">
-                {r.owner}/{r.repo}
-              </td>
-              <td class="px-4 py-2">
-                <input
-                  type="checkbox"
-                  checked={r.enabled}
-                  onchange={() => toggleEnabled(r)}
-                  class="h-4 w-4 accent-mark"
-                />
-              </td>
-              <td class="px-4 py-2">
-                <div class="flex flex-wrap gap-1.5">
-                  <span
-                    class="rounded bg-surface-2 px-2 py-0.5 text-xs text-ink-2"
-                  >
-                    {r.effective.tone ?? "neutral"}
-                  </span>
-                  <span
-                    class="rounded bg-surface-2 px-2 py-0.5 text-xs text-ink-2"
-                  >
-                    {r.effective.model ?? "inherit"}
-                  </span>
-                </div>
-              </td>
-              <td class="px-4 py-2">
-                <button
-                  onclick={() => openSettings(r)}
-                  class="rounded bg-control px-3 py-1 text-xs text-ink hover:bg-control-hover"
+    <section
+      class="console-grid repo-inventory"
+      aria-label="Connected repository inventory"
+    >
+      {#each repos as r (repoKey(r))}
+        {@const key = repoKey(r)}
+        <article class="panel repo-workpiece">
+          <header class="repo-workpiece__header">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="chip">{r.platform}</span><span
+                  class="status {r.enabled
+                    ? 'status--healthy'
+                    : 'status--quiet'}"
+                  ><span
+                    class="signal-dot {r.enabled ? '' : 'signal-dot--muted'}"
+                    aria-hidden="true"
+                  ></span>{r.enabled ? "Enabled" : "Disabled"}</span
                 >
-                  Settings
-                </button>
-              </td>
-            </tr>
-            {#if expanded[key]}
-              {@const d = drafts[key]}
-              <tr class="border-t border-line bg-surface-1/60">
-                <td colspan="5" class="px-6 py-4">
-                  <div class="grid gap-4 sm:grid-cols-2">
-                    <label class="flex flex-col gap-1">
-                      <span class="text-xs text-ink-2">Tone</span>
-                      <select
-                        bind:value={d.toneOption}
-                        class="rounded border border-line-strong bg-surface-1 px-2 py-1.5 text-sm text-ink"
-                      >
-                        <option value="inherit">Inherit</option>
-                        {#each PRESET_OPTIONS as p (p)}
-                          <option value={p}>{p}</option>
-                        {/each}
-                      </select>
-                    </label>
-                    {#if d.toneOption === "custom"}
-                      <label class="flex flex-col gap-1">
-                        <span class="text-xs text-ink-2">Custom tone</span>
-                        <input
-                          bind:value={d.customTone}
-                          placeholder="Freeform persona"
-                          class="rounded border border-line-strong bg-surface-1 px-2 py-1.5 text-sm text-ink"
-                        />
-                      </label>
-                    {/if}
-                    <label class="flex flex-col gap-1 sm:col-span-2">
-                      <span class="text-xs text-ink-2">Instructions</span>
-                      <textarea
-                        bind:value={d.instructions}
-                        rows="3"
-                        class="rounded border border-line-strong bg-surface-1 px-2 py-1.5 text-sm text-ink"
-                      ></textarea>
-                    </label>
-                    <label class="flex flex-col gap-1">
-                      <span class="text-xs text-ink-2">Model (blank = inherit)</span>
-                      <input
-                        bind:value={d.model}
-                        class="rounded border border-line-strong bg-surface-1 px-2 py-1.5 text-sm text-ink"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1">
-                      <span class="text-xs text-ink-2">Temperature (blank = inherit)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="2"
-                        bind:value={d.temperature}
-                        class="rounded border border-line-strong bg-surface-1 px-2 py-1.5 text-sm text-ink"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1">
-                      <span class="text-xs text-ink-2">Trigger</span>
-                      <select
-                        bind:value={d.trigger}
-                        class="rounded border border-line-strong bg-surface-1 px-2 py-1.5 text-sm text-ink"
-                      >
-                        <option value="auto">auto</option>
-                        <option value="manual">manual</option>
-                      </select>
-                    </label>
-                  </div>
+              </div>
+              <h3 class="repo-workpiece__name">{r.owner}/{r.repo}</h3>
+            </div>
+            <label class="repo-switch"
+              ><span class="trace-label">In trace</span><input
+                type="checkbox"
+                aria-label={"Enable " + r.owner + "/" + r.repo}
+                checked={r.enabled}
+                disabled={pending[key]?.toggling}
+                onchange={() => toggleEnabled(r)}
+              /></label
+            >
+          </header>
 
-                  <p class="mt-3 text-xs text-ink-3">
-                    Effective: tone
-                    <span class="text-ink">{r.effective.tone ?? "neutral"}</span>
-                    · model
-                    <span class="text-ink">{r.effective.model ?? "inherit"}</span>
-                    · temperature
-                    <span class="text-ink">
-                      {r.effective.temperature ?? "inherit"}
-                    </span>
+          <div class="repo-workpiece__details">
+            <div>
+              <p class="trace-label">Effective tone</p>
+              <p class="mt-1 text-sm text-ink">
+                {r.effective.tone ?? "neutral"}
+              </p>
+            </div>
+            <div>
+              <p class="trace-label">Model</p>
+              <p class="mt-1 break-all text-sm text-ink">
+                {r.effective.model ?? "inherit"}
+              </p>
+            </div>
+            <div>
+              <p class="trace-label">Trigger</p>
+              <p class="mt-1 text-sm text-ink">{r.trigger ?? "auto"}</p>
+            </div>
+          </div>
+          {#if toggleErr[key]}<p class="mt-3 text-xs text-alert" role="alert">
+              {toggleErr[key]}
+            </p>{/if}
+
+          <div class="repo-workpiece__actions">
+            <button
+              onclick={() => openGenerate(r)}
+              aria-expanded={openPanel[key] === "generate"}
+              aria-controls={openPanel[key] === "generate"
+                ? `repo-generate-${key}`
+                : null}
+              class="btn btn-primary"
+              >{openPanel[key] === "generate"
+                ? "Close generation"
+                : "Generate note"}</button
+            >
+            <button
+              onclick={() => openSettings(r)}
+              aria-expanded={openPanel[key] === "settings"}
+              aria-controls={openPanel[key] === "settings"
+                ? `repo-settings-${key}`
+                : null}
+              class="btn btn-secondary"
+              >{openPanel[key] === "settings"
+                ? "Close settings"
+                : "Settings"}</button
+            >
+          </div>
+
+          {#if openPanel[key] === "settings"}
+            {@const d = drafts[key]}
+            <section
+              id="repo-settings-{key}"
+              class="trace-panel"
+              aria-label="Settings for {r.owner}/{r.repo}"
+            >
+              <p class="trace-label">Tone contract / {r.owner}/{r.repo}</p>
+              <div class="grid gap-4 md:grid-cols-2">
+                <label class="field-group"
+                  ><span class="field-group__label">Tone</span><select
+                    bind:value={d.toneOption}
+                    class="field"
+                    ><option value="inherit">Inherit</option
+                    >{#each PRESET_OPTIONS as p (p)}<option value={p}
+                        >{p}</option
+                      >{/each}</select
+                  ><span class="field-group__hint"
+                    >Use a preset or choose a custom persona.</span
+                  ></label
+                >
+                {#if d.toneOption === "custom"}<label class="field-group"
+                    ><span class="field-group__label">Custom tone</span><input
+                      bind:value={d.customTone}
+                      placeholder="Freeform persona"
+                      class="field"
+                    /></label
+                  >{/if}
+                <label class="field-group md:col-span-2"
+                  ><span class="field-group__label">Instructions</span><textarea
+                    bind:value={d.instructions}
+                    rows="3"
+                    class="field"></textarea><span class="field-group__hint"
+                    >Extra guidance the writer follows for this repository.</span
+                  ></label
+                >
+                <label class="field-group"
+                  ><span class="field-group__label"
+                    >Model <span class="field-group__hint"
+                      >(blank = inherit)</span
+                    ></span
+                  ><input bind:value={d.model} class="field" /></label
+                >
+                <label class="field-group"
+                  ><span class="field-group__label"
+                    >Temperature <span class="field-group__hint"
+                      >(blank = inherit)</span
+                    ></span
+                  ><input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="2"
+                    bind:value={d.temperature}
+                    class="field"
+                  /><span class="field-group__hint"
+                    >0 = deterministic, 2 = very creative.</span
+                  >{#if temperatureError[key]}<span
+                      class="field-group__error"
+                      role="alert">{temperatureError[key]}</span
+                    >{/if}</label
+                >
+                <label class="field-group"
+                  ><span class="field-group__label">Trigger</span><select
+                    bind:value={d.trigger}
+                    class="field"
+                    ><option value="auto">auto</option><option value="manual"
+                      >manual</option
+                    ></select
+                  ><span class="field-group__hint"
+                    >Auto runs on release webhooks; manual disables webhooks.</span
+                  ></label
+                >
+              </div>
+              <p class="mt-4 text-xs text-ink-3">
+                Effective: tone <span class="text-ink"
+                  >{r.effective.tone ?? "neutral"}</span
+                >
+                · model
+                <span class="text-ink">{r.effective.model ?? "inherit"}</span>
+                · temperature
+                <span class="text-ink"
+                  >{r.effective.temperature !== null &&
+                  r.effective.temperature !== undefined
+                    ? r.effective.temperature
+                    : "inherit"}</span
+                >
+              </p>
+              <div class="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  onclick={() => saveSettings(r)}
+                  disabled={pending[key]?.saving}
+                  class="btn btn-primary"
+                  >{pending[key]?.saving ? "Saving…" : "Save settings"}</button
+                ><span class="text-xs text-ink-3"
+                  >Save before generating; the writer uses the saved tone.</span
+                >
+              </div>
+              <div aria-live="polite" class="mt-3">
+                {#if saveMsg[key]}<p class="text-sm text-ok">
+                    {saveMsg[key]}
+                  </p>{/if}{#if saveErr[key]}<p
+                    class="text-sm text-alert"
+                    role="alert"
+                  >
+                    {saveErr[key]}
+                  </p>{/if}
+              </div>
+            </section>
+          {/if}
+
+          {#if openPanel[key] === "generate"}
+            <section
+              id="repo-generate-{key}"
+              class="trace-panel"
+              aria-label="Generate a note for {r.owner}/{r.repo}"
+            >
+              <p class="trace-label">Note proof / {r.owner}/{r.repo}</p>
+              <p class="mt-2 max-w-2xl text-sm text-ink-2">
+                Generate a note for a release tag. A normal run preserves an
+                existing hand-edited note; overwrite replaces it.
+              </p>
+              <div class="mt-3 flex items-center gap-3">
+                <label class="flex items-center gap-2 text-sm text-ink"
+                  ><input
+                    type="checkbox"
+                    bind:checked={publish[key]}
+                    class="check-input"
+                  />Publish to release</label
+                >
+                <span class="text-xs text-ink-3"
+                  >Preview-only by default. Check to write the note to the
+                  release.</span
+                >
+              </div>
+              <div
+                class="mt-4 grid gap-3 sm:grid-cols-2"
+                aria-label="Generate mode for {r.owner}/{r.repo}"
+              >
+                <button
+                  type="button"
+                  aria-pressed={!force[key] ? "true" : "false"}
+                  onclick={() => {
+                    force[key] = false;
+                    overwriteConfirm[key] = false;
+                  }}
+                  class="mode-choice {!force[key] ? 'mode-choice--active' : ''}"
+                  ><span
+                    class="flex items-center gap-2 text-sm font-medium text-ink"
+                    ><span
+                      class="signal-dot {!force[key]
+                        ? 'signal-dot--heat'
+                        : 'signal-dot--muted'}"
+                      aria-hidden="true"
+                    ></span>Generate</span
+                  ><span class="mt-1 text-xs leading-relaxed text-ink-3"
+                    >Reuse the note already on file and never overwrite a
+                    release body edited by hand.</span
+                  ></button
+                >
+                <button
+                  type="button"
+                  aria-pressed={force[key] ? "true" : "false"}
+                  onclick={() => {
+                    force[key] = true;
+                    overwriteConfirm[key] = false;
+                  }}
+                  class="mode-choice {force[key] ? 'mode-choice--danger' : ''}"
+                  ><span
+                    class="flex items-center gap-2 text-sm font-medium text-ink"
+                    ><span
+                      class="signal-dot {force[key]
+                        ? 'signal-dot--heat'
+                        : 'signal-dot--muted'}"
+                      aria-hidden="true"
+                    ></span>Overwrite</span
+                  ><span class="mt-1 text-xs leading-relaxed text-ink-3"
+                    >Destroy the existing note body and generate a new one. This
+                    cannot be undone.</span
+                  ></button
+                >
+              </div>
+              {#if force[key] && overwriteConfirm[key]}
+                <div class="mt-3 panel panel--error" role="alert">
+                  <p class="text-sm text-alert">
+                    This will destroy the existing note for <strong
+                      >{generateTag[key] || "this release tag"}</strong
+                    >. Are you sure?
                   </p>
-
-                  <div class="mt-4 flex flex-wrap items-center gap-3">
+                  <div class="mt-2 flex flex-wrap gap-2">
                     <button
-                      onclick={() => saveSettings(r)}
-                      class="rounded bg-control px-3 py-1.5 text-sm text-ink hover:bg-control-hover"
+                      onclick={() => runGenerate(r)}
+                      disabled={pending[key]?.generating}
+                      class="btn btn-primary">Yes, overwrite</button
                     >
-                      Save
-                    </button>
-                    <label class="flex items-center gap-2 text-sm text-ink-2">
-                      <input
-                        type="checkbox"
-                        checked={force[key] ?? false}
-                        onchange={(e) => {
-                          force[key] = e.currentTarget.checked;
-                        }}
-                        class="accent-mark"
-                      />
-                      Force regenerate
-                    </label>
                     <button
-                      onclick={() => regenerate(r)}
-                      class="rounded bg-surface-2 px-3 py-1.5 text-sm text-ink hover:bg-control"
+                      onclick={() => {
+                        force[key] = false;
+                        overwriteConfirm[key] = false;
+                      }}
+                      class="btn btn-secondary">Cancel</button
                     >
-                      Regenerate
-                    </button>
                   </div>
-
-                  {#if genError[key]}
-                    <p class="mt-3 text-sm text-alert">{genError[key]}</p>
-                  {/if}
-                  {#if notesOut[key]}
-                    <pre class="mt-3 max-h-64 overflow-auto rounded border border-line bg-black/40 p-3 text-xs text-ink-2">{notesOut[key]}</pre>
-                  {/if}
-                </td>
-              </tr>
-            {/if}
-          {/each}
-        </tbody>
-      </table>
-    </div>
+                </div>
+              {/if}
+              <div class="mt-4 flex flex-wrap items-end gap-3">
+                <label class="field-group min-w-0 flex-1 sm:max-w-xs"
+                  ><span class="field-group__label">Release tag</span><input
+                    bind:value={generateTag[key]}
+                    placeholder="v1.0.0"
+                    class="field"
+                  />{#if genTagError[key]}<span
+                      class="field-group__error"
+                      role="alert">{genTagError[key]}</span
+                    >{/if}</label
+                ><button
+                  onclick={() => runGenerate(r)}
+                  disabled={pending[key]?.generating ||
+                    (force[key] && overwriteConfirm[key])}
+                  class="btn btn-primary w-full sm:w-auto"
+                  >{pending[key]?.generating
+                    ? "Generating…"
+                    : publish[key]
+                      ? "Generate & publish"
+                      : "Preview"}</button
+                >
+              </div>
+              <div aria-live="polite" class="mt-4">
+                {#if genError[key]}<p class="text-sm text-alert" role="alert">
+                    {genError[key]}
+                  </p>{/if}{#if notesOut[key]}<p class="mt-1 text-sm text-ok">
+                    Note generated.
+                  </p>
+                  <div class="mt-4">
+                    <p class="trace-label">Generated note / release proof</p>
+                    <pre
+                      class="note-paper mt-2 max-h-96 overflow-auto">{notesOut[
+                        key
+                      ]}</pre>
+                  </div>{/if}
+              </div>
+            </section>
+          {/if}
+        </article>
+      {/each}
+    </section>
   {/if}
 </div>

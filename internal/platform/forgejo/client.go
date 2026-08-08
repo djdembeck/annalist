@@ -20,6 +20,9 @@ import (
 	"github.com/djdembeck/annalist/internal/pipeline"
 )
 
+// defaultReposPerPage is the pagination limit for listing repositories.
+const defaultReposPerPage = 50
+
 // Client talks to a Forgejo/Gitea instance over its REST API.
 type Client struct {
 	cfg  config.ForgejoConfig
@@ -99,19 +102,44 @@ func apiPath(seg string) string {
 
 // ListRepos returns the authenticated user's repositories, paginating over all
 // pages until a partial page is returned.
+// currentUser returns the login of the authenticated user, resolving the
+// /user endpoint's username fallback for Gitea-compatible instances.
+func (c *Client) currentUser(ctx context.Context) (string, error) {
+	var resp struct {
+		Login    string `json:"login"`
+		Username string `json:"username"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/user", nil, &resp); err != nil {
+		return "", err
+	}
+	if resp.Login != "" {
+		return resp.Login, nil
+	}
+	return resp.Username, nil
+}
+
+// ListRepos returns the authenticated user's repositories, paginating over all
+// pages until a partial page is returned.
 func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
+	user, err := c.currentUser(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var out []pipeline.OwnerRepo
 	page := 1
 	for {
 		var batch []struct {
 			FullName string `json:"full_name"`
 			Name     string `json:"name"`
+			Fork     bool   `json:"fork"`
 			Owner    struct {
 				Login    string `json:"login"`
 				Username string `json:"username"`
 			} `json:"owner"`
+			UpdatedAt time.Time `json:"updated_at"`
+			PushedAt  time.Time `json:"pushed_at,omitempty"`
 		}
-		path := "/user/repos?limit=50&page=" + strconv.Itoa(page)
+		path := "/user/repos?limit=" + strconv.Itoa(defaultReposPerPage) + "&page=" + strconv.Itoa(page)
 		if err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
 			return nil, err
 		}
@@ -121,11 +149,18 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 				owner = r.Owner.Username
 			}
 			out = append(out, pipeline.OwnerRepo{
-				Owner: owner,
-				Repo:  r.Name,
+				Owner:        owner,
+				Repo:         r.Name,
+				Fork:         r.Fork,
+				OwnNamespace: owner == user,
+				UpdatedAt:    r.UpdatedAt,
+				PushedAt:     r.PushedAt,
 			})
+			if out[len(out)-1].PushedAt.IsZero() {
+				out[len(out)-1].PushedAt = r.UpdatedAt
+			}
 		}
-		if len(batch) < 50 {
+		if len(batch) < defaultReposPerPage {
 			break
 		}
 		page++

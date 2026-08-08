@@ -8,7 +8,7 @@ web
 
 ## Users
 
-Developers and operators who publish software releases on GitHub or Forgejo/Gitea and want consistent, human-sounding release notes without hand-writing them. The owner intends annalist to grow as a general-purpose, self-hostable release-notes product rather than a personal tool. In practice the first users are self-hosters who deploy the daemon to their own infrastructure and log into the admin dashboard to manage repositories and tune the writing voice.
+Developers and operators who publish software releases on GitHub or Forgejo/Gitea and want consistent, human-sounding release notes without hand-writing them. The owner intends annalist to grow as a general-purpose, self-hostable release-notes product rather than a personal tool. In practice the first users are self-hosters who deploy the daemon to their own infrastructure and log into the admin dashboard to manage repositories and tune the writing tone.
 
 ## Product Purpose
 
@@ -16,7 +16,7 @@ Generate release notes automatically: annalist listens for release webhooks, clo
 
 ## Positioning
 
-A self-hosted, vendor-neutral release-notes engine: first-class support for both GitHub and Forgejo/Gitea under one pipeline, where the released writing voice is a configurable product feature rather than a fixed template. The combination a neighboring tool cannot truthfully copy is cross-platform coverage plus per-repo voice control plus zero-touch automation in one small self-hosted binary.
+A self-hosted, vendor-neutral release-notes engine: first-class support for both GitHub and Forgejo/Gitea under one pipeline, where the released tone is a configurable product feature rather than a fixed template. The combination a neighboring tool cannot truthfully copy is cross-platform coverage plus per-repo tone control plus zero-touch automation in one small self-hosted binary.
 
 ## Operating Context
 
@@ -32,7 +32,7 @@ Operators typically run it on their own server next to the CI that ships their r
 
 - Generation from release webhooks (GitHub App + Forgejo), deduplicated by event hash; regenerated notes carry a marker so repeated deliveries are idempotent.
 - On-demand generation from the CLI on any platform, with optional publish-back.
-- Voice control: a global or per-repo `tone`, three built-in presets (`chronicler`, `engineer`, `launch`), any arbitrary string treated as a custom system prompt, plus per-repo markdown instructions.
+- Tone control: a global or per-repo `tone`, three built-in presets (`chronicler`, `engineer`, `launch`), any arbitrary string treated as a custom system prompt, plus per-repo markdown instructions.
 - Configurable LLM endpoint, model, temperature, token limit, and timeout against any OpenAI-compatible API (default model `qwen3.5-397b-a17b`).
 - Single admin bearer token, single-operator model: one account protects all `/api/*` and dashboard actions.
 - Data model: SQLite for settings/state, working clones for commit history.
@@ -48,7 +48,7 @@ Operators typically run it on their own server next to the CI that ships their r
 
 ## Evidence on Hand
 
-- README.md documenting install, usage, dashboard, and voice configuration.
+- README.md documenting install, usage, dashboard, and tone configuration.
 - config.example.yaml documenting every configuration key and environment variable.
 - Working Go backend (webhooks, pipeline, CLI) and a SvelteKit dashboard (setup, repos, settings pages).
 - Docker image published via CI to the Forgejo Container Registry.
@@ -58,6 +58,6 @@ Operators typically run it on their own server next to the CI that ships their r
 
 1. **Zero-touch by default.** A release event should produce notes with no human in the loop; manual regeneration and publish-back are always available as an override, never the primary path.
 2. **Vendor-neutral.** GitHub and Forgejo/Gitea are equals behind one shared pipeline; nothing should lock notes to either platform's format or workflow.
-3. **The voice is the product.** Notes must read like a person wrote them; tone and per-repo instructions are first-class settings, not post-processing.
+3. **Tone is the product.** Notes must read like a person wrote them; tone and per-repo instructions are first-class settings, not post-processing.
 4. **Safe to operate unattended.** Idempotent regeneration and event dedup guarantee retries and re-delivered webhooks cannot corrupt or duplicate a release body.
 5. **Boring to run.** A small self-hosted binary: Go, SQLite, an embedded static dashboard, config-file/env-driven, no external SaaS dependency except the user's own LLM endpoint.

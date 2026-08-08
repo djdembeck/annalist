@@ -3,10 +3,12 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -21,11 +23,12 @@ import (
 // either a recorded notes string or a forced error, and records every
 // GenerateNotes call for assertions.
 type fakePip struct {
-	notes string
-	err   error
-	eff   engine.Resolved
-	calls []pipeline.Spec
-	opts  []pipeline.Options
+	notes      string
+	err        error
+	resolveErr error
+	eff        engine.Resolved
+	calls      []pipeline.Spec
+	opts       []pipeline.Options
 }
 
 func newFakePip() *fakePip {
@@ -36,6 +39,9 @@ func newFakePip() *fakePip {
 }
 
 func (f *fakePip) Resolve(ctx context.Context, platform, owner, repo string) (bool, engine.Resolved, error) {
+	if f.resolveErr != nil {
+		return false, engine.Resolved{}, f.resolveErr
+	}
 	return true, f.eff, nil
 }
 
@@ -288,10 +294,19 @@ func TestHandleStatus(t *testing.T) {
 	}
 }
 
-func TestHandleListReposGitHub(t *testing.T) {
+func TestHandleListReposManagedOnly(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, _, _ := testAPI(t, cfg)
-	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{{Owner: "djdembeck", Repo: "annalist"}}}
+	a, _, store := testAPI(t, cfg)
+	// The gh client reports two repos, but only annalist is managed.
+	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{
+		{Owner: "djdembeck", Repo: "annalist"},
+		{Owner: "someone", Repo: "other"},
+	}}
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Trigger: "auto",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
 
 	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
 	if w.Code != http.StatusOK {
@@ -302,26 +317,135 @@ func TestHandleListReposGitHub(t *testing.T) {
 		t.Fatalf("bad json: %v", err)
 	}
 	if len(items) != 1 {
-		t.Fatalf("got %d items, want 1", len(items))
+		t.Fatalf("got %d items, want 1 (managed only): %+v", len(items), items)
 	}
 	it := items[0]
 	if it.Platform != "github" || it.Owner != "djdembeck" || it.Repo != "annalist" {
 		t.Errorf("item mismatch: %+v", it)
 	}
 	if !it.Enabled {
-		t.Errorf("item.Enabled = false, want default true")
+		t.Errorf("item.Enabled = false, want true")
 	}
 	if it.Effective.Model != "m0" {
 		t.Errorf("effective model = %q, want fake resolve model m0", it.Effective.Model)
 	}
 }
 
-func TestHandleListReposGitHubError(t *testing.T) {
+func TestHandleListReposResolveError(t *testing.T) {
+	a, pip, store := testAPI(t, &config.Config{})
+	pip.resolveErr = errors.New("boom")
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "o", Repo: "r", Enabled: true, Trigger: "auto",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleListAvailableRepos(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}, Forgejo: config.ForgejoConfig{Token: "t"}}
+	a, _, store := testAPI(t, cfg)
+	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{
+		{Owner: "djdembeck", Repo: "annalist", OwnNamespace: true, UpdatedAt: time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC), PushedAt: time.Date(2024, 3, 2, 10, 0, 0, 0, time.UTC)},
+		{Owner: "someone", Repo: "other", Fork: true, OwnNamespace: false, UpdatedAt: time.Date(2023, 5, 15, 20, 30, 0, 0, time.UTC), PushedAt: time.Date(2023, 5, 16, 20, 30, 0, 0, time.UTC)},
+	}}
+	a.fj = &fakeClient{repos: []pipeline.OwnerRepo{
+		{Owner: "fjuser", Repo: "released", OwnNamespace: true, UpdatedAt: time.Date(2024, 7, 4, 12, 45, 0, 0, time.UTC), PushedAt: time.Date(2024, 7, 4, 10, 0, 0, 0, time.UTC)},
+	}}
+	// annalist is already managed, so it must be excluded from available.
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Trigger: "auto",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	w := do(a.handleListAvailableRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos/available", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var avail []availableRepo
+	if err := json.Unmarshal(w.Body.Bytes(), &avail); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	want := map[string]bool{
+		"github/someone/other":    true,
+		"forgejo/fjuser/released": true,
+	}
+	if len(avail) != len(want) {
+		t.Fatalf("got %d repos %+v, want %d", len(avail), avail, len(want))
+	}
+	for _, ar := range avail {
+		key := ar.Platform + "/" + ar.Owner + "/" + ar.Repo
+		if !want[key] {
+			t.Errorf("unexpected available repo: %+v", ar)
+		}
+		if ar.Platform == "github" && ar.Repo == "annalist" {
+			t.Errorf("managed repo leaked into available: %+v", ar)
+		}
+		// The fork flag must be present in the JSON for every repo.
+		if !strings.Contains(w.Body.String(), `"fork":`) {
+			t.Fatalf("fork field missing from JSON: %s", w.Body.String())
+		}
+		// The ownNamespace flag must be present in the JSON for every repo.
+		if !strings.Contains(w.Body.String(), `"ownNamespace":`) {
+			t.Fatalf("ownNamespace field missing from JSON: %s", w.Body.String())
+		}
+		// The updatedAt field must be present in the JSON for every repo.
+		if !strings.Contains(w.Body.String(), `"updatedAt":`) {
+			t.Fatalf("updatedAt field missing from JSON: %s", w.Body.String())
+		}
+		// The pushedAt field must be present in the JSON for every repo.
+		if !strings.Contains(w.Body.String(), `"pushedAt":`) {
+			t.Fatalf("pushedAt field missing from JSON: %s", w.Body.String())
+		}
+	}
+	// Each available repo must carry its last-updated timestamp.
+	for _, ar := range avail {
+		if ar.UpdatedAt.IsZero() {
+			t.Errorf("available repo %s has zero updatedAt: %+v", ar.Platform+"/"+ar.Owner+"/"+ar.Repo, ar)
+		}
+		if ar.PushedAt.IsZero() {
+			t.Errorf("available repo %s has zero pushedAt: %+v", ar.Platform+"/"+ar.Owner+"/"+ar.Repo, ar)
+		}
+	}
+	// forgejo/fjuser/released is owned by the authenticated user's namespace, so
+	// it must carry ownNamespace=true; the external fork must carry false.
+	var ownNs bool
+	var nonOwn bool
+	for _, ar := range avail {
+		if ar.Platform == "forgejo" && ar.Repo == "released" && ar.OwnNamespace {
+			ownNs = true
+		}
+		if ar.Platform == "github" && ar.Repo == "other" && !ar.OwnNamespace {
+			nonOwn = true
+		}
+	}
+	if !ownNs {
+		t.Errorf("forgejo/fjuser/released should be reported as own namespace, got %+v", avail)
+	}
+	if !nonOwn {
+		t.Errorf("github/someone/other should not be reported as own namespace, got %+v", avail)
+	}
+	// The one repo that is a fork must carry fork=true.
+	var forked bool
+	for _, ar := range avail {
+		if ar.Platform == "github" && ar.Repo == "other" && ar.Fork {
+			forked = true
+		}
+	}
+	if !forked {
+		t.Errorf("github/someone/other should be reported as a fork, got %+v", avail)
+	}
+}
+
+func TestHandleListAvailableReposError(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
 	a, _, _ := testAPI(t, cfg)
 	a.gh = &fakeClient{err: context.DeadlineExceeded}
-
-	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
+	w := do(a.handleListAvailableRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos/available", nil))
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", w.Code)
 	}
@@ -330,22 +454,88 @@ func TestHandleListReposGitHubError(t *testing.T) {
 	}
 }
 
-func TestHandleListReposDisabledPlatformSkipped(t *testing.T) {
+func TestHandleListAvailableReposDisabledPlatformSkipped(t *testing.T) {
 	// Only GitHub is enabled; Forgejo's client must never be consulted.
 	a, _, _ := testAPI(t, &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}})
 	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{{Owner: "o", Repo: "r"}}}
 	a.fj = &fakeClient{repos: []pipeline.OwnerRepo{{Owner: "should", Repo: "not-appear"}}}
 
-	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
+	w := do(a.handleListAvailableRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos/available", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	var items []repoItemResp
-	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+	var avail []availableRepo
+	if err := json.Unmarshal(w.Body.Bytes(), &avail); err != nil {
 		t.Fatalf("bad json: %v", err)
 	}
-	if len(items) != 1 || items[0].Repo != "r" {
-		t.Fatalf("items = %+v, want only the github repo", items)
+	if len(avail) != 1 || avail[0].Repo != "r" {
+		t.Fatalf("avail = %+v, want only the github repo", avail)
+	}
+}
+
+func TestHandleAddRepo(t *testing.T) {
+	cfg := &config.Config{Admin: config.AdminConfig{Token: "secret"}}
+	a, _, store := testAPI(t, cfg)
+
+	r := newReq(http.MethodPost, "/api/repos", `{"platform":"github","owner":"djdembeck","repo":"annalist"}`, nil)
+	w := do(a.handleAddRepo, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var item repoItemResp
+	if err := json.Unmarshal(w.Body.Bytes(), &item); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if item.Platform != "github" || item.Owner != "djdembeck" || item.Repo != "annalist" {
+		t.Errorf("item mismatch: %+v", item)
+	}
+	if !item.Enabled {
+		t.Errorf("item.Enabled = false, want true")
+	}
+	if item.Trigger != "auto" {
+		t.Errorf("item.Trigger = %q, want auto", item.Trigger)
+	}
+	if item.Effective.Model != "m0" {
+		t.Errorf("effective model = %q, want fake resolve model m0", item.Effective.Model)
+	}
+
+	// Verify persisted in the store.
+	row, err := store.GetRepoSettings("github", "djdembeck", "annalist")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if row == nil {
+		t.Fatal("expected stored row, got nil")
+	}
+	if !row.Enabled || row.Trigger != "auto" {
+		t.Errorf("stored row = %+v, want enabled+auto", row)
+	}
+}
+
+func TestHandleAddRepoInvalidPlatform(t *testing.T) {
+	a, _, _ := testAPI(t, &config.Config{})
+	r := newReq(http.MethodPost, "/api/repos", `{"platform":"gitlab","owner":"o","repo":"r"}`, nil)
+	w := do(a.handleAddRepo, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleAddRepoMissingOwnerOrRepo(t *testing.T) {
+	a, _, _ := testAPI(t, &config.Config{})
+	r := newReq(http.MethodPost, "/api/repos", `{"platform":"github","owner":"","repo":"r"}`, nil)
+	w := do(a.handleAddRepo, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestHandleAddRepoBadJSON(t *testing.T) {
+	a, _, _ := testAPI(t, &config.Config{})
+	r := newReq(http.MethodPost, "/api/repos", `not json`, nil)
+	w := do(a.handleAddRepo, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
 
@@ -475,7 +665,7 @@ func TestHandleGenerate(t *testing.T) {
 	a, pip, _ := testAPI(t, &config.Config{})
 
 	t.Run("success", func(t *testing.T) {
-		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","from_tag":"v0.9.0","force":true}`,
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","from_tag":"v0.9.0","force":true,"publish":true}`,
 			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
 		w := do(a.handleGenerate, r)
 		if w.Code != http.StatusOK {
@@ -503,6 +693,27 @@ func TestHandleGenerate(t *testing.T) {
 		}
 		if !pip.opts[0].Force || !pip.opts[0].Publish {
 			t.Errorf("opts = %+v, want force+publish", pip.opts[0])
+		}
+	})
+
+	t.Run("publish omitted defaults false", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("bad json: %v", err)
+		}
+		if body["published"] != false {
+			t.Errorf("published = %v, want false", body["published"])
+		}
+		if len(pip.opts) != 1 || pip.opts[0].Publish || pip.opts[0].Force {
+			t.Errorf("opts = %+v, want preview-only", pip.opts)
 		}
 	})
 

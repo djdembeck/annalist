@@ -133,6 +133,9 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 			if err != nil {
 				return nil, err
 			}
+			// Repos from a personal installation belong to the user's own namespace.
+			// Repos from an organization installation belong to a shared namespace.
+			ownNamespace := inst.GetAccount().GetType() == "User"
 			for _, r := range list.Repositories {
 				owner := r.GetOwner().GetLogin()
 				name := r.GetName()
@@ -144,7 +147,14 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 					continue
 				}
 				seen[key] = struct{}{}
-				repos = append(repos, pipeline.OwnerRepo{Owner: owner, Repo: name})
+				repos = append(repos, pipeline.OwnerRepo{
+					Owner:        owner,
+					Repo:         name,
+					Fork:         r.GetFork(),
+					OwnNamespace: ownNamespace,
+					UpdatedAt:    r.GetUpdatedAt().Time,
+					PushedAt:     r.GetPushedAt().Time,
+				})
 			}
 			if resp == nil || resp.NextPage == 0 {
 				break

@@ -10,3 +10,6 @@ web/build/
 # Node
 web/node_modules/
 web/.svelte-kit/
+
+# Tool artifacts
+.playwright-cli/

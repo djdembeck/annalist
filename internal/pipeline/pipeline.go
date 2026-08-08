@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
@@ -21,8 +22,12 @@ var ErrNotFound = errors.New("not found")
 // OwnerRepo is a repository reference returned by platform listings so other
 // packages can join with repo_settings without importing platform packages.
 type OwnerRepo struct {
-	Owner string
-	Repo  string
+	Owner        string
+	Repo         string
+	Fork         bool
+	OwnNamespace bool
+	UpdatedAt    time.Time
+	PushedAt     time.Time
 }
 
 // Spec identifies a single release for which to generate notes.

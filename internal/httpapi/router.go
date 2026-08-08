@@ -65,6 +65,8 @@ func New(cfg *config.Config, store *db.Store, llmClient *llm.Client, pip *pipeli
 		r.Use(a.adminAuth)
 		r.Get("/status", a.handleStatus)
 		r.Get("/repos", a.handleListRepos)
+		r.Get("/repos/available", a.handleListAvailableRepos)
+		r.Post("/repos", a.handleAddRepo)
 		r.Put("/repos/{platform}/{owner}/{repo}/settings", a.handlePutRepoSettings)
 		r.Post("/repos/{platform}/{owner}/{repo}/generate", a.handleGenerate)
 		r.Get("/settings", a.handleGetSettings)

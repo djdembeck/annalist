@@ -3,6 +3,7 @@
 // `Authorization: Bearer <ADMIN_TOKEN>`; the token is kept in localStorage.
 
 const TOKEN_KEY = "annalist-admin-token";
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 export type Status = {
   github: boolean;
@@ -27,6 +28,16 @@ export type Repo = {
   };
 };
 
+export type AvailableRepo = {
+  platform: string;
+  owner: string;
+  repo: string;
+  fork?: boolean;
+  ownNamespace?: boolean;
+  updatedAt?: string;
+  pushedAt?: string;
+};
+
 export type RepoSettingUpdate = {
   enabled?: boolean;
   tone?: string | null;
@@ -46,6 +57,7 @@ export type GenerateRequest = {
   to_tag: string;
   from_tag?: string | null;
   force?: boolean;
+  publish?: boolean;
 };
 
 export type Settings = {
@@ -90,13 +102,29 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
     ...((opts?.headers as Record<string, string>) ?? {}),
   };
 
-  const res = await fetch(path, { ...opts, headers });
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, { ...opts, headers });
 
   if (res.status === 401) {
     localStorage.removeItem(TOKEN_KEY);
     throw new Error("Unauthorized");
   }
   if (!res.ok) {
+    // Make 404s and non-JSON failures actionable.
+    if (res.status === 404) {
+      throw new Error(
+        `Annalist API not found at ${path}. ` +
+          `Ensure the backend is running and serving /api routes, or set VITE_API_BASE / configure the dev proxy so the frontend can reach it.`,
+      );
+    }
+    const ct = res.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) {
+      throw new Error(
+        `Annalist API returned non-JSON (${res.status}) for ${path}. ` +
+          `The backend may be unreachable or the proxy may be misconfigured. ` +
+          `Set VITE_API_BASE or check the Vite server proxy target.`,
+      );
+    }
     throw new Error(`Request failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as T;
@@ -108,6 +136,21 @@ export function getStatus(): Promise<Status> {
 
 export function getRepos(): Promise<Repo[]> {
   return apiFetch<Repo[]>("/api/repos");
+}
+
+export function getAvailableRepos(): Promise<AvailableRepo[]> {
+  return apiFetch<AvailableRepo[]>("/api/repos/available");
+}
+
+export function addRepo(repo: {
+  platform: string;
+  owner: string;
+  repo: string;
+}): Promise<Repo> {
+  return apiFetch<Repo>("/api/repos", {
+    method: "POST",
+    body: JSON.stringify(repo),
+  });
 }
 
 export function putRepoSettings(

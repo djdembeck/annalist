@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -125,53 +127,160 @@ func (a *api) handleStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleListRepos returns the joined repo list for every enabled platform.
+// handleListRepos returns the managed repos (rows from repo_settings), each
+// with effective (inherited) values resolved via the pipeline. Platform
+// discovery is intentionally not consulted here; /api/repos/available covers
+// that.
 func (a *api) handleListRepos(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	items := []repoItemResp{}
-
-	if a.cfg.GitHubEnabled() && a.gh != nil {
-		repos, err := a.gh.ListRepos(ctx)
+	rows, err := a.store.ListRepoSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	items := make([]repoItemResp, 0, len(rows))
+	for _, row := range rows {
+		item, err := a.repoItem(ctx, row)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "github: "+err.Error())
+			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		for _, rp := range repos {
-			setting, err := a.settingsFor(ctx, "github", rp.Owner, rp.Repo)
-			if err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			item, err := a.repoItem(ctx, setting)
-			if err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			items = append(items, item)
+		items = append(items, item)
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+// availableRepo is the flat JSON shape for a repo in /api/repos/available.
+type availableRepo struct {
+	Platform     string    `json:"platform"`
+	Owner        string    `json:"owner"`
+	Repo         string    `json:"repo"`
+	Fork         bool      `json:"fork"`
+	OwnNamespace bool      `json:"ownNamespace"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	PushedAt     time.Time `json:"pushedAt"`
+}
+
+// repoLister is the subset shared by both platform clients that hands back the
+// discoverable repositories.
+type repoLister interface {
+	ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error)
+}
+
+// listAvailable appends to available the repos returned by a platform client
+// that are not yet managed (absent from repo_settings).
+func (a *api) listAvailable(ctx context.Context, platform string, client repoLister, managed map[string]bool, available []availableRepo) ([]availableRepo, error) {
+	repos, err := client.ListRepos(ctx)
+	if err != nil {
+		return available, fmt.Errorf("%s: %w", platform, err)
+	}
+	for _, rp := range repos {
+		key := platform + "/" + rp.Owner + "/" + rp.Repo
+		if managed[key] {
+			continue
+		}
+		available = append(available, availableRepo{Platform: platform, Owner: rp.Owner, Repo: rp.Repo, Fork: rp.Fork, OwnNamespace: rp.OwnNamespace, UpdatedAt: rp.UpdatedAt, PushedAt: rp.PushedAt})
+	}
+	return available, nil
+}
+
+// handleListAvailableRepos returns the repos available to add from enabled
+// platforms, excluding any already present in repo_settings.
+func (a *api) handleListAvailableRepos(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	managed, err := a.store.ListRepoSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	managedSet := make(map[string]bool, len(managed))
+	for _, row := range managed {
+		managedSet[row.Platform+"/"+row.Owner+"/"+row.Repo] = true
+	}
+
+	var available []availableRepo
+	var errors []string
+	var enabledPlatforms int
+	if a.cfg.GitHubEnabled() && a.gh != nil {
+		enabledPlatforms++
+		var err error
+		available, err = a.listAvailable(ctx, "github", a.gh, managedSet, available)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("github: %s", err.Error()))
 		}
 	}
 	if a.cfg.ForgejoEnabled() && a.fj != nil {
-		repos, err := a.fj.ListRepos(ctx)
+		enabledPlatforms++
+		var err error
+		available, err = a.listAvailable(ctx, "forgejo", a.fj, managedSet, available)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "forgejo: "+err.Error())
-			return
-		}
-		for _, rp := range repos {
-			setting, err := a.settingsFor(ctx, "forgejo", rp.Owner, rp.Repo)
-			if err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			item, err := a.repoItem(ctx, setting)
-			if err != nil {
-				writeErr(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			items = append(items, item)
+			errors = append(errors, fmt.Sprintf("forgejo: %s", err.Error()))
 		}
 	}
+	if enabledPlatforms > 0 && len(errors) == enabledPlatforms {
+		writeErr(w, http.StatusInternalServerError,
+			"all platforms failed: "+strings.Join(errors, "; "))
+		return
+	}
 
-	writeJSON(w, http.StatusOK, items)
+	if available == nil {
+		available = []availableRepo{}
+	}
+	writeJSON(w, http.StatusOK, available)
+}
+
+// handleAddRepo creates (or activates) a managed repo in repo_settings.
+func (a *api) handleAddRepo(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Platform string `json:"platform"`
+		Owner    string `json:"owner"`
+		Repo     string `json:"repo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		badJSON(w, err)
+		return
+	}
+	if !validPlatform(req.Platform) {
+		writeErr(w, http.StatusBadRequest, "invalid platform")
+		return
+	}
+	if req.Owner == "" || req.Repo == "" {
+		writeErr(w, http.StatusBadRequest, "owner and repo are required")
+		return
+	}
+
+	setting, err := a.settingsFor(r.Context(), req.Platform, req.Owner, req.Repo)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Preserve existing per-repo overrides; only set defaults for a fresh repo.
+	if setting.Tone == "" {
+		setting.Tone = "auto"
+	}
+	if setting.Instructions == "" {
+		// inherits from global
+	}
+	if setting.Model == "" {
+		// inherits from global
+	}
+	// Temperature 0 is valid (inherits from global), so we don't reset it.
+	setting.Enabled = true
+	setting.Trigger = "auto"
+
+	if err := a.store.UpsertRepoSettings(setting); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	item, err := a.repoItem(r.Context(), setting)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 // handlePutRepoSettings merges a partial settings update into the repo row.
@@ -296,7 +405,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	publish := true
+	publish := false
 	if req.Publish != nil {
 		publish = *req.Publish
 	}
