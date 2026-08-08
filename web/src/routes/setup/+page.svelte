@@ -23,6 +23,7 @@
     type BatchResult,
   } from "$lib/repoUtils";
   import MarkdownPreview from "$lib/components/MarkdownPreview.svelte";
+  import { handleAuthError, formatError } from "$lib/composables/useAuthErrorHandler";
 
   const PRESET_DESCRIPTIONS: Record<string, string> = {
     chronicler:
@@ -199,13 +200,11 @@
         step = 1;
       }
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        error =
-          "That token was not accepted. Check your ADMIN_TOKEN and try again.";
-      } else {
-        error =
-          e instanceof Error ? e.message : "Failed to connect to Annalist";
+      if (handleAuthError(e, resetExpiredSession)) {
+        busy = false;
+        return;
       }
+      error = formatError(e, "Failed to connect to Annalist");
       status = null;
     } finally {
       busy = false;
@@ -240,11 +239,8 @@
         activeSource = enabled[0];
       }
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        resetExpiredSession();
-        return;
-      }
-      error = e instanceof Error ? e.message : "Failed to load available repos";
+      if (handleAuthError(e, resetExpiredSession)) return;
+      error = formatError(e, "Failed to load available repos");
     } finally {
       loading = false;
     }
@@ -356,11 +352,8 @@
       localStorage.setItem("annalist.setup-complete", "1");
       step = 4;
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        resetExpiredSession();
-        return;
-      }
-      error = e instanceof Error ? e.message : "Failed to save default tone";
+      if (handleAuthError(e, resetExpiredSession)) return;
+      error = formatError(e, "Failed to save default tone");
     } finally {
       // Reset even on success so stepping back to the tone step (step 3)
       // doesn't leave the Finish button stuck at "Saving…".

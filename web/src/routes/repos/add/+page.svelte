@@ -20,6 +20,10 @@
     type AvailableRepo,
     type Status,
   } from "$lib/api";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import ErrorBanner from "$lib/components/ErrorBanner.svelte";
+  import SectionHead from "$lib/components/SectionHead.svelte";
+  import { handleAuthError, formatError } from "$lib/composables/useAuthErrorHandler";
 
   let status = $state<Status | null>(null);
   let available = $state<AvailableRepo[]>([]);
@@ -48,11 +52,8 @@
       if (enabled.length && !isSourceEnabled(status, activeSource))
         activeSource = enabled[0];
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      error = e instanceof Error ? e.message : "Failed to load available repos";
+      if (handleAuthError(e)) return;
+      error = formatError(e, "Failed to load available repos");
     } finally {
       loading = false;
     }
@@ -164,11 +165,8 @@
       goto("/repos");
     } catch (e) {
       saving = false;
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      error = e instanceof Error ? e.message : "Failed to add repository";
+      if (handleAuthError(e)) return;
+      error = formatError(e, "Failed to add repository");
     }
   }
 
@@ -197,17 +195,15 @@
 </svelte:head>
 
 <div class="trace-wall">
-  <header class="section-head">
-    <div>
-      <p class="trace-label">Operations / source intake</p>
-      <h1>Source inventory</h1>
-      <p class="section-head__lede">
-        Choose connected sources in batches, or place one repository on the wall
-        by hand.
-      </p>
-    </div>
-    <a href="/repos" class="btn btn-secondary">Back to repositories</a>
-  </header>
+  <SectionHead
+    label="Operations / source intake"
+    title="Source inventory"
+    lede="Choose connected sources in batches, or place one repository on the wall by hand."
+  >
+    {#snippet actions()}
+      <a href="/repos" class="btn btn-secondary">Back to repositories</a>
+    {/snippet}
+  </SectionHead>
 
   {#if loading}
     <section
@@ -323,22 +319,17 @@
     </section>
 
     {#if error}
-      <div class="panel panel--error" role="alert">
-        <p class="trace-label">Intake needs attention</p>
-        <p class="mt-2 text-sm text-alert">{error}</p>
-      </div>
+      <ErrorBanner label="Intake needs attention" message={error} />
     {/if}
 
     {#if enabled.length === 0}
-      <section class="panel empty-state text-left">
-        <p class="trace-label">No source signal</p>
-        <h2 class="mt-2">No platform is configured.</h2>
-        <p class="mt-2 max-w-xl text-sm text-ink-2">
-          Connect GitHub or Forgejo in server configuration before discovering
-          repositories.
-        </p>
-        <a href="/settings" class="btn btn-primary mt-5">Open settings</a>
-      </section>
+      <EmptyState
+        label="No source signal"
+        heading="No platform is configured."
+        description="Connect GitHub or Forgejo in server configuration before discovering repositories."
+        actionLabel="Open settings"
+        href="/settings"
+      />
     {:else}
       <!-- Batch operation results banner -->
       {#if Object.keys(rowResults).length > 0}

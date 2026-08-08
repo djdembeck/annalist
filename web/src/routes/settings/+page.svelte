@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { goto } from "$app/navigation";
   import { parseTemperature, resolveTone } from "$lib/repoUtils";
   import { getSettings, putSettings, type Settings } from "$lib/api";
+  import ErrorBanner from "$lib/components/ErrorBanner.svelte";
+  import SectionHead from "$lib/components/SectionHead.svelte";
+  import { handleAuthError, formatError } from "$lib/composables/useAuthErrorHandler";
 
   const PRESET_OPTIONS = ["chronicler", "engineer", "launch"];
 
@@ -17,6 +19,23 @@
   let model = $state("");
   let temperature = $state("");
   let temperatureError = $state("");
+
+  let platformStatus = $derived(
+    settings
+      ? (settings.github && settings.forgejo
+          ? "Both GitHub and Forgejo are configured."
+          : settings.github
+            ? "GitHub configured, Forgejo not configured."
+            : settings.forgejo
+              ? "Forgejo configured, GitHub not configured."
+              : "No platforms configured yet — add a platform below to start.")
+      : undefined
+  );
+  let headerLede = $derived(
+    settings
+      ? `${platformStatus} · Model ${settings.llm.model}`
+      : undefined
+  );
 
   async function load(): Promise<void> {
     try {
@@ -35,14 +54,11 @@
       temperatureError = "";
       error = "";
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      error =
-        e instanceof Error && e.message !== "Unauthorized"
-          ? e.message
-          : "Could not load settings — the server may be unreachable. Check your connection and try refreshing.";
+      if (handleAuthError(e)) return;
+      error = formatError(
+        e,
+        "Could not load settings — the server may be unreachable. Check your connection and try refreshing."
+      );
     } finally {
       loading = false;
     }
@@ -71,14 +87,8 @@
       temperatureError = "";
       error = "";
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      error =
-        e instanceof Error && e.message !== "Unauthorized"
-          ? e.message
-          : "Failed to save settings — check your connection and try again.";
+      if (handleAuthError(e)) return;
+      error = formatError(e, "Failed to save settings — check your connection and try again.");
     } finally {
       saving = false;
     }
@@ -94,29 +104,14 @@
 </svelte:head>
 
 <div class="trace-wall">
-  <header class="section-head">
-    <div>
-      <p class="trace-label">Operations / global contract</p>
-      <h1>Machine contract &amp; tone proof</h1>
-      {#if settings}
-        <p class="section-head__lede">
-          {#if settings.github && settings.forgejo}Both GitHub and Forgejo are
-            configured.{:else if settings.github}GitHub configured, Forgejo not
-            configured.{:else if settings.forgejo}Forgejo configured, GitHub not
-            configured.
-          {:else}No platforms configured yet — add a platform below to start.{/if}
-          <span class="text-ink-2"> · Model {settings.llm.model}</span>
-        </p>
-      {/if}
-    </div>
-    <a href="/repos" class="btn btn-secondary">Repository inventory</a>
-  </header>
+  <SectionHead label="Operations / global contract" title="Machine contract &amp; tone proof" lede={headerLede}>
+    {#snippet actions()}
+      <a href="/repos" class="btn btn-secondary">Repository inventory</a>
+    {/snippet}
+  </SectionHead>
 
   {#if error}
-    <section class="panel panel--error" role="alert">
-      <p class="trace-label">Contract update needs attention</p>
-      <p class="mt-2 text-sm text-alert">{error}</p>
-    </section>
+    <ErrorBanner label="Contract update needs attention" message={error} />
   {/if}
 
   {#if loading}
@@ -132,16 +127,14 @@
         class="panel settings-form"
         aria-label="Global release note defaults"
       >
-        <div class="section-head section-head--compact">
-          <div>
-            <p class="trace-label">Tone contract</p>
-            <h2>Global defaults</h2>
-          </div>
-          <span class="status status--healthy"
-            ><span class="signal-dot signal-dot--muted" aria-hidden="true"
-            ></span>Editable</span
-          >
-        </div>
+        <SectionHead label="Tone contract" title="Global defaults" compact headingLevel="h2">
+          {#snippet actions()}
+            <span class="status status--healthy"
+              ><span class="signal-dot signal-dot--muted" aria-hidden="true"
+              ></span>Editable</span
+            >
+          {/snippet}
+        </SectionHead>
         <div class="grid gap-5">
           <label class="field-group"
             ><span class="field-group__label">Tone</span><select
@@ -211,14 +204,12 @@
 
       <aside class="settings-proof">
         <section class="panel panel-soft" aria-label="Machine contract">
-          <div class="section-head section-head--compact">
-            <div>
-              <p class="trace-label">Machine contract</p>
-              <h2>Connection state</h2>
-            </div>
-            <span class="signal-dot signal-dot--healthy" aria-hidden="true"
-            ></span>
-          </div>
+          <SectionHead label="Machine contract" title="Connection state" compact headingLevel="h2">
+            {#snippet actions()}
+              <span class="signal-dot signal-dot--healthy" aria-hidden="true"
+              ></span>
+            {/snippet}
+          </SectionHead>
           <dl class="contract-list">
             <div>
               <dt>Base URL</dt>

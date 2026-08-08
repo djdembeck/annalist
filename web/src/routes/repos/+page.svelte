@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { goto } from "$app/navigation";
   import {
     repoKey,
     parseTemperature,
@@ -8,6 +7,13 @@
     SAVE_MSG_TIMEOUT,
   } from "$lib/repoUtils";
   import { getRepos, putRepoSettings, generate, type Repo } from "$lib/api";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import ErrorBanner from "$lib/components/ErrorBanner.svelte";
+  import SectionHead from "$lib/components/SectionHead.svelte";
+  import {
+    formatError,
+    handleAuthError,
+  } from "$lib/composables/useAuthErrorHandler";
 
   const PRESETS = ["chronicler", "engineer", "launch"];
   const PRESET_OPTIONS = [...PRESETS, "custom"];
@@ -46,6 +52,12 @@
   let overwriteConfirm = $state<Record<string, boolean>>({});
   let temperatureError = $state<Record<string, string | null>>({});
 
+  let inventoryLede = $derived(
+    (loadState === "success" || loadState === "error")
+      ? `${repos.length} ${repos.length === 1 ? "repository" : "repositories"} connected, ${repos.filter((r) => r.enabled).length} enabled.`
+      : undefined,
+  );
+
   async function refresh(): Promise<void> {
     loadError = "";
     loadState = "loading";
@@ -53,15 +65,12 @@
       repos = await getRepos();
       loadState = "success";
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
+      if (handleAuthError(e)) return;
       loadState = "error";
-      loadError =
-        e instanceof Error && e.message !== "Unauthorized"
-          ? e.message
-          : "Could not load repositories — check your connection and try again.";
+      loadError = formatError(
+        e,
+        "Could not load repositories — check your connection and try again.",
+      );
     }
   }
 
@@ -78,14 +87,11 @@
       });
       await refresh();
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      toggleErr[key] =
-        e instanceof Error && e.message !== "Unauthorized"
-          ? e.message
-          : "Could not update — check your connection and try again.";
+      if (handleAuthError(e)) return;
+      toggleErr[key] = formatError(
+        e,
+        "Could not update — check your connection and try again.",
+      );
     } finally {
       pending[key] = { ...(pending[key] ?? {}), toggling: false };
     }
@@ -143,14 +149,11 @@
         saveMsg[key] = null;
       }, SAVE_MSG_TIMEOUT);
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      saveErr[key] =
-        e instanceof Error && e.message !== "Unauthorized"
-          ? e.message
-          : "Could not save — check your connection and try again.";
+      if (handleAuthError(e)) return;
+      saveErr[key] = formatError(
+        e,
+        "Could not save — check your connection and try again.",
+      );
     } finally {
       pending[key] = { ...(pending[key] ?? {}), saving: false };
     }
@@ -180,12 +183,9 @@
       notesOut[key] = result.notes;
       overwriteConfirm[key] = false;
     } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
+      if (handleAuthError(e)) return;
       genError[key] =
-        `Generation failed for ${toTag}. ${e instanceof Error && e.message !== "Unauthorized" ? e.message : "Check that the tag exists and the LLM endpoint is reachable."}`;
+        `Generation failed for ${toTag}. ${formatError(e, "Check that the tag exists and the LLM endpoint is reachable.")}`;
     } finally {
       pending[key] = { ...pending[key], generating: false };
     }
@@ -201,20 +201,12 @@
 </svelte:head>
 
 <div class="trace-wall">
-  <header class="section-head">
-    <div>
-      <p class="trace-label">Operations / connected sources</p>
-      <h1>Repository trace inventory</h1>
-      {#if loadState === "success" || loadState === "error"}
-        <p class="section-head__lede">
-          {repos.length}
-          {repos.length === 1 ? "repository" : "repositories"} connected, {repos.filter(
-            (r) => r.enabled,
-          ).length} enabled.
-        </p>
-      {/if}
-    </div>
-    <div class="section-head__actions">
+  <SectionHead
+    label="Operations / connected sources"
+    title="Repository trace inventory"
+    lede={inventoryLede}
+  >
+    {#snippet actions()}
       {#if loadState === "loading"}
         <button
           disabled
@@ -229,8 +221,8 @@
         >
       {/if}
       <a href="/repos/add" class="btn btn-primary">Add repositories</a>
-    </div>
-  </header>
+    {/snippet}
+  </SectionHead>
 
   {#if loadState === "loading" || loadState === "idle"}
     <section class="panel" aria-busy="true" aria-label="Loading repositories">
@@ -240,24 +232,21 @@
       <div class="skeleton mt-3 h-24 w-full"></div>
     </section>
   {:else if loadState === "error"}
-    <section class="panel panel--error" role="alert">
-      <p class="trace-label">Source read failed</p>
-      <p class="mt-2 text-sm text-alert">Couldn't load repositories.</p>
-      <p class="mt-1 text-sm text-ink-2">{loadError}</p>
-      <button onclick={refresh} class="btn btn-secondary mt-4">Retry</button>
-    </section>
+    <ErrorBanner
+      label="Source read failed"
+      message="Couldn't load repositories."
+      detail={loadError}
+      actionLabel="Retry"
+      onAction={refresh}
+    />
   {:else if repos.length === 0}
-    <section class="panel empty-state text-left">
-      <p class="trace-label">No connected sources</p>
-      <h2 class="mt-2">The trace starts with a repository.</h2>
-      <p class="mt-2 max-w-xl text-sm text-ink-2">
-        Connect a GitHub or Forgejo repository to put release commits on the
-        wall and shape the first note.
-      </p>
-      <a href="/repos/add" class="btn btn-primary mt-5"
-        >Add your first repository</a
-      >
-    </section>
+    <EmptyState
+      label="No connected sources"
+      heading="The trace starts with a repository."
+      description="Connect a GitHub or Forgejo repository to put release commits on the wall and shape the first note."
+      actionLabel="Add your first repository"
+      href="/repos/add"
+    />
   {:else}
     <section
       class="console-grid repo-inventory"
