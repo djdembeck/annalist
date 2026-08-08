@@ -29,6 +29,16 @@
   let genError = $state<Record<string, string | null>>({});
   let generateTag = $state<Record<string, string>>({});
   let genTagError = $state<Record<string, string | null>>({});
+  let overwriteConfirm = $state<Record<string, boolean>>({});
+  let temperatureError = $state<Record<string, string | null>>({});
+
+  function parseTemperature(value: string): { value: number | null; error: string } {
+    if (value === "") return { value: null, error: "" };
+    const num = Number(value);
+    if (isNaN(num)) return { value: null, error: "Enter a number between 0 and 2." };
+    if (num < 0 || num > 2) return { value: null, error: "Temperature must be between 0 and 2." };
+    return { value: num, error: "" };
+  }
 
   function rowKey(r: Repo): string {
     return `${r.platform}/${r.owner}/${r.repo}`;
@@ -46,7 +56,7 @@
         return;
       }
       loadState = "error";
-      loadError = e instanceof Error ? e.message : "Failed to load repos";
+      loadError = e instanceof Error && e.message !== "Unauthorized" ? e.message : "Could not load repositories — check your connection and try again.";
     }
   }
 
@@ -65,7 +75,7 @@
         goto("/setup");
         return;
       }
-      toggleErr[key] = e instanceof Error ? e.message : "Failed to update";
+      toggleErr[key] = e instanceof Error && e.message !== "Unauthorized" ? e.message : "Could not update — check your connection and try again.";
     } finally {
       pending[key] = { ...(pending[key] ?? {}), toggling: false };
     }
@@ -89,6 +99,8 @@
   function openGenerate(r: Repo): void {
     const key = rowKey(r);
     generateTag[key] ??= "";
+    overwriteConfirm[key] = false;
+    force[key] = false;
     openPanel[key] = openPanel[key] === "generate" ? undefined : "generate";
   }
 
@@ -97,6 +109,12 @@
     const d = drafts[key];
     saveErr[key] = null;
     saveMsg[key] = null;
+    temperatureError[key] = null;
+    const tempResult = parseTemperature(d.temperature);
+    if (tempResult.error) {
+      temperatureError[key] = tempResult.error;
+      return;
+    }
     pending[key] = { ...(pending[key] ?? {}), saving: true };
     let tone: string | null;
     if (d.toneOption === "inherit") tone = null;
@@ -107,11 +125,12 @@
         tone,
         instructions: d.instructions.trim() ? d.instructions : null,
         model: d.model.trim() ? d.model : null,
-        temperature: d.temperature === "" ? null : parseFloat(d.temperature) || null,
+        temperature: tempResult.value,
         trigger: d.trigger,
       });
       await refresh();
       saveMsg[key] = "Saved";
+      temperatureError[key] = null;
       window.setTimeout(() => {
         saveMsg[key] = null;
       }, 2500);
@@ -120,7 +139,7 @@
         goto("/setup");
         return;
       }
-      saveErr[key] = e instanceof Error ? e.message : "Failed to save settings";
+      saveErr[key] = e instanceof Error && e.message !== "Unauthorized" ? e.message : "Could not save — check your connection and try again.";
     } finally {
       pending[key] = { ...(pending[key] ?? {}), saving: false };
     }
@@ -136,16 +155,21 @@
       genTagError[key] = "Enter a release tag";
       return;
     }
+    if ((force[key] ?? false) && !overwriteConfirm[key]) {
+      overwriteConfirm[key] = true;
+      return;
+    }
     pending[key] = { ...pending[key], generating: true };
     try {
       const result = await generate(r.platform, r.owner, r.repo, { to_tag: toTag, force: force[key] ?? false });
       notesOut[key] = result.notes;
+      overwriteConfirm[key] = false;
     } catch (e) {
       if (e instanceof Error && e.message === "Unauthorized") {
         goto("/setup");
         return;
       }
-      genError[key] = e instanceof Error ? e.message : "Generate failed";
+      genError[key] = `Generation failed for ${toTag}. ${e instanceof Error && e.message !== "Unauthorized" ? e.message : "Check that the tag exists and the LLM endpoint is reachable."}`;
     } finally {
       pending[key] = { ...pending[key], generating: false };
     }
@@ -157,7 +181,11 @@
     <div>
       <p class="trace-label">Operations / connected sources</p>
       <h1>Repository trace inventory</h1>
-      <p class="section-head__lede">Keep every connected release source legible: its switch, voice contract, and note action stay on one workpiece.</p>
+      {#if loadState === "success" || loadState === "error"}
+        <p class="section-head__lede">
+          {repos.length} {repos.length === 1 ? "repository" : "repositories"} connected, {repos.filter(r => r.enabled).length} enabled.
+        </p>
+      {/if}
     </div>
     <div class="section-head__actions">
       {#if loadState === "success" || loadState === "error"}
@@ -166,14 +194,6 @@
       <a href="/repos/add" class="btn btn-primary">Add repositories</a>
     </div>
   </header>
-
-  <section class="panel panel-soft repo-trace" aria-label="Release trace workflow">
-    <div class="repo-trace-node"><span class="signal-dot" aria-hidden="true"></span><div><p class="trace-label">Source</p><p class="repo-trace-node__title">Connected repositories</p></div></div>
-    <div class="repo-trace__line" aria-hidden="true"></div>
-    <div class="repo-trace-node"><span class="signal-dot signal-dot--cyan" aria-hidden="true"></span><div><p class="trace-label">Shape</p><p class="repo-trace-node__title">Voice and trigger</p></div></div>
-    <div class="repo-trace__line" aria-hidden="true"></div>
-    <div class="repo-trace-node"><span class="signal-dot signal-dot--heat" aria-hidden="true"></span><div><p class="trace-label">Proof</p><p class="repo-trace-node__title">Generated release note</p></div></div>
-  </section>
 
   {#if loadState === "loading" || loadState === "idle"}
     <section class="panel" aria-busy="true" aria-label="Loading repositories">
@@ -218,10 +238,10 @@
                 {#if d.toneOption === "custom"}<label class="field-group"><span class="field-group__label">Custom tone</span><input bind:value={d.customTone} placeholder="Freeform persona" class="field" /></label>{/if}
                 <label class="field-group md:col-span-2"><span class="field-group__label">Instructions</span><textarea bind:value={d.instructions} rows="3" class="field"></textarea><span class="field-group__hint">Extra guidance the writer follows for this repository.</span></label>
                 <label class="field-group"><span class="field-group__label">Model <span class="field-group__hint">(blank = inherit)</span></span><input bind:value={d.model} class="field" /></label>
-                <label class="field-group"><span class="field-group__label">Temperature <span class="field-group__hint">(blank = inherit)</span></span><input type="number" step="0.1" min="0" max="2" bind:value={d.temperature} class="field" /><span class="field-group__hint">0 = deterministic, 2 = very creative.</span></label>
+                <label class="field-group"><span class="field-group__label">Temperature <span class="field-group__hint">(blank = inherit)</span></span><input type="number" step="0.1" min="0" max="2" bind:value={d.temperature} class="field" /><span class="field-group__hint">0 = deterministic, 2 = very creative.</span>{#if temperatureError[key]}<span class="field-group__error" role="alert">{temperatureError[key]}</span>{/if}</label>
                 <label class="field-group"><span class="field-group__label">Trigger</span><select bind:value={d.trigger} class="field"><option value="auto">auto</option><option value="manual">manual</option></select><span class="field-group__hint">Auto runs on release webhooks; manual disables webhooks.</span></label>
               </div>
-              <p class="mt-4 text-xs text-ink-3">Effective: tone <span class="text-ink">{r.effective.tone ?? "neutral"}</span> · model <span class="text-ink">{r.effective.model ?? "inherit"}</span> · temperature <span class="text-ink">{r.effective.temperature ?? "inherit"}</span></p>
+              <p class="mt-4 text-xs text-ink-3">Effective: tone <span class="text-ink">{r.effective.tone ?? "neutral"}</span> · model <span class="text-ink">{r.effective.model ?? "inherit"}</span> · temperature <span class="text-ink">{r.effective.temperature !== null && r.effective.temperature !== undefined ? r.effective.temperature : "inherit"}</span></p>
               <div class="mt-4 flex flex-wrap items-center gap-3"><button onclick={() => saveSettings(r)} disabled={pending[key]?.saving} class="btn btn-primary">{pending[key]?.saving ? "Saving…" : "Save settings"}</button><span class="text-xs text-ink-3">Save before generating; the writer uses the saved voice.</span></div>
               <div aria-live="polite" class="mt-3">{#if saveMsg[key]}<p class="text-sm text-ok">{saveMsg[key]}</p>{/if}{#if saveErr[key]}<p class="text-sm text-alert" role="alert">{saveErr[key]}</p>{/if}</div>
             </section>
@@ -231,10 +251,19 @@
             <section id="repo-generate-{key}" class="trace-panel" aria-label="Generate a note for {r.owner}/{r.repo}">
               <p class="trace-label">Note proof / {r.owner}/{r.repo}</p><p class="mt-2 max-w-2xl text-sm text-ink-2">Generate a note for a release tag. A normal run preserves an existing hand-edited note; overwrite replaces it.</p>
               <div class="mt-4 grid gap-3 sm:grid-cols-2" aria-label="Generate mode for {r.owner}/{r.repo}">
-                <button type="button" aria-pressed={!force[key]} onclick={() => (force[key] = false)} class="mode-choice {!force[key] ? 'mode-choice--active' : ''}"><span class="flex items-center gap-2 text-sm font-medium text-ink"><span class="signal-dot {!force[key] ? 'signal-dot--heat' : 'signal-dot--muted'}" aria-hidden="true"></span>Generate</span><span class="mt-1 text-xs leading-relaxed text-ink-3">Reuse the note already on file and never overwrite a release body edited by hand.</span></button>
-                <button type="button" aria-pressed={force[key] ?? false} onclick={() => (force[key] = true)} class="mode-choice {force[key] ? 'mode-choice--danger' : ''}"><span class="flex items-center gap-2 text-sm font-medium text-ink"><span class="signal-dot {force[key] ? 'signal-dot--error' : 'signal-dot--muted'}" aria-hidden="true"></span>Overwrite</span><span class="mt-1 text-xs leading-relaxed text-ink-3">Throw out the existing note and run the writer again, even for a hand-edited body.</span></button>
+                <button type="button" aria-pressed={!force[key]} onclick={() => { force[key] = false; overwriteConfirm[key] = false; }} class="mode-choice {!force[key] ? 'mode-choice--active' : ''}"><span class="flex items-center gap-2 text-sm font-medium text-ink"><span class="signal-dot {!force[key] ? 'signal-dot--heat' : 'signal-dot--muted'}" aria-hidden="true"></span>Generate</span><span class="mt-1 text-xs leading-relaxed text-ink-3">Reuse the note already on file and never overwrite a release body edited by hand.</span></button>
+                <button type="button" aria-pressed={force[key] ?? false} onclick={() => { force[key] = true; overwriteConfirm[key] = false; }} class="mode-choice {force[key] ? 'mode-choice--danger' : ''}"><span class="flex items-center gap-2 text-sm font-medium text-ink"><span class="signal-dot {force[key] ? 'signal-dot--error' : 'signal-dot--muted'}" aria-hidden="true"></span>Overwrite</span><span class="mt-1 text-xs leading-relaxed text-ink-3">Destroy the existing note body and generate a new one. This cannot be undone.</span></button>
               </div>
-              <div class="mt-4 flex flex-wrap items-end gap-3"><label class="field-group min-w-0 flex-1 sm:max-w-xs"><span class="field-group__label">Release tag</span><input bind:value={generateTag[key]} placeholder="v1.0.0" class="field" />{#if genTagError[key]}<span class="field-group__error" role="alert">{genTagError[key]}</span>{/if}</label><button onclick={() => runGenerate(r)} disabled={pending[key]?.generating} class="btn btn-primary w-full sm:w-auto">{pending[key]?.generating ? "Generating…" : force[key] ? "Overwrite" : "Generate"}</button></div>
+              {#if force[key] && overwriteConfirm[key]}
+                <div class="mt-3 panel panel--error" role="alert">
+                  <p class="text-sm text-alert">This will destroy the existing note for <strong>{generateTag[key]}</strong>. Are you sure?</p>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <button onclick={() => runGenerate(r)} disabled={pending[key]?.generating} class="btn btn-primary">Yes, overwrite</button>
+                    <button onclick={() => { force[key] = false; overwriteConfirm[key] = false; }} class="btn btn-secondary">Cancel</button>
+                  </div>
+                </div>
+              {/if}
+              <div class="mt-4 flex flex-wrap items-end gap-3"><label class="field-group min-w-0 flex-1 sm:max-w-xs"><span class="field-group__label">Release tag</span><input bind:value={generateTag[key]} placeholder="v1.0.0" class="field" />{#if genTagError[key]}<span class="field-group__error" role="alert">{genTagError[key]}</span>{/if}</label><button onclick={() => runGenerate(r)} disabled={pending[key]?.generating || (force[key] && overwriteConfirm[key])} class="btn btn-primary w-full sm:w-auto">{pending[key]?.generating ? "Generating…" : force[key] ? "Overwrite" : "Generate"}</button></div>
               <div aria-live="polite" class="mt-4">{#if genError[key]}<p class="text-sm text-alert" role="alert">{genError[key]}</p>{/if}{#if notesOut[key]}<div class="mt-4"><p class="trace-label">Generated note / release proof</p><pre class="note-paper mt-2 max-h-96 overflow-auto">{notesOut[key]}</pre></div>{/if}</div>
             </section>
           {/if}

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
   import {
     getStatus,
     setToken,
@@ -82,6 +81,19 @@
   let status = $state<Status | null>(null);
   let busy = $state(false);
 
+  // Keep the newly revealed station in view, especially after long mobile steps.
+  $effect(() => {
+    const currentStep = step;
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      if (currentStep !== step) return;
+      window.scrollTo({
+        top: 0,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
+    });
+  });
+
   // --- step 2: platforms ---
   let skipWarning = $state(false);
 
@@ -99,6 +111,11 @@
   let showSharedNamespaces = $state(false);
   let sortBy = $state<"name" | "activity">("activity");
 
+  // Per-repository add results for batch reconciliation.
+  type RepoAddStatus = "pending" | "success" | "failure";
+  let repoAddResults = $state<Record<string, { status: RepoAddStatus; error?: string }>>({});
+  let addAttempted = $state(false);
+
   // Debounce search input so filtering large repo lists does not run on every keystroke.
   $effect(() => {
     const q = search;
@@ -109,7 +126,11 @@
   });
 
   let connectedCount = $derived((status?.github ? 1 : 0) + (status?.forgejo ? 1 : 0));
-  let selectedCount = $derived(Object.values(selected).filter(Boolean).length);
+  let selectedCount = $derived(
+    Object.entries(selected).filter(
+      ([key, checked]) => checked && repoAddResults[key]?.status !== "success",
+    ).length,
+  );
 
   // Memoize the filtered/sorted list so it is computed once per dependency change, not per template read.
   let filteredRepos = $derived((() => {
@@ -162,6 +183,15 @@
     }
   }
 
+  function resetExpiredSession(): void {
+    setToken("");
+    adminToken = "";
+    status = null;
+    step = 0;
+    skipWarning = false;
+    error = "Your session expired. Enter the ADMIN_TOKEN again to continue.";
+  }
+
   async function submitToken(): Promise<void> {
     error = "";
     busy = true;
@@ -211,7 +241,7 @@
       }
     } catch (e) {
       if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
+        resetExpiredSession();
         return;
       }
       error = e instanceof Error ? e.message : "Failed to load available repos";
@@ -228,26 +258,109 @@
   async function addSelected(): Promise<void> {
     if (selectedCount === 0) return;
     saving = true;
+    addAttempted = true;
     error = "";
-    const targets = available.filter((r) => selected[repoKey(r)]);
-    try {
-      for (const r of targets) {
-        await addRepo(r);
-      }
-      reposAdded = targets.length;
-      step = 3;
-    } catch (e) {
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
-      }
-      error = e instanceof Error ? e.message : "Failed to add repositories";
-    } finally {
-      // `saving` is shared with the voice step's Finish button; it must not
-      // stay true after the repo add succeeds or that button lands disabled
-      // showing "Saving…" (the reported stuck state).
-      saving = false;
+    const targets = available.filter(
+      (r) => selected[repoKey(r)] && repoAddResults[repoKey(r)]?.status !== "success",
+    );
+
+    // Seed every target as pending.
+    const results: Record<string, { status: RepoAddStatus; error?: string }> = {};
+    for (const r of targets) {
+      results[repoKey(r)] = { status: "pending" };
     }
+    repoAddResults = results;
+
+    let successCount = 0;
+    for (const r of targets) {
+      const key = repoKey(r);
+      try {
+        await addRepo(r);
+        repoAddResults[key] = { status: "success" };
+        successCount++;
+      } catch (e) {
+        if (e instanceof Error && e.message === "Unauthorized") {
+          resetExpiredSession();
+          saving = false;
+          return;
+        }
+        repoAddResults[key] = { status: "failure", error: e instanceof Error ? e.message : "Failed to add" };
+      }
+    }
+
+    reposAdded += successCount;
+
+    // Successful rows stay visible for reconciliation but leave the retry set.
+    for (const r of targets) {
+      const key = repoKey(r);
+      if (repoAddResults[key]?.status === "success") selected[key] = false;
+    }
+
+    // Count only failed repos that were selected (not already-added or deselected items).
+    const failedKeys = Object.entries(repoAddResults)
+      .filter(([k, v]) => v.status === "failure" && selected[k])
+      .map(([k]) => k);
+
+    if (failedKeys.length > 0) {
+      // Partial failure: stay on station, keep success state, surface failures.
+      error = "";
+    } else if (successCount === targets.length) {
+      // All succeeded — advance.
+      step = 3;
+    }
+
+    saving = false;
+  }
+
+  // Retry only the repos that failed the last add attempt.
+  async function retryFailedAdds(): Promise<void> {
+    const failedTargets = available.filter((r) => {
+      const key = repoKey(r);
+      const entry = repoAddResults[key];
+      return entry?.status === "failure";
+    });
+    if (failedTargets.length === 0) return;
+
+    saving = true;
+    addAttempted = true;
+    error = "";
+
+    // Reset failed items back to pending.
+    for (const r of failedTargets) {
+      const key = repoKey(r);
+      repoAddResults[key] = { status: "pending" };
+    }
+
+    let successCount = 0;
+    for (const r of failedTargets) {
+      const key = repoKey(r);
+      try {
+        await addRepo(r);
+        repoAddResults[key] = { status: "success" };
+        successCount++;
+      } catch (e) {
+        if (e instanceof Error && e.message === "Unauthorized") {
+          resetExpiredSession();
+          saving = false;
+          return;
+        }
+        repoAddResults[key] = { status: "failure", error: e instanceof Error ? e.message : "Failed to add" };
+      }
+    }
+
+    reposAdded += successCount;
+
+    for (const r of failedTargets) {
+      const key = repoKey(r);
+      if (repoAddResults[key]?.status === "success") selected[key] = false;
+    }
+
+    const stillFailed = Object.entries(repoAddResults).filter(([, v]) => v.status === "failure");
+    if (stillFailed.length === 0) {
+      step = 3;
+    }
+
+    saving = false;
   }
 
   async function finishSetup(): Promise<void> {
@@ -267,7 +380,7 @@
       step = 4;
     } catch (e) {
       if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
+        resetExpiredSession();
         return;
       }
       error = e instanceof Error ? e.message : "Failed to save default tone";
@@ -310,7 +423,7 @@
     </span>
   </header>
 
-  <div class="console-grid setup-layout items-start gap-6 lg:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)]">
+  <div class="console-grid setup-layout items-start gap-6">
     <aside class="panel setup-track lg:sticky lg:top-24" aria-label="Setup progress">
       <div class="mb-4 flex items-center justify-between gap-3">
         <p class="trace-label">RELEASE TRACE</p>
@@ -326,7 +439,7 @@
                   class="setup-node group w-full text-left"
                   aria-label={`Return to completed step ${i + 1}: ${label}`}
                 >
-                  <span class="signal-dot bg-ok text-ok" aria-hidden="true">
+                  <span class="signal-dot signal-dot--healthy" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
                       <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"></path>
                     </svg>
@@ -336,13 +449,13 @@
                 </button>
               {:else if i === step}
                 <span class="setup-node setup-node-active w-full" aria-current="step">
-                  <span class="signal-dot bg-control text-heat" aria-hidden="true"></span>
+                  <span class="signal-dot signal-dot--heat" aria-hidden="true"></span>
                   <span class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{label}</span>
                   <span class="status status-active">Active</span>
                 </span>
               {:else}
                 <span class="setup-node w-full opacity-60">
-                  <span class="signal-dot" aria-hidden="true"></span>
+                  <span class="signal-dot signal-dot--muted" aria-hidden="true"></span>
                   <span class="min-w-0 flex-1 truncate text-sm text-ink-3">{label}</span>
                   <span class="status">Queued</span>
                 </span>
@@ -358,7 +471,7 @@
       </div>
     </aside>
 
-    <main class="panel panel-soft min-w-0" aria-labelledby="station-heading">
+    <section class="panel panel-soft min-w-0" aria-labelledby="station-heading">
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
         <div>
           <p class="trace-label">STATION {String(step + 1).padStart(2, "0")}</p>
@@ -366,7 +479,7 @@
         </div>
         {#if busy || loading || saving}
           <span class="status status-active" aria-live="polite">
-            <span class="signal-dot" aria-hidden="true"></span>
+            <span class="signal-dot signal-dot--heat" aria-hidden="true"></span>
             {busy ? "Checking token" : loading ? "Reading repositories" : "Writing settings"}
           </span>
         {:else}
@@ -422,9 +535,11 @@
                 bind:value={adminToken}
                 placeholder="Paste your admin token"
                 autocomplete="off"
+                aria-describedby="admin-token-hint"
+                aria-invalid={Boolean(error)}
                 class="field"
               />
-              <span class="text-xs leading-5 text-ink-3">
+              <span id="admin-token-hint" class="text-xs leading-5 text-ink-3">
                 This is the <span class="font-mono text-ink-2">ADMIN_TOKEN</span> you set in the
                 server's <span class="font-mono text-ink-2">config.yaml</span> or environment. It is
                 kept in your browser only.
@@ -470,7 +585,7 @@
               {@const configured = status?.[source] ?? false}
               <div class="panel-soft flex min-w-0 flex-col gap-3 p-4">
                 <div class="flex items-center gap-3">
-                  <span class="signal-dot" class:bg-ok={configured} class:text-ok={configured} aria-hidden="true">
+                  <span class="signal-dot {configured ? 'signal-dot--healthy' : 'signal-dot--muted'}" aria-hidden="true">
                     {#if configured}
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
                         <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -506,7 +621,7 @@
           <div class="flex flex-col gap-3 border-t border-line pt-5">
             <button
               onclick={advanceToRepos}
-              disabled={connectedCount === 0}
+              disabled={busy}
               class="btn btn-primary w-full sm:w-auto"
             >
               Continue to repositories
@@ -545,12 +660,22 @@
 
           {#if connectedCount === 0}
             <div class="panel-soft space-y-4 p-5">
-              <p class="text-base text-ink-2">
-                No platforms are configured, so there are no repositories to add yet.
+              <p class="text-base text-ink">
+                No platforms are connected, so there are no repositories to add yet.
               </p>
-              <button onclick={() => (step = 1)} class="btn btn-secondary w-full sm:w-auto">
-                Go back and connect a platform
-              </button>
+              <p class="text-sm text-ink-2">
+                Automation — release note generation — stays inactive until a platform
+                and repository are configured. You can still set a default voice now and
+                configure sources later.
+              </p>
+              <div class="flex flex-col gap-3 sm:flex-row">
+                <button onclick={() => (step = 1)} class="btn btn-secondary w-full sm:w-auto">
+                  Go back and connect a platform
+                </button>
+                <button onclick={() => (step = 3)} class="btn btn-ghost w-full sm:w-auto">
+                  Continue to voice
+                </button>
+              </div>
             </div>
           {:else if !reposVisible}
             <div class="panel-soft flex flex-col gap-4 p-5">
@@ -668,20 +793,65 @@
                 </div>
                 <ul class="panel-soft max-h-80 overflow-auto p-1" aria-label="Available repositories">
                   {#each items as r (repoKey(r))}
+                    {@const key = repoKey(r)}
+                    {@const result = repoAddResults[key]}
                     <li class="flex min-h-11 items-center gap-3 border-b border-line px-3 py-3 last:border-b-0 transition-colors hover:bg-row-hover [content-visibility:auto] [contain-intrinsic-size:auto_3rem]">
                       <input
                         type="checkbox"
-                        id={repoKey(r)}
-                        checked={selected[repoKey(r)] ?? false}
-                        onchange={(e) => (selected[repoKey(r)] = e.currentTarget.checked)}
-                        class="h-5 w-5 accent-mark sm:h-4 sm:w-4"
+                        id={key}
+                        checked={selected[key] ?? false}
+                        onchange={(e) => (selected[key] = e.currentTarget.checked)}
+                        class="h-5 w-4 accent-mark sm:h-4 sm:w-4"
                       />
-                      <label for={repoKey(r)} class="flex-1 cursor-pointer text-base text-ink sm:text-sm">
+                      <label for={key} class="flex-1 cursor-pointer text-base text-ink sm:text-sm">
                         {r.owner}/{r.repo}
                       </label>
+                      {#if result}
+                        {#if result.status === "pending"}
+                          <span class="status status-active" aria-label="Adding {r.owner}/{r.repo}">Adding…</span>
+                        {:else if result.status === "success"}
+                          <span class="status status-ok" aria-label="{r.owner}/{r.repo} added">Added</span>
+                        {:else if result.status === "failure"}
+                          <span class="status status-error" role="status" aria-label="{r.owner}/{r.repo} failed: {result.error}">Failed</span>
+                        {/if}
+                      {/if}
                     </li>
                   {/each}
                 </ul>
+
+                {#if addAttempted}
+                  {@const succeeded = Object.values(repoAddResults).filter((v) => v.status === "success").length}
+                  {@const failed = Object.values(repoAddResults).filter((v) => v.status === "failure").length}
+                  <div class="space-y-3 border-t border-line pt-4" role="status" aria-live="polite">
+                    <div class="flex flex-wrap items-center gap-3 text-sm text-ink-2">
+                      {#if succeeded > 0}
+                        <span class="font-medium text-ok">{succeeded} added successfully</span>
+                      {/if}
+                      {#if failed > 0}
+                        <span class="font-medium text-alert">{failed} failed</span>
+                      {/if}
+                    </div>
+                    {#if failed > 0}
+                      <button
+                        onclick={retryFailedAdds}
+                        disabled={saving}
+                        class="btn btn-secondary w-full sm:w-auto"
+                      >
+                        {saving ? "Retrying…" : `Retry ${failed} failed`}
+                      </button>
+                    {/if}
+                    {#if succeeded > 0 && failed === 0}
+                      <button
+                        onclick={() => (step = 3)}
+                        disabled={saving}
+                        class="btn btn-primary w-full sm:w-auto"
+                      >
+                        Continue to voice
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
+
                 <button
                   onclick={addSelected}
                   disabled={selectedCount === 0 || saving}
@@ -708,10 +878,21 @@
         <section class="space-y-6" aria-labelledby="voice-heading">
           <div class="section-head block">
             <p class="trace-label mb-2">NOTE SHAPING</p>
-            <h3 id="voice-heading" class="text-2xl font-semibold text-ink">Choose the voice on the note.</h3>
+            <h3 id="voice-heading" class="text-2xl font-semibold text-ink">
+              {#if connectedCount === 0}
+                Choose the voice for when your forge connects.
+              {:else}
+                Choose the voice on the note.
+              {/if}
+            </h3>
             <p class="mt-2 max-w-2xl text-base text-ink-2">
-              This becomes the default tone for every release note. You can override it
-              per repository later.
+              {#if connectedCount === 0}
+                No platform is connected yet, so release notes won't generate automatically.
+                Pick a default tone now — it takes effect as soon as you add repositories.
+              {:else}
+                This becomes the default tone for every release note. You can override it
+                per repository later.
+              {/if}
             </p>
           </div>
 
@@ -777,12 +958,40 @@
         <section class="space-y-6" aria-labelledby="done-heading">
           <div class="section-head block">
             <p class="trace-label mb-2">RELEASE READY</p>
-            <h3 id="done-heading" class="text-2xl font-semibold text-ink">Your forge is ready.</h3>
+            <h3 id="done-heading" class="text-2xl font-semibold text-ink">
+              {#if connectedCount === 0}
+                Setup is complete — your forge is not yet connected.
+              {:else}
+                Your forge is ready.
+              {/if}
+            </h3>
             <p class="mt-2 max-w-2xl text-base text-ink-2">
-              The next release you publish on an added repository gets its notes written
-              automatically.
+              {#if connectedCount === 0}
+                Automation is inactive until you connect a platform and add repositories.
+                When you do, the next release you publish gets its notes written
+                automatically in the <span class="text-ink">{toneLabel()}</span> tone.
+              {:else}
+                The next release you publish on an added repository gets its notes written
+                automatically.
+              {/if}
             </p>
           </div>
+
+          {#if connectedCount === 0}
+            <div class="panel-soft space-y-3 p-4">
+              <p class="text-sm text-ink-2">
+                Connect a source to activate release note generation.
+              </p>
+              <div class="flex flex-col gap-2 sm:flex-row">
+                <button onclick={() => (step = 1)} class="btn btn-secondary w-full sm:w-auto">
+                  Connect a platform
+                </button>
+                <button onclick={() => (step = 2)} class="btn btn-ghost w-full sm:w-auto">
+                  Add repositories
+                </button>
+              </div>
+            </div>
+          {/if}
 
           <dl class="console-grid gap-3 text-sm sm:grid-cols-2">
             <div class="panel-soft flex items-center justify-between gap-3 p-4">
@@ -833,6 +1042,6 @@
           </div>
         </section>
       {/if}
-    </main>
+    </section>
   </div>
 </div>

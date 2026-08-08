@@ -46,14 +46,14 @@
       </a>
 
       {#if token}
-        <div class="nav-actions">
+        <div class="nav-actions nav-actions--authenticated">
           <span
             class="readiness {setupComplete ? 'status-ok' : 'status-warn'}"
             role="status"
-            aria-label={setupComplete ? "Setup ready" : "Setup pending"}
+            aria-label={setupComplete ? "Local onboarding complete" : "Local onboarding pending"}
           >
             <span class="signal-dot" aria-hidden="true"></span>
-            {setupComplete ? "SETUP READY" : "SETUP PENDING"}
+            {setupComplete ? "ONBOARDING DONE" : "ONBOARDING PENDING"}
           </span>
           <div class="nav-links">
             <a
@@ -74,7 +74,7 @@
           </div>
         </div>
       {:else}
-        <div class="nav-actions">
+        <div class="nav-actions nav-actions--public">
           <div class="nav-links">
             <a
               href="/setup"

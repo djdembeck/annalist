@@ -2,6 +2,7 @@
   import ForgeDemo from "$lib/components/ForgeDemo.svelte";
 
   let copied = $state(false);
+  let copyError = $state(false);
 
   const features = [
     {
@@ -68,12 +69,15 @@ No breaking changes — just upgrade and ship.`,
 
   async function copyDocker(): Promise<void> {
     const command = "docker pull ghcr.io/djdembeck/annalist:latest";
+    copyError = false;
     try {
       await navigator.clipboard.writeText(command);
       copied = true;
       setTimeout(() => (copied = false), 2000);
     } catch {
-      // Ignore unsupported contexts.
+      copied = false;
+      copyError = true;
+      setTimeout(() => (copyError = false), 4000);
     }
   }
 </script>
@@ -205,6 +209,9 @@ No breaking changes — just upgrade and ship.`,
             </button>
           </div>
           <pre class="command-line"><code>docker pull ghcr.io/djdembeck/annalist:latest</code></pre>
+          {#if copyError}
+            <p class="mt-2 text-xs text-alert" role="status">Copy unavailable — select the command above.</p>
+          {/if}
           <div class="deploy-env">
             <p class="trace-label">Then set these environment variables</p>
             <ul>
@@ -339,6 +346,7 @@ No breaking changes — just upgrade and ship.`,
   }
 
   .tone-console {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     margin-top: 2.5rem;
   }
 
@@ -439,6 +447,10 @@ No breaking changes — just upgrade and ship.`,
   }
 
   .wall-footer a {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    padding-inline: var(--trace-space-2);
     transition: color 120ms ease;
   }
 
@@ -461,7 +473,8 @@ No breaking changes — just upgrade and ship.`,
   }
 
   @media (max-width: 639px) {
-    .feature-console {
+    .feature-console,
+    .tone-console {
       grid-template-columns: minmax(0, 1fr);
     }
 

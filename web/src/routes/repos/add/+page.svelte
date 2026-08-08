@@ -6,6 +6,8 @@
   type Source = "github" | "forgejo";
   const SOURCES: Source[] = ["github", "forgejo"];
 
+  type RowStatus = "idle" | "pending" | "success" | "failure";
+
   let status = $state<Status | null>(null);
   let available = $state<AvailableRepo[]>([]);
   let loading = $state(true);
@@ -20,6 +22,9 @@
   let showSharedNamespaces = $state(false);
   let sortBy = $state<"name" | "activity">("activity");
   let selected = $state<Record<string, boolean>>({});
+
+  // Per-row operation tracking for batch intake
+  let rowResults = $state<Record<string, { status: RowStatus; error?: string }>>({});
 
   function repoKey(r: AvailableRepo): string {
     return `${r.platform}/${r.owner}/${r.repo}`;
@@ -76,20 +81,97 @@
     return Object.values(selected).filter(Boolean).length;
   }
 
+
+
   async function addSelected(): Promise<void> {
     saving = true;
     error = "";
     const targets = available.filter((r) => selected[repoKey(r)]);
-    try {
-      for (const r of targets) await addRepo(r);
-      goto("/repos");
-    } catch (e) {
-      saving = false;
-      if (e instanceof Error && e.message === "Unauthorized") {
-        goto("/setup");
-        return;
+    const newResults: Record<string, { status: RowStatus; error?: string }> = {};
+    for (const r of targets) {
+      newResults[repoKey(r)] = { status: "pending" };
+    }
+    rowResults = newResults;
+
+    let allSuccess = true;
+    for (const r of targets) {
+      const key = repoKey(r);
+      rowResults[key] = { status: "pending" };
+      try {
+        await addRepo(r);
+        rowResults[key] = { status: "success" };
+      } catch (e) {
+        allSuccess = false;
+        const msg = e instanceof Error ? e.message : "Failed";
+        rowResults[key] = { status: "failure", error: msg };
       }
-      error = e instanceof Error ? e.message : "Failed to add repositories";
+    }
+
+    if (allSuccess) {
+      rowResults = {};
+      selected = {};
+      goto("/repos");
+    } else {
+      saving = false;
+      // Clear selections for successful items; keep failed ones deselected
+      for (const r of targets) {
+        const key = repoKey(r);
+        if (rowResults[key]?.status === "success") {
+          selected[key] = false;
+        }
+      }
+    }
+  }
+
+  // Retry only the failed rows
+  async function retryFailed(): Promise<void> {
+    saving = true;
+    error = "";
+    const failedKeys = Object.entries(rowResults).filter(([, v]) => v.status === "failure");
+    if (failedKeys.length === 0) {
+      saving = false;
+      return;
+    }
+
+    const newResults: Record<string, { status: RowStatus; error?: string }> = {};
+    for (const [key] of failedKeys) {
+      newResults[key] = { status: "pending" };
+    }
+    // Keep successful rows from previous batch
+    for (const [key, v] of Object.entries(rowResults)) {
+      if (v.status === "success") newResults[key] = { status: "success" };
+    }
+    rowResults = newResults;
+
+    let allSuccess = true;
+    for (const [key] of failedKeys) {
+      const r = available.find((r) => repoKey(r) === key);
+      if (!r) {
+        rowResults[key] = { status: "failure", error: "Repository no longer found in inventory" };
+        allSuccess = false;
+        continue;
+      }
+      try {
+        await addRepo(r);
+        rowResults[key] = { status: "success" };
+      } catch (e) {
+        allSuccess = false;
+        const msg = e instanceof Error ? e.message : "Failed";
+        rowResults[key] = { status: "failure", error: msg };
+      }
+    }
+
+    if (allSuccess) {
+      rowResults = {};
+      selected = {};
+      goto("/repos");
+    } else {
+      saving = false;
+      for (const [key] of failedKeys) {
+        if (rowResults[key]?.status === "success") {
+          selected[key] = false;
+        }
+      }
     }
   }
 
@@ -116,6 +198,20 @@
       error = e instanceof Error ? e.message : "Failed to add repository";
     }
   }
+
+  // Keyboard handling for button-group source switching
+  function handleSourceKeyDown(e: KeyboardEvent): void {
+    const sources = SOURCES.filter((s) => status?.[s]);
+    if (sources.length <= 1) return;
+    const currentIndex = sources.indexOf(activeSource);
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      activeSource = sources[(currentIndex + 1) % sources.length];
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      activeSource = sources[(currentIndex - 1 + sources.length) % sources.length];
+    }
+  }
 </script>
 
 <div class="trace-wall">
@@ -128,25 +224,32 @@
     <a href="/repos" class="btn btn-secondary">Back to repositories</a>
   </header>
 
-  <section class="panel panel-soft intake-trace" aria-label="Repository intake workflow">
-    <div class="intake-node"><span class="signal-dot" aria-hidden="true"></span><div><p class="trace-label">1 / Discover</p><p class="intake-node__title">Read enabled platforms</p></div></div>
-    <div class="intake-trace__line" aria-hidden="true"></div>
-    <div class="intake-node"><span class="signal-dot signal-dot--cyan" aria-hidden="true"></span><div><p class="trace-label">2 / Select</p><p class="intake-node__title">Mark repositories</p></div></div>
-    <div class="intake-trace__line" aria-hidden="true"></div>
-    <div class="intake-node"><span class="signal-dot signal-dot--heat" aria-hidden="true"></span><div><p class="trace-label">3 / Commit</p><p class="intake-node__title">Add selected sources</p></div></div>
-  </section>
-
-  {#if error}
-    <div class="panel panel--error" role="alert"><p class="trace-label">Intake needs attention</p><p class="mt-2 text-sm text-alert">{error}</p></div>
-  {/if}
-
   {#if loading}
     <section class="panel" aria-busy="true" aria-label="Loading available repositories">
       <p class="trace-label">Reading enabled source inventory</p>
       <div class="skeleton mt-4 h-11 w-full"></div><div class="skeleton mt-3 h-16 w-full"></div><div class="skeleton mt-3 h-16 w-full"></div>
     </section>
   {:else if status}
+    <!-- Live summary replaces static 3-step trace -->
     {@const enabled = SOURCES.filter((s) => status?.[s])}
+    <section class="panel panel-soft live-summary" aria-label="Source intake summary">
+      <span class="live-summary__item"><span class="signal-dot {enabled.length > 0 ? 'signal-dot--cyan' : 'signal-dot--muted'}" aria-hidden="true"></span><span class="trace-label">{enabled.length} platform{enabled.length !== 1 ? 's' : ''} connected</span></span>
+      <span class="live-summary__item"><span class="trace-label">{available.length} repo{available.length !== 1 ? 's' : ''} discoverable</span></span>
+      {#if selectedCount() > 0}
+        <span class="live-summary__item live-summary__item--highlight"><span class="signal-dot signal-dot--heat" aria-hidden="true"></span><span class="trace-label">{selectedCount()} selected for add</span></span>
+      {/if}
+      {#if Object.keys(rowResults).length > 0}
+        <span class="live-summary__item live-summary__item--result"><span class="trace-label">
+          {Object.values(rowResults).filter((r) => r.status === "success").length} added,
+          {Object.values(rowResults).filter((r) => r.status === "failure").length} failed
+        </span></span>
+      {/if}
+    </section>
+
+    {#if error}
+      <div class="panel panel--error" role="alert"><p class="trace-label">Intake needs attention</p><p class="mt-2 text-sm text-alert">{error}</p></div>
+    {/if}
+
     {#if enabled.length === 0}
       <section class="panel empty-state text-left">
         <p class="trace-label">No source signal</p>
@@ -155,6 +258,36 @@
         <a href="/settings" class="btn btn-primary mt-5">Open settings</a>
       </section>
     {:else}
+      <!-- Batch operation results banner -->
+      {#if Object.keys(rowResults).length > 0}
+        <div class="panel panel-soft batch-results" role="status" aria-live="polite">
+          <div class="batch-results__header"><p class="trace-label">Operation results</p></div>
+          {#if Object.values(rowResults).some((r) => r.status === "success")}
+            <div class="batch-results__group batch-results__group--success">
+              <p class="batch-results__group-label">Completed</p>
+              <ul class="batch-results__list">
+                {#each Object.entries(rowResults).filter(([, v]) => v.status === "success") as [key]}
+                  <li class="batch-results__item"><span class="signal-dot signal-dot--cyan" aria-hidden="true"></span>{key}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+          {#if Object.values(rowResults).some((r) => r.status === "failure")}
+            <div class="batch-results__group batch-results__group--failure">
+              <p class="batch-results__group-label">Failed — {Object.values(rowResults).filter((r) => r.status === "failure").length} item{Object.values(rowResults).filter((r) => r.status === "failure").length !== 1 ? 's' : ''}</p>
+              <ul class="batch-results__list">
+                {#each Object.entries(rowResults).filter(([, v]) => v.status === "failure") as [key, v]}
+                  <li class="batch-results__item"><span class="signal-dot signal-dot--heat" aria-hidden="true"></span>{key}<span class="batch-results__item-error" title={v.error}>{v.error}</span></li>
+                {/each}
+              </ul>
+            </div>
+            <button onclick={retryFailed} disabled={saving} class="btn btn-primary mt-3">
+              {saving ? "Retrying…" : `Retry ${Object.values(rowResults).filter((r) => r.status === "failure").length} failed`}
+            </button>
+          {/if}
+        </div>
+      {/if}
+
       <section class="panel source-inventory" aria-label="Available repository source inventory">
         <div class="source-inventory__topline">
           <div><p class="trace-label">Batch selection</p><h2 class="mt-1">Repositories ready to connect</h2></div>
@@ -163,11 +296,20 @@
           </button>
         </div>
 
-        <div class="source-tabs" role="tablist" aria-label="Repository platforms">
+        <!-- Source switching as button group, not tabs -->
+        <div class="source-tabs" role="group" aria-label="Repository platforms">
           {#each SOURCES as source}
             {@const isEnabled = status[source]}
-            <button role="tab" aria-selected={activeSource === source} onclick={() => (activeSource = source)} disabled={!isEnabled} class="source-tab {activeSource === source ? 'source-tab--active' : ''}">
-              <span class="signal-dot {isEnabled ? 'signal-dot--cyan' : 'signal-dot--muted'}" aria-hidden="true"></span>{source}
+            <button
+              onclick={() => (activeSource = source)}
+              onkeydown={handleSourceKeyDown}
+              disabled={!isEnabled}
+              class="source-tab {activeSource === source ? 'source-tab--active' : ''}"
+              aria-pressed={activeSource === source}
+              aria-label={isEnabled ? `${source} platform${activeSource === source ? ', selected' : ''}` : `${source} platform (not configured)`}
+            >
+              <span class="signal-dot {isEnabled ? 'signal-dot--cyan' : 'signal-dot--muted'}" aria-hidden="true"></span>
+              {source}
               {!isEnabled ? " (not configured)" : ""}
             </button>
           {/each}
@@ -186,10 +328,29 @@
           <div class="source-list__meta"><span class="trace-label">{filtered().length} available in current view</span><button onclick={() => { const allSelected = filtered().every((r) => selected[repoKey(r)]); for (const r of filtered()) selected[repoKey(r)] = !allSelected; }} class="btn btn-ghost">{filtered().every((r) => selected[repoKey(r)]) ? "Deselect all" : "Select all"}</button></div>
           <ul class="source-list">
             {#each filtered() as r (repoKey(r))}
-              <li class="source-row">
-                <input type="checkbox" id={repoKey(r)} checked={selected[repoKey(r)] ?? false} onchange={(e) => (selected[repoKey(r)] = e.currentTarget.checked)} />
-                <label for={repoKey(r)} class="source-row__label"><span class="source-row__name">{r.owner}/{r.repo}</span><span class="source-row__meta">{r.platform}{r.ownNamespace === false ? " · shared namespace" : ""}{r.fork === true ? " · fork" : ""}</span></label>
-                <span class="signal-dot signal-dot--cyan" aria-hidden="true"></span>
+              {@const rkey = repoKey(r)}
+              {@const rowStatus = rowResults[rkey]?.status}
+              <li class="source-row {rowStatus === 'success' ? 'source-row--success' : ''} {rowStatus === 'failure' ? 'source-row--failure' : ''} {rowStatus === 'pending' ? 'source-row--pending' : ''}">
+                <input
+                  type="checkbox"
+                  id={rkey}
+                  checked={selected[rkey] ?? false}
+                  disabled={rowStatus === 'pending'}
+                  onchange={(e) => (selected[rkey] = e.currentTarget.checked)}
+                />
+                <label for={rkey} class="source-row__label">
+                  <span class="source-row__name">{r.owner}/{r.repo}</span>
+                  <span class="source-row__meta">{r.platform}{r.ownNamespace === false ? " · shared namespace" : ""}{r.fork === true ? " · fork" : ""}</span>
+                </label>
+                {#if rowStatus === 'pending'}
+                  <span class="signal-dot signal-dot--muted" aria-hidden="true"></span>
+                {:else if rowStatus === 'success'}
+                  <span class="signal-dot signal-dot--cyan" aria-hidden="true"></span>
+                {:else if rowStatus === 'failure'}
+                  <span class="signal-dot signal-dot--heat" aria-hidden="true" title={rowResults[rkey]?.error}></span>
+                {:else}
+                  <span class="signal-dot signal-dot--cyan" aria-hidden="true"></span>
+                {/if}
               </li>
             {/each}
           </ul>
@@ -209,3 +370,69 @@
     </section>
   {/if}
 </div>
+
+<style>
+  .live-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--trace-space-4);
+    align-items: center;
+  }
+  .live-summary__item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--trace-space-2);
+  }
+  .live-summary__item--highlight {
+    font-weight: 600;
+  }
+  .batch-results {
+    display: grid;
+    gap: var(--trace-space-3);
+  }
+  .batch-results__header {
+    display: flex;
+    align-items: center;
+    gap: var(--trace-space-2);
+  }
+  .batch-results__group {
+    display: grid;
+    gap: var(--trace-space-2);
+  }
+  .batch-results__group-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .batch-results__group--success .batch-results__group-label { color: var(--trace-cyan); }
+  .batch-results__group--failure .batch-results__group-label { color: var(--trace-red); }
+  .batch-results__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--trace-space-1);
+  }
+  .batch-results__item {
+    display: flex;
+    align-items: center;
+    gap: var(--trace-space-2);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--trace-ink);
+    overflow-wrap: anywhere;
+  }
+  .batch-results__item-error {
+    color: var(--trace-muted);
+    font-size: 0.6875rem;
+    margin-left: auto;
+    max-width: 20rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .source-row--success { background: color-mix(in srgb, var(--trace-cyan) 8%, var(--trace-panel)); }
+  .source-row--failure { background: color-mix(in srgb, var(--trace-red) 8%, var(--trace-panel)); }
+  .source-row--pending { opacity: 0.6; }
+</style>

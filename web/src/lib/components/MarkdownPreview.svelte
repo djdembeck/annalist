@@ -28,7 +28,7 @@
       type="button"
       aria-pressed={mode === "rendered"}
       onclick={() => (mode = "rendered")}
-      class="rounded px-2 py-1 text-xs transition-colors {mode === 'rendered'
+      class="rounded px-2 py-[0.625rem] text-xs transition-colors min-h-[2.75rem] {mode === 'rendered'
         ? 'bg-surface-2 text-ink'
         : 'text-ink-3 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring'}"
     >
@@ -38,7 +38,7 @@
       type="button"
       aria-pressed={mode === "raw"}
       onclick={() => (mode = "raw")}
-      class="rounded px-2 py-1 text-xs transition-colors {mode === 'raw'
+      class="rounded px-2 py-[0.625rem] text-xs transition-colors min-h-[2.75rem] {mode === 'raw'
         ? 'bg-surface-2 text-ink'
         : 'text-ink-3 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring'}"
     >
@@ -63,7 +63,7 @@
 
 <style>
   .prose-forge :global(*) {
-    color: #f3f0ec;
+    color: var(--trace-ink);
   }
   .prose-forge :global(h2) {
     font-family: "Saira", ui-sans-serif, system-ui, sans-serif;
@@ -72,14 +72,14 @@
     line-height: 1.25;
     margin-bottom: 0.75rem;
     padding-bottom: 0.375rem;
-    border-bottom: 1px solid #2a2e35;
+    border-bottom: 1px solid var(--trace-line);
   }
   .prose-forge :global(p) {
     font-family: "Saira", ui-sans-serif, system-ui, sans-serif;
     font-size: 0.875rem;
     line-height: 1.5;
     margin-bottom: 0.75rem;
-    color: #f3f0ec;
+    color: var(--trace-ink);
   }
   .prose-forge :global(ul) {
     list-style-type: disc;
@@ -91,22 +91,22 @@
     font-size: 0.875rem;
     line-height: 1.5;
     margin-bottom: 0.25rem;
-    color: #b8b2a8;
+    color: var(--trace-muted);
   }
   .prose-forge :global(li::marker) {
-    color: #ff7b00;
+    color: var(--trace-copper);
   }
   .prose-forge :global(strong) {
-    color: #fff7e8;
+    color: var(--trace-ink);
     font-weight: 600;
   }
   .prose-forge :global(code) {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
       "Courier New", monospace;
     font-size: 0.8125rem;
-    background: #23262b;
+    background: var(--trace-raised);
     padding: 0.125rem 0.375rem;
     border-radius: 4px;
-    color: #f3f0ec;
+    color: var(--trace-ink);
   }
 </style>

@@ -15,6 +15,15 @@
   let instructions = $state("");
   let model = $state("");
   let temperature = $state("");
+  let temperatureError = $state("");
+
+  function parseTemperature(value: string): { value: number | null; error: string } {
+    if (value === "") return { value: null, error: "" };
+    const num = Number(value);
+    if (isNaN(num)) return { value: null, error: "Enter a number between 0 and 2." };
+    if (num < 0 || num > 2) return { value: null, error: "Temperature must be between 0 and 2." };
+    return { value: num, error: "" };
+  }
 
   async function load(): Promise<void> {
     try {
@@ -26,13 +35,14 @@
       instructions = s.instructions ?? "";
       model = s.model ?? "";
       temperature = s.temperature === null ? "" : String(s.temperature);
+      temperatureError = "";
       error = "";
     } catch (e) {
       if (e instanceof Error && e.message === "Unauthorized") {
         goto("/setup");
         return;
       }
-      error = e instanceof Error ? e.message : "Failed to load settings";
+      error = e instanceof Error && e.message !== "Unauthorized" ? e.message : "Could not load settings — the server may be unreachable. Check your connection and try refreshing.";
     } finally {
       loading = false;
     }
@@ -48,20 +58,27 @@
     else if (toneOption === "custom") tone = customTone.trim() ? customTone : null;
     else tone = toneOption;
     try {
+      const tempResult = parseTemperature(temperature);
+      if (tempResult.error) {
+        temperatureError = tempResult.error;
+        saving = false;
+        return;
+      }
       settings = await putSettings({
         tone,
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
-        temperature: temperature === "" ? null : parseFloat(temperature) || null,
+        temperature: tempResult.value,
       });
       saved = true;
+      temperatureError = "";
       error = "";
     } catch (e) {
       if (e instanceof Error && e.message === "Unauthorized") {
         goto("/setup");
         return;
       }
-      error = e instanceof Error ? e.message : "Failed to save settings";
+      error = e instanceof Error && e.message !== "Unauthorized" ? e.message : "Failed to save settings — check your connection and try again.";
     } finally {
       saving = false;
     }
@@ -73,18 +90,15 @@
     <div>
       <p class="trace-label">Operations / global contract</p>
       <h1>Machine contract &amp; voice proof</h1>
-      <p class="section-head__lede">Set the defaults that shape release notes, then verify the machine connection that will carry them.</p>
+      {#if settings}
+        <p class="section-head__lede">
+          {#if settings.github && settings.forgejo}Both GitHub and Forgejo are configured.{:else if settings.github}GitHub configured, Forgejo not configured.{:else if settings.forgejo}Forgejo configured, GitHub not configured. {:else}No platforms configured yet — add a platform below to start.{/if}
+          <span class="text-ink-2"> · Model {settings.llm.model}</span>
+        </p>
+      {/if}
     </div>
     <a href="/repos" class="btn btn-secondary">Repository inventory</a>
   </header>
-
-  <section class="panel panel-soft settings-trace" aria-label="Settings trace workflow">
-    <div class="settings-node"><span class="signal-dot signal-dot--cyan" aria-hidden="true"></span><div><p class="trace-label">Contract</p><p class="settings-node__title">Global defaults</p></div></div>
-    <div class="settings-trace__line" aria-hidden="true"></div>
-    <div class="settings-node"><span class="signal-dot" aria-hidden="true"></span><div><p class="trace-label">Machine</p><p class="settings-node__title">Endpoint and sources</p></div></div>
-    <div class="settings-trace__line" aria-hidden="true"></div>
-    <div class="settings-node"><span class="signal-dot signal-dot--heat" aria-hidden="true"></span><div><p class="trace-label">Proof</p><p class="settings-node__title">What generation will use</p></div></div>
-  </section>
 
   {#if error}
     <section class="panel panel--error" role="alert"><p class="trace-label">Contract update needs attention</p><p class="mt-2 text-sm text-alert">{error}</p></section>
@@ -102,7 +116,7 @@
           <label class="field-group"><span class="field-group__label">Instructions</span><textarea bind:value={instructions} rows="5" placeholder="Additional instructions for note generation" class="field"></textarea><span class="field-group__hint">These instructions travel with the global voice contract.</span></label>
           <div class="grid gap-5 sm:grid-cols-2">
             <label class="field-group"><span class="field-group__label">Model <span class="field-group__hint">(blank = server default)</span></span><input bind:value={model} class="field" /></label>
-            <label class="field-group"><span class="field-group__label">Temperature <span class="field-group__hint">(blank = server default)</span></span><input type="number" step="0.1" min="0" max="2" bind:value={temperature} class="field" /><span class="field-group__hint">0 = deterministic, 2 = very creative.</span></label>
+            <label class="field-group"><span class="field-group__label">Temperature <span class="field-group__hint">(blank = server default)</span></span><input type="number" step="0.1" min="0" max="2" bind:value={temperature} class="field" /><span class="field-group__hint">0 = deterministic, 2 = very creative.</span>{#if temperatureError}<span class="field-group__error" role="alert">{temperatureError}</span>{/if}</label>
           </div>
           <div class="flex flex-wrap items-center gap-3"><button onclick={save} disabled={saving} class="btn btn-primary">{saving ? "Saving…" : "Save contract"}</button>{#if saved}<span class="status status--healthy" role="status"><span class="signal-dot signal-dot--healthy" aria-hidden="true"></span>Saved</span>{/if}</div>
         </div>
@@ -124,7 +138,7 @@
           <h2 class="mt-1">Current contract at a glance</h2>
           <pre class="note-paper mt-4">Tone: {toneOption === "custom" ? (customTone.trim() || "inherit") : toneOption === "inherit" ? "neutral" : toneOption}
 Model: {model.trim() || settings.llm.model || "server default"}
-Temperature: {temperature || "server default"}
+Temperature: {temperature !== "" ? temperature : "server default"}
 Instructions: {instructions.trim() || "No additional instructions."}</pre>
           <p class="mt-3 text-xs text-ink-3">This proof reflects the values in the form. Repository-level settings can override the global contract.</p>
         </section>

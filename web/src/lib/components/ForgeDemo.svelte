@@ -102,7 +102,7 @@
     <div class="trace-pipeline">
       <div class="trace-pipeline-head">
         <span class="trace-label">Pipeline</span>
-        <span class="trace-pipeline-state" aria-live="polite">{stages[activeStage].detail}</span>
+        <span class="trace-pipeline-state">{stages[activeStage].detail}</span>
       </div>
       <ol class="trace-rail" aria-label="Release processing stages">
         {#each stages as stage, index}
