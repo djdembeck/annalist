@@ -20,6 +20,9 @@ import (
 	"github.com/djdembeck/annalist/internal/pipeline"
 )
 
+// defaultReposPerPage is the pagination limit for listing repositories.
+const defaultReposPerPage = 50
+
 // Client talks to a Forgejo/Gitea instance over its REST API.
 type Client struct {
 	cfg  config.ForgejoConfig
@@ -136,7 +139,7 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 			UpdatedAt time.Time `json:"updated_at"`
 			PushedAt  time.Time `json:"pushed_at,omitempty"`
 		}
-		path := "/user/repos?limit=50&page=" + strconv.Itoa(page)
+		path := "/user/repos?limit=" + strconv.Itoa(defaultReposPerPage) + "&page=" + strconv.Itoa(page)
 		if err := c.do(ctx, http.MethodGet, path, nil, &batch); err != nil {
 			return nil, err
 		}
@@ -157,7 +160,7 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 				out[len(out)-1].PushedAt = r.UpdatedAt
 			}
 		}
-		if len(batch) < 50 {
+		if len(batch) < defaultReposPerPage {
 			break
 		}
 		page++

@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import MarkdownPreview from "$lib/components/MarkdownPreview.svelte";
 
+  const ANIMATION_INTERVAL = 1800;
+
   const commits = [
     "feat(gateway): add circuit-breaker middleware",
     "fix(rate-limit): reset counter on config reload",
@@ -58,11 +60,16 @@
     document.addEventListener("visibilitychange", syncVisibility);
 
     const updateTraceDistance = () => {
-      const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const rootFontSize = parseFloat(
+        getComputedStyle(document.documentElement).fontSize,
+      );
       const distance = Math.max(0, traceRail.clientWidth - rootFontSize * 1.1);
       traceRail.style.setProperty("--trace-distance", `${distance}px`);
       traceRail.style.setProperty("--trace-stage-one", `${distance / 3}px`);
-      traceRail.style.setProperty("--trace-stage-two", `${(distance * 2) / 3}px`);
+      traceRail.style.setProperty(
+        "--trace-stage-two",
+        `${(distance * 2) / 3}px`,
+      );
     };
     const resizeObserver = new ResizeObserver(updateTraceDistance);
     resizeObserver.observe(traceRail);
@@ -71,7 +78,7 @@
     const interval = window.setInterval(() => {
       if (paused || reducedMotion) return;
       activeStage = (activeStage + 1) % stages.length;
-    }, 1800);
+    }, ANIMATION_INTERVAL);
 
     return () => {
       window.clearInterval(interval);
@@ -93,7 +100,9 @@
       <p class="trace-label">Example release trace / v1.4.0</p>
       <h2 id="trace-title">A release note taking shape.</h2>
     </div>
-    <span class="status" data-tone="signal">{reducedMotion ? "Settled" : "Tracing"}</span>
+    <span class="status" data-tone="signal"
+      >{reducedMotion ? "Settled" : "Tracing"}</span
+    >
   </header>
 
   <div class="forge-map">
@@ -118,9 +127,17 @@
         <span class="trace-label">Pipeline</span>
         <span class="trace-pipeline-state">{stages[activeStage].detail}</span>
       </div>
-      <ol class="trace-rail" bind:this={traceRail} aria-label="Release processing stages">
+      <ol
+        class="trace-rail"
+        bind:this={traceRail}
+        aria-label="Release processing stages"
+      >
         {#each stages as stage, index}
-          <li class="trace-node" class:active={activeStage >= index} class:current={activeStage === index}>
+          <li
+            class="trace-node"
+            class:active={activeStage >= index}
+            class:current={activeStage === index}
+          >
             <span class="trace-node-index" aria-hidden="true">{index + 1}</span>
             <span class="trace-node-copy">
               <strong>{stage.label}</strong>
@@ -128,7 +145,8 @@
             </span>
           </li>
         {/each}
-        <span class="signal-dot signal-dot-cyan trace-signal" aria-hidden="true"></span>
+        <span class="signal-dot signal-dot-cyan trace-signal" aria-hidden="true"
+        ></span>
       </ol>
     </div>
   </div>
@@ -145,7 +163,8 @@
   </article>
 
   <p class="trace-caption">
-    This preview shows the path. Annalist uses your configured tone and repository history when a real release arrives.
+    This preview shows the path. Annalist uses your configured tone and
+    repository history when a real release arrives.
   </p>
 </section>
 
@@ -291,7 +310,10 @@
     font-family: var(--font-mono);
     font-size: 0.68rem;
     line-height: 1;
-    transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease;
+    transition:
+      border-color 180ms ease,
+      color 180ms ease,
+      background-color 180ms ease;
   }
 
   .trace-node-copy {

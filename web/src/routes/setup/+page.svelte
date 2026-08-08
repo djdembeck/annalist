@@ -9,13 +9,24 @@
     type Status,
     type AvailableRepo,
   } from "$lib/api";
+  import {
+    filterAndSortRepos,
+    getEnabledSources,
+    isSourceEnabled,
+    SOURCES,
+    repoKey,
+    resolveTone,
+    batchAddRepos,
+    retryFailedRepos,
+    type Source,
+    type RowStatus,
+    type BatchResult,
+  } from "$lib/repoUtils";
   import MarkdownPreview from "$lib/components/MarkdownPreview.svelte";
 
-  type Source = "github" | "forgejo";
-
-  const SOURCES: Source[] = ["github", "forgejo"];
   const PRESET_DESCRIPTIONS: Record<string, string> = {
-    chronicler: "Narrative. Tells the story of what changed and why it matters.",
+    chronicler:
+      "Narrative. Tells the story of what changed and why it matters.",
     engineer: "Concise. Terse bullet items that get straight to the point.",
     launch: "Upbeat. Celebratory and energized for a big reveal.",
   };
@@ -37,8 +48,7 @@
   ];
 
   const PREVIEW_EXAMPLES: Record<string, string> = {
-    chronicler:
-      `This release hardens the forge. Webhook deliveries now surface a live health check, so you can see at a glance whether GitHub is reaching your instance. Note generation runs faster under load thanks to result caching, and the retired v1 endpoints step aside after a long farewell tour.
+    chronicler: `This release hardens the forge. Webhook deliveries now surface a live health check, so you can see at a glance whether GitHub is reaching your instance. Note generation runs faster under load thanks to result caching, and the retired v1 endpoints step aside after a long farewell tour.
 
 ## Features
 - Webhook deliveries now carry a live health check, so you can see at a glance whether GitHub is reaching your instance.
@@ -49,8 +59,7 @@
 ## Improvements
 - Note generation results are cached, so releases build faster under load.
 - The deprecated v1 endpoints step aside after a long farewell tour.`,
-    engineer:
-      `This release adds a webhook delivery health check, caches note generation output, fixes pagination on the release history, and removes the deprecated v1 endpoints.
+    engineer: `This release adds a webhook delivery health check, caches note generation output, fixes pagination on the release history, and removes the deprecated v1 endpoints.
 
 ## Features
 - Add webhook delivery health check
@@ -61,8 +70,7 @@
 ## Improvements
 - Cache note generation results for faster rebuilds
 - Remove deprecated v1 endpoints`,
-    launch:
-      `Time to shine — this update makes your forge faster and healthier than ever. Webhook health checks keep you in the loop, note generation gets a speed boost, and release history finally scrolls like butter.
+    launch: `Time to shine — this update makes your forge faster and healthier than ever. Webhook health checks keep you in the loop, note generation gets a speed boost, and release history finally scrolls like butter.
 
 ## Features
 - Webhook health checks keep you in the loop on every delivery.
@@ -89,7 +97,9 @@
       if (currentStep !== step) return;
       window.scrollTo({
         top: 0,
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
       });
     });
   });
@@ -116,8 +126,7 @@
   let resumeStep = $state<number | null>(null);
 
   // Per-repository add results for batch reconciliation.
-  type RepoAddStatus = "pending" | "success" | "failure";
-  let repoAddResults = $state<Record<string, { status: RepoAddStatus; error?: string }>>({});
+  let repoAddResults = $state<BatchResult>({});
   let addAttempted = $state(false);
 
   // Debounce search input so filtering large repo lists does not run on every keystroke.
@@ -129,7 +138,9 @@
     return () => clearTimeout(id);
   });
 
-  let connectedCount = $derived((status?.github ? 1 : 0) + (status?.forgejo ? 1 : 0));
+  let connectedCount = $derived(
+    (status?.github ? 1 : 0) + (status?.forgejo ? 1 : 0),
+  );
   let selectedCount = $derived(
     Object.entries(selected).filter(
       ([key, checked]) => checked && repoAddResults[key]?.status !== "success",
@@ -137,36 +148,16 @@
   );
 
   // Memoize the filtered/sorted list so it is computed once per dependency change, not per template read.
-  let filteredRepos = $derived((() => {
-    const query = debouncedSearch.trim().toLowerCase();
-    const items = available.filter((r) => {
-      if (r.platform !== activeSource) return false;
-      if (r.ownNamespace === false && !showSharedNamespaces) return false;
-      if (r.fork === true && !showForks) return false;
-      if (query && !`${r.owner}/${r.repo}`.toLowerCase().includes(query)) return false;
-      return true;
-    });
-    const sorted = [...items];
-    if (sortBy === "activity") {
-      return sorted.sort((a, b) => {
-        const at = new Date(a.pushedAt ?? a.updatedAt ?? 0).getTime();
-        const bt = new Date(b.pushedAt ?? b.updatedAt ?? 0).getTime();
-        if (at !== bt) return bt - at;
-        if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
-        return a.repo.localeCompare(b.repo);
-      });
-    }
-    return sorted.sort((a, b) => {
-      const an = a.ownNamespace === false ? 1 : 0;
-      const bn = b.ownNamespace === false ? 1 : 0;
-      if (an !== bn) return an - bn;
-      const af = a.fork === true ? 1 : 0;
-      const bf = b.fork === true ? 1 : 0;
-      if (af !== bf) return af - bf;
-      if (a.owner !== b.owner) return a.owner.localeCompare(b.owner);
-      return a.repo.localeCompare(b.repo);
-    });
-  })());
+  let filteredRepos = $derived(
+    filterAndSortRepos(
+      available,
+      activeSource,
+      debouncedSearch,
+      showForks,
+      showSharedNamespaces,
+      sortBy,
+    ),
+  );
 
   // --- step 4: tone ---
   let toneOption = $state("inherit");
@@ -175,10 +166,6 @@
   // --- interaction helpers ---
   let showToken = $state(false);
   let showFilters = $state(false);
-
-  function repoKey(r: AvailableRepo): string {
-    return `${r.platform}/${r.owner}/${r.repo}`;
-  }
 
   // Allow clicking back to any step already reached.
   function goTo(n: number): void {
@@ -213,9 +200,11 @@
       }
     } catch (e) {
       if (e instanceof Error && e.message === "Unauthorized") {
-        error = "That token was not accepted. Check your ADMIN_TOKEN and try again.";
+        error =
+          "That token was not accepted. Check your ADMIN_TOKEN and try again.";
       } else {
-        error = e instanceof Error ? e.message : "Failed to connect to Annalist";
+        error =
+          e instanceof Error ? e.message : "Failed to connect to Annalist";
       }
       status = null;
     } finally {
@@ -246,8 +235,8 @@
     error = "";
     try {
       available = await getAvailableRepos();
-      const enabled = SOURCES.filter((s) => status?.[s]);
-      if (enabled.length && !status?.[activeSource]) {
+      const enabled = getEnabledSources(status);
+      if (enabled.length && !isSourceEnabled(status, activeSource)) {
         activeSource = enabled[0];
       }
     } catch (e) {
@@ -272,32 +261,23 @@
     addAttempted = true;
     error = "";
     const targets = available.filter(
-      (r) => selected[repoKey(r)] && repoAddResults[repoKey(r)]?.status !== "success",
+      (r) =>
+        selected[repoKey(r)] &&
+        repoAddResults[repoKey(r)]?.status !== "success",
     );
 
     // Seed every target as pending.
-    const results: Record<string, { status: RepoAddStatus; error?: string }> = {};
+    const results: BatchResult = {};
     for (const r of targets) {
       results[repoKey(r)] = { status: "pending" };
     }
     repoAddResults = results;
 
-    let successCount = 0;
-    for (const r of targets) {
-      const key = repoKey(r);
-      try {
-        await addRepo(r);
-        repoAddResults[key] = { status: "success" };
-        successCount++;
-      } catch (e) {
-        if (e instanceof Error && e.message === "Unauthorized") {
-          resetExpiredSession();
-          saving = false;
-          return;
-        }
-        repoAddResults[key] = { status: "failure", error: e instanceof Error ? e.message : "Failed to add" };
-      }
-    }
+    const successCount = await batchAddRepos(targets, results, addRepo, () => {
+      resetExpiredSession();
+      saving = false;
+      return true;
+    });
 
     reposAdded += successCount;
 
@@ -307,16 +287,13 @@
       if (repoAddResults[key]?.status === "success") selected[key] = false;
     }
 
-    // Count only failed repos that were selected (not already-added or deselected items).
     const failedKeys = Object.entries(repoAddResults)
       .filter(([k, v]) => v.status === "failure" && selected[k])
       .map(([k]) => k);
 
     if (failedKeys.length > 0) {
-      // Partial failure: stay on station, keep success state, surface failures.
       error = "";
     } else if (successCount === targets.length) {
-      // All succeeded — advance.
       step = 3;
     }
 
@@ -325,48 +302,44 @@
 
   // Retry only the repos that failed the last add attempt.
   async function retryFailedAdds(): Promise<void> {
-    const failedTargets = available.filter((r) => {
-      const key = repoKey(r);
-      const entry = repoAddResults[key];
-      return entry?.status === "failure";
-    });
-    if (failedTargets.length === 0) return;
+    const failedKeys = Object.keys(repoAddResults).filter(
+      (key) => repoAddResults[key].status === "failure",
+    );
+    if (failedKeys.length === 0) return;
 
     saving = true;
     addAttempted = true;
     error = "";
 
     // Reset failed items back to pending.
-    for (const r of failedTargets) {
-      const key = repoKey(r);
+    for (const key of failedKeys) {
       repoAddResults[key] = { status: "pending" };
     }
 
-    let successCount = 0;
-    for (const r of failedTargets) {
-      const key = repoKey(r);
-      try {
-        await addRepo(r);
-        repoAddResults[key] = { status: "success" };
-        successCount++;
-      } catch (e) {
-        if (e instanceof Error && e.message === "Unauthorized") {
-          resetExpiredSession();
-          saving = false;
-          return;
-        }
-        repoAddResults[key] = { status: "failure", error: e instanceof Error ? e.message : "Failed to add" };
-      }
-    }
+    const successCount = await retryFailedRepos(
+      available,
+      failedKeys,
+      repoAddResults,
+      addRepo,
+      () => {
+        resetExpiredSession();
+        saving = false;
+        return true;
+      },
+    );
 
     reposAdded += successCount;
 
-    for (const r of failedTargets) {
-      const key = repoKey(r);
-      if (repoAddResults[key]?.status === "success") selected[key] = false;
+    for (const key of failedKeys) {
+      if (repoAddResults[key]?.status === "success") {
+        const r = available.find((r) => repoKey(r) === key);
+        if (r) selected[key] = false;
+      }
     }
 
-    const stillFailed = Object.entries(repoAddResults).filter(([, v]) => v.status === "failure");
+    const stillFailed = Object.entries(repoAddResults).filter(
+      ([, v]) => v.status === "failure",
+    );
     if (stillFailed.length === 0) {
       step = 3;
     }
@@ -377,14 +350,7 @@
   async function finishSetup(): Promise<void> {
     saving = true;
     error = "";
-    let tone: string | null;
-    if (toneOption === "inherit") {
-      tone = null;
-    } else if (toneOption === "custom") {
-      tone = customTone.trim() ? customTone.trim() : null;
-    } else {
-      tone = toneOption;
-    }
+    const tone = resolveTone(toneOption, customTone);
     try {
       await putSettings({ tone });
       localStorage.setItem("annalist.setup-complete", "1");
@@ -416,17 +382,24 @@
 
 <svelte:head>
   <title>Setup · Annalist</title>
-  <meta name="description" content="Connect platforms, choose repositories, and shape Annalist's release-note tone." />
+  <meta
+    name="description"
+    content="Connect platforms, choose repositories, and shape Annalist's release-note tone."
+  />
 </svelte:head>
 
 <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
-  <header class="section-head mb-6 flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between">
+  <header
+    class="section-head mb-6 flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between"
+  >
     <div>
       <p class="trace-label mb-2">FIRST-RUN ACTIVATION</p>
-      <h1 class="font-display text-3xl text-ink sm:text-4xl">Make the next release legible.</h1>
+      <h1 class="font-display text-3xl text-ink sm:text-4xl">
+        Make the next release legible.
+      </h1>
       <p class="mt-2 max-w-2xl text-base text-ink-2">
-        Connect your forge, choose the repositories Annalist can read, and shape the tone
-        that will ship with every release note.
+        Connect your forge, choose the repositories Annalist can read, and shape
+        the tone that will ship with every release note.
       </p>
     </div>
     <span class="chip shrink-0">
@@ -436,7 +409,10 @@
   </header>
 
   <div class="console-grid setup-layout items-start gap-6">
-    <aside class="panel setup-track lg:sticky lg:top-24" aria-label="Setup progress">
+    <aside
+      class="panel setup-track lg:sticky lg:top-24"
+      aria-label="Setup progress"
+    >
       <div class="mb-4 flex items-center justify-between gap-3">
         <p class="trace-label">RELEASE TRACE</p>
         <span class="text-xs text-ink-3">{step + 1}/{STEPS.length}</span>
@@ -451,24 +427,50 @@
                   class="setup-node group w-full text-left"
                   aria-label={`Return to completed step ${i + 1}: ${label}`}
                 >
-                  <span class="signal-dot signal-dot--healthy" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-                      <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"></path>
+                  <span
+                    class="signal-dot signal-dot--healthy"
+                    aria-hidden="true"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M5 13l4 4L19 7"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      ></path>
                     </svg>
                   </span>
-                  <span class="min-w-0 flex-1 truncate text-sm text-ink-2 group-hover:text-ink">{label}</span>
+                  <span
+                    class="min-w-0 flex-1 truncate text-sm text-ink-2 group-hover:text-ink"
+                    >{label}</span
+                  >
                   <span class="status status-ok">Done</span>
                 </button>
               {:else if i === step}
-                <span class="setup-node setup-node-active w-full" aria-current="step">
-                  <span class="signal-dot signal-dot--heat" aria-hidden="true"></span>
-                  <span class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{label}</span>
+                <span
+                  class="setup-node setup-node-active w-full"
+                  aria-current="step"
+                >
+                  <span class="signal-dot signal-dot--heat" aria-hidden="true"
+                  ></span>
+                  <span
+                    class="min-w-0 flex-1 truncate text-sm font-semibold text-ink"
+                    >{label}</span
+                  >
                   <span class="status status-active">Active</span>
                 </span>
               {:else}
                 <span class="setup-node w-full opacity-60">
-                  <span class="signal-dot signal-dot--muted" aria-hidden="true"></span>
-                  <span class="min-w-0 flex-1 truncate text-sm text-ink-3">{label}</span>
+                  <span class="signal-dot signal-dot--muted" aria-hidden="true"
+                  ></span>
+                  <span class="min-w-0 flex-1 truncate text-sm text-ink-3"
+                    >{label}</span
+                  >
                   <span class="status">Queued</span>
                 </span>
               {/if}
@@ -478,21 +480,34 @@
       </nav>
       <div class="mt-5 border-t border-line pt-4">
         <p class="text-xs leading-5 text-ink-3">
-          Each station leaves evidence on the trace. Completed stations stay available above.
+          Each station leaves evidence on the trace. Completed stations stay
+          available above.
         </p>
       </div>
     </aside>
 
     <section class="panel panel-soft min-w-0" aria-labelledby="station-heading">
-      <div class="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+      <div
+        class="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4"
+      >
         <div>
           <p class="trace-label">STATION {String(step + 1).padStart(2, "0")}</p>
-          <h2 id="station-heading" aria-live="polite" class="mt-1 text-xl font-semibold text-ink">{STEPS[step]}</h2>
+          <h2
+            id="station-heading"
+            aria-live="polite"
+            class="mt-1 text-xl font-semibold text-ink"
+          >
+            {STEPS[step]}
+          </h2>
         </div>
         {#if busy || loading || saving}
           <span class="status status-active" aria-live="polite">
             <span class="signal-dot signal-dot--heat" aria-hidden="true"></span>
-            {busy ? "Checking token" : loading ? "Reading repositories" : "Writing settings"}
+            {busy
+              ? "Checking token"
+              : loading
+                ? "Reading repositories"
+                : "Writing settings"}
           </span>
         {:else}
           <span class="status status-ready">Ready</span>
@@ -504,7 +519,11 @@
       </div>
 
       {#if error}
-        <div class="panel panel--error text-alert" role="alert" aria-live="assertive">
+        <div
+          class="panel panel--error text-alert"
+          role="alert"
+          aria-live="assertive"
+        >
           {error}
         </div>
       {/if}
@@ -514,10 +533,12 @@
         <section class="space-y-6" aria-labelledby="welcome-heading">
           <div class="section-head block">
             <p class="trace-label mb-2">COMMIT INPUT</p>
-            <h3 id="welcome-heading" class="text-2xl font-semibold text-ink">Connect the control plane.</h3>
+            <h3 id="welcome-heading" class="text-2xl font-semibold text-ink">
+              Connect the control plane.
+            </h3>
             <p class="mt-2 max-w-2xl text-base text-ink-2">
-              Annalist is self-hosted. The admin token you provide protects every admin
-              action on this instance, so keep it private.
+              Annalist is self-hosted. The admin token you provide protects
+              every admin action on this instance, so keep it private.
             </p>
           </div>
           <form
@@ -550,12 +571,16 @@
                 class="field"
               />
               <span id="admin-token-hint" class="text-xs leading-5 text-ink-3">
-                This is the <span class="font-mono text-ink-2">ADMIN_TOKEN</span> you set in the
-                server's <span class="font-mono text-ink-2">config.yaml</span> or environment. It is
-                kept in your browser only.
+                This is the <span class="font-mono text-ink-2">ADMIN_TOKEN</span
+                >
+                you set in the server's
+                <span class="font-mono text-ink-2">config.yaml</span> or environment.
+                It is kept in your browser only.
               </span>
             </div>
-            <div class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center">
+            <div
+              class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center"
+            >
               <button
                 type="submit"
                 disabled={!adminToken.trim() || busy}
@@ -563,15 +588,33 @@
                 class="btn btn-primary w-full sm:w-auto"
               >
                 {#if busy}
-                  <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  <svg
+                    class="h-4 w-4 animate-spin"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <circle
+                      class="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      stroke-width="4"
+                    ></circle>
+                    <path
+                      class="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    ></path>
                   </svg>
                 {/if}
                 {busy ? "Connecting…" : "Continue"}
               </button>
               {#if busy}
-                <span class="text-sm text-ink-2" aria-live="polite">Checking the token against Annalist…</span>
+                <span class="text-sm text-ink-2" aria-live="polite"
+                  >Checking the token against Annalist…</span
+                >
               {/if}
             </div>
           </form>
@@ -583,30 +626,54 @@
         <section class="space-y-6" aria-labelledby="platform-heading">
           <div class="section-head block">
             <p class="trace-label mb-2">SIGNAL SOURCES</p>
-            <h3 id="platform-heading" class="text-2xl font-semibold text-ink">Connect the platforms that emit releases.</h3>
+            <h3 id="platform-heading" class="text-2xl font-semibold text-ink">
+              Connect the platforms that emit releases.
+            </h3>
             <p class="mt-2 max-w-2xl text-base text-ink-2">
-              Annalist only reads release events and commit history. It cannot merge PRs,
-              push code, or access source outside the repositories you add.
+              Annalist only reads release events and commit history. It cannot
+              merge PRs, push code, or access source outside the repositories
+              you add.
             </p>
           </div>
 
           <div class="grid gap-3 sm:grid-cols-2">
             {#each SOURCES as source}
-              {@const configured = status?.[source] ?? false}
+              {@const configured = isSourceEnabled(status, source)}
               <div class="panel-soft flex min-w-0 flex-col gap-3 p-4">
                 <div class="flex items-center gap-3">
-                  <span class="signal-dot {configured ? 'signal-dot--healthy' : 'signal-dot--muted'}" aria-hidden="true">
+                  <span
+                    class="signal-dot {configured
+                      ? 'signal-dot--healthy'
+                      : 'signal-dot--muted'}"
+                    aria-hidden="true"
+                  >
                     {#if configured}
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-                        <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"></path>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M5 13l4 4L19 7"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        ></path>
                       </svg>
                     {/if}
                   </span>
                   <div class="min-w-0">
                     <p class="font-medium capitalize text-ink">{source}</p>
-                    <p class="text-sm text-ink-2">{configured ? "Configured" : "Not configured"}</p>
+                    <p class="text-sm text-ink-2">
+                      {configured ? "Configured" : "Not configured"}
+                    </p>
                   </div>
-                  <span class:status-ok={configured} class:status-muted={!configured} class="status ml-auto">
+                  <span
+                    class:status-ok={configured}
+                    class:status-muted={!configured}
+                    class="status ml-auto"
+                  >
                     {configured ? "Connected" : "Offline"}
                   </span>
                 </div>
@@ -618,9 +685,20 @@
                     class="btn btn-ghost w-fit px-0 text-sm"
                   >
                     How to configure {source}
-                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <svg
+                      class="h-3.5 w-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      aria-hidden="true"
+                    >
                       <path d="M7 17L17 7" stroke-linecap="round"></path>
-                      <path d="M9 7h8v8" stroke-linecap="round" stroke-linejoin="round"></path>
+                      <path
+                        d="M9 7h8v8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      ></path>
                     </svg>
                   </a>
                 {/if}
@@ -638,17 +716,23 @@
             </button>
             {#if skipWarning}
               <p class="status status-error max-w-xl" role="status">
-                No platform is configured yet, so you won't be able to add repositories.
-                You can still continue and configure things later.
+                No platform is configured yet, so you won't be able to add
+                repositories. You can still continue and configure things later.
               </p>
-              <button onclick={continueFromPlatforms} class="btn btn-secondary w-full sm:w-auto">
+              <button
+                onclick={continueFromPlatforms}
+                class="btn btn-secondary w-full sm:w-auto"
+              >
                 Continue anyway
               </button>
             {:else if connectedCount === 0}
               <p class="text-sm text-ink-3">
                 Connect at least one platform to continue, or skip below.
               </p>
-              <button onclick={skipPlatforms} class="btn btn-ghost w-full sm:w-auto">
+              <button
+                onclick={skipPlatforms}
+                class="btn btn-ghost w-full sm:w-auto"
+              >
                 Skip for now
               </button>
             {/if}
@@ -661,28 +745,37 @@
         <section class="space-y-6" aria-labelledby="repository-heading">
           <div class="section-head block">
             <p class="trace-label mb-2">REPOSITORY WORKPIECE</p>
-            <h3 id="repository-heading" class="text-2xl font-semibold text-ink">Choose what Annalist can read.</h3>
+            <h3 id="repository-heading" class="text-2xl font-semibold text-ink">
+              Choose what Annalist can read.
+            </h3>
             <p class="mt-2 max-w-2xl text-base text-ink-2">
-              Add repositories to give release webhooks and commit history a clear path
-              into the note pipeline.
+              Add repositories to give release webhooks and commit history a
+              clear path into the note pipeline.
             </p>
           </div>
 
           {#if connectedCount === 0}
             <div class="panel-soft space-y-4 p-5">
               <p class="text-base text-ink">
-                No platforms are connected, so there are no repositories to add yet.
+                No platforms are connected, so there are no repositories to add
+                yet.
               </p>
               <p class="text-sm text-ink-2">
-                Automation — release note generation — stays inactive until a platform
-                and repository are configured. You can still set a default tone now and
-                configure sources later.
+                Automation — release note generation — stays inactive until a
+                platform and repository are configured. You can still set a
+                default tone now and configure sources later.
               </p>
               <div class="flex flex-col gap-3 sm:flex-row">
-                <button onclick={() => (step = 1)} class="btn btn-secondary w-full sm:w-auto">
+                <button
+                  onclick={() => (step = 1)}
+                  class="btn btn-secondary w-full sm:w-auto"
+                >
                   Go back and connect a platform
                 </button>
-                <button onclick={() => (step = 3)} class="btn btn-ghost w-full sm:w-auto">
+                <button
+                  onclick={() => (step = 3)}
+                  class="btn btn-ghost w-full sm:w-auto"
+                >
                   Continue to tone
                 </button>
               </div>
@@ -690,13 +783,20 @@
           {:else if !reposVisible}
             <div class="panel-soft flex flex-col gap-4 p-5">
               <p class="text-base text-ink-2">
-                Load the repositories Annalist can see from your connected platforms.
+                Load the repositories Annalist can see from your connected
+                platforms.
               </p>
               <div class="flex flex-col gap-3 sm:flex-row">
-                <button onclick={enterRepos} class="btn btn-primary w-full sm:w-auto">
+                <button
+                  onclick={enterRepos}
+                  class="btn btn-primary w-full sm:w-auto"
+                >
                   Load repositories
                 </button>
-                <button onclick={() => (step = 3)} class="btn btn-ghost w-full sm:w-auto">
+                <button
+                  onclick={() => (step = 3)}
+                  class="btn btn-ghost w-full sm:w-auto"
+                >
                   Skip for now
                 </button>
               </div>
@@ -704,7 +804,9 @@
           {:else}
             <div class="flex flex-col gap-3">
               <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <label for="repository-search" class="sr-only">Search repositories</label>
+                <label for="repository-search" class="sr-only"
+                  >Search repositories</label
+                >
                 <input
                   id="repository-search"
                   type="search"
@@ -722,7 +824,9 @@
                 </button>
               </div>
               {#if showFilters}
-                <div class="panel-soft flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center">
+                <div
+                  class="panel-soft flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center"
+                >
                   <label class="flex items-center gap-2 text-sm text-ink-2">
                     Sort
                     <select bind:value={sortBy} class="field w-auto min-w-40">
@@ -730,12 +834,24 @@
                       <option value="activity">Recent activity</option>
                     </select>
                   </label>
-                  <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
-                    <input type="checkbox" bind:checked={showForks} class="h-4 w-4 accent-mark" />
+                  <label
+                    class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2"
+                  >
+                    <input
+                      type="checkbox"
+                      bind:checked={showForks}
+                      class="h-4 w-4 accent-mark"
+                    />
                     Show forks
                   </label>
-                  <label class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2">
-                    <input type="checkbox" bind:checked={showSharedNamespaces} class="h-4 w-4 accent-mark" />
+                  <label
+                    class="flex w-fit cursor-pointer items-center gap-2 text-sm text-ink-2"
+                  >
+                    <input
+                      type="checkbox"
+                      bind:checked={showSharedNamespaces}
+                      class="h-4 w-4 accent-mark"
+                    />
                     Show organization &amp; shared namespaces
                   </label>
                 </div>
@@ -744,7 +860,7 @@
 
             <div class="flex flex-wrap gap-2" aria-label="Repository platforms">
               {#each SOURCES as source}
-                {@const isEnabled = status?.[source] ?? false}
+                {@const isEnabled = isSourceEnabled(status, source)}
                 <button
                   onclick={() => (activeSource = source)}
                   disabled={!isEnabled}
@@ -759,9 +875,15 @@
             </div>
 
             {#if loading}
-              <div class="panel-soft max-h-80 overflow-auto p-2" aria-busy={loading} aria-label="Loading repositories">
+              <div
+                class="panel-soft max-h-80 overflow-auto p-2"
+                aria-busy={loading}
+                aria-label="Loading repositories"
+              >
                 {#each [1, 2, 3, 4, 5] as _}
-                  <div class="flex items-center gap-3 border-b border-line px-3 py-3 last:border-b-0">
+                  <div
+                    class="flex items-center gap-3 border-b border-line px-3 py-3 last:border-b-0"
+                  >
                     <div class="h-4 w-4 animate-pulse bg-surface-2"></div>
                     <div class="h-4 flex-1 animate-pulse bg-surface-2"></div>
                   </div>
@@ -775,11 +897,14 @@
                     No available {activeSource} repositories found.
                   </p>
                   <p class="text-sm text-ink-3">
-                    Try clearing the search, enabling organization namespaces or forks, or
-                    checking your platform token's repository access.
+                    Try clearing the search, enabling organization namespaces or
+                    forks, or checking your platform token's repository access.
                   </p>
                   {#if search.trim()}
-                    <button onclick={() => (search = "")} class="btn btn-ghost px-0 text-sm">
+                    <button
+                      onclick={() => (search = "")}
+                      class="btn btn-ghost px-0 text-sm"
+                    >
                       Clear search
                     </button>
                   {/if}
@@ -789,7 +914,9 @@
                   <span class="trace-label">{items.length} AVAILABLE</span>
                   <button
                     onclick={() => {
-                      const allSelected = items.every((r) => selected[repoKey(r)]);
+                      const allSelected = items.every(
+                        (r) => selected[repoKey(r)],
+                      );
                       const next = { ...selected };
                       for (const r of items) {
                         next[repoKey(r)] = !allSelected;
@@ -798,31 +925,53 @@
                     }}
                     class="btn btn-ghost px-0 text-sm"
                   >
-                    {items.every((r) => selected[repoKey(r)]) ? "Deselect all" : "Select all"}
+                    {items.every((r) => selected[repoKey(r)])
+                      ? "Deselect all"
+                      : "Select all"}
                   </button>
                 </div>
-                <ul class="panel-soft max-h-80 overflow-auto p-1" aria-label="Available repositories">
+                <ul
+                  class="panel-soft max-h-80 overflow-auto p-1"
+                  aria-label="Available repositories"
+                >
                   {#each items as r (repoKey(r))}
                     {@const key = repoKey(r)}
                     {@const result = repoAddResults[key]}
-                    <li class="flex min-h-11 items-center gap-3 border-b border-line px-3 py-3 last:border-b-0 transition-colors hover:bg-row-hover [content-visibility:auto] [contain-intrinsic-size:auto_3rem]">
+                    <li
+                      class="flex min-h-11 items-center gap-3 border-b border-line px-3 py-3 last:border-b-0 transition-colors hover:bg-row-hover [content-visibility:auto] [contain-intrinsic-size:auto_3rem]"
+                    >
                       <input
                         type="checkbox"
                         id={key}
                         checked={selected[key] ?? false}
-                        onchange={(e) => (selected[key] = e.currentTarget.checked)}
+                        onchange={(e) =>
+                          (selected[key] = e.currentTarget.checked)}
                         class="h-5 w-4 accent-mark sm:h-4 sm:w-4"
                       />
-                      <label for={key} class="flex-1 cursor-pointer text-base text-ink sm:text-sm">
+                      <label
+                        for={key}
+                        class="flex-1 cursor-pointer text-base text-ink sm:text-sm"
+                      >
                         {r.owner}/{r.repo}
                       </label>
                       {#if result}
                         {#if result.status === "pending"}
-                          <span class="status status-active" aria-label="Adding {r.owner}/{r.repo}">Adding…</span>
+                          <span
+                            class="status status-active"
+                            aria-label="Adding {r.owner}/{r.repo}">Adding…</span
+                          >
                         {:else if result.status === "success"}
-                          <span class="status status-ok" aria-label="{r.owner}/{r.repo} added">Added</span>
+                          <span
+                            class="status status-ok"
+                            aria-label="{r.owner}/{r.repo} added">Added</span
+                          >
                         {:else if result.status === "failure"}
-                          <span class="status status-error" role="status" aria-label="{r.owner}/{r.repo} failed: {result.error}">Failed</span>
+                          <span
+                            class="status status-error"
+                            role="status"
+                            aria-label="{r.owner}/{r.repo} failed: {result.error}"
+                            >Failed</span
+                          >
                         {/if}
                       {/if}
                     </li>
@@ -830,15 +979,29 @@
                 </ul>
 
                 {#if addAttempted}
-                  {@const succeeded = Object.values(repoAddResults).filter((v) => v.status === "success").length}
-                  {@const failed = Object.values(repoAddResults).filter((v) => v.status === "failure").length}
-                  <div class="space-y-3 border-t border-line pt-4" role="status" aria-live="polite">
-                    <div class="flex flex-wrap items-center gap-3 text-sm text-ink-2">
+                  {@const succeeded = Object.values(repoAddResults).filter(
+                    (v) => v.status === "success",
+                  ).length}
+                  {@const failed = Object.values(repoAddResults).filter(
+                    (v) => v.status === "failure",
+                  ).length}
+                  <div
+                    class="space-y-3 border-t border-line pt-4"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <div
+                      class="flex flex-wrap items-center gap-3 text-sm text-ink-2"
+                    >
                       {#if succeeded > 0}
-                        <span class="font-medium text-ok">{succeeded} added successfully</span>
+                        <span class="font-medium text-ok"
+                          >{succeeded} added successfully</span
+                        >
                       {/if}
                       {#if failed > 0}
-                        <span class="font-medium text-alert">{failed} failed</span>
+                        <span class="font-medium text-alert"
+                          >{failed} failed</span
+                        >
                       {/if}
                     </div>
                     {#if failed > 0}
@@ -861,7 +1024,8 @@
                       </div>
                       {#if succeeded > 0}
                         <p class="status status-error text-xs" role="status">
-                          Unresolved repositories will remain inactive until they are successfully added.
+                          Unresolved repositories will remain inactive until
+                          they are successfully added.
                         </p>
                       {/if}
                     {/if}
@@ -891,8 +1055,9 @@
 
           <aside class="note-paper text-sm text-ink-2">
             <p>
-              When you add a repository, Annalist can read its release webhooks and commit
-              history to write release notes. It writes only to the release body.
+              When you add a repository, Annalist can read its release webhooks
+              and commit history to write release notes. It writes only to the
+              release body.
             </p>
           </aside>
         </section>
@@ -912,11 +1077,12 @@
             </h3>
             <p class="mt-2 max-w-2xl text-base text-ink-2">
               {#if connectedCount === 0}
-                No platform is connected yet, so release notes won't generate automatically.
-                Pick a default tone now — it takes effect as soon as you add repositories.
+                No platform is connected yet, so release notes won't generate
+                automatically. Pick a default tone now — it takes effect as soon
+                as you add repositories.
               {:else}
-                This becomes the default tone for every release note. You can override it
-                per repository later.
+                This becomes the default tone for every release note. You can
+                override it per repository later.
               {/if}
             </p>
           </div>
@@ -925,8 +1091,12 @@
             <span class="trace-label">TONE PRESET</span>
             <select bind:value={toneOption} class="field">
               <option value="inherit">Inherit (server default)</option>
-              <option value="chronicler">Chronicler — tells the story of what changed</option>
-              <option value="engineer">Engineer — terse, right to the point</option>
+              <option value="chronicler"
+                >Chronicler — tells the story of what changed</option
+              >
+              <option value="engineer"
+                >Engineer — terse, right to the point</option
+              >
               <option value="launch">Launch — upbeat and celebratory</option>
               <option value="custom">Custom…</option>
             </select>
@@ -934,13 +1104,17 @@
 
           {#if toneOption === "inherit"}
             <div class="panel-soft p-4 text-sm text-ink-2">
-              Uses the tone configured on the server (config.yaml or environment). You can
-              override the tone per repository later.
+              Uses the tone configured on the server (config.yaml or
+              environment). You can override the tone per repository later.
             </div>
           {:else if toneOption === "custom"}
             <label class="flex flex-col gap-2">
               <span class="trace-label">CUSTOM TONE</span>
-              <input bind:value={customTone} placeholder="Freeform persona" class="field" />
+              <input
+                bind:value={customTone}
+                placeholder="Freeform persona"
+                class="field"
+              />
               {#if !customTone.trim()}
                 <span class="status status-error" role="status">
                   Enter a custom tone before finishing.
@@ -953,26 +1127,35 @@
                 <h4 class="font-semibold capitalize text-ink">{toneOption}</h4>
                 <span class="chip">Preview example</span>
               </div>
-              <p class="text-sm text-ink-2">{PRESET_DESCRIPTIONS[toneOption]}</p>
+              <p class="text-sm text-ink-2">
+                {PRESET_DESCRIPTIONS[toneOption]}
+              </p>
               <MarkdownPreview source={PREVIEW_EXAMPLES[toneOption]} />
               <p class="text-xs leading-5 text-ink-3">
                 Sample output for these commits:
-                <span class="font-mono text-ink-2">{SAMPLE_COMMITS.join(", ")}</span>
+                <span class="font-mono text-ink-2"
+                  >{SAMPLE_COMMITS.join(", ")}</span
+                >
               </p>
             </div>
           {/if}
 
-          <div class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center">
+          <div
+            class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center"
+          >
             <button
               onclick={finishSetup}
-              disabled={saving || (toneOption === "custom" && !customTone.trim())}
+              disabled={saving ||
+                (toneOption === "custom" && !customTone.trim())}
               aria-busy={saving}
               class="btn btn-primary w-full sm:w-auto"
             >
               {saving ? "Saving…" : "Finish setup"}
             </button>
             {#if saving}
-              <span class="text-sm text-ink-2" aria-live="polite">Writing your default tone…</span>
+              <span class="text-sm text-ink-2" aria-live="polite"
+                >Writing your default tone…</span
+              >
             {/if}
           </div>
         </section>
@@ -992,12 +1175,14 @@
             </h3>
             <p class="mt-2 max-w-2xl text-base text-ink-2">
               {#if connectedCount === 0}
-                Automation is inactive until you connect a platform and add repositories.
-                When you do, the next release you publish gets its notes written
-                automatically in the <span class="text-ink">{toneLabel()}</span> tone.
+                Automation is inactive until you connect a platform and add
+                repositories. When you do, the next release you publish gets its
+                notes written automatically in the <span class="text-ink"
+                  >{toneLabel()}</span
+                > tone.
               {:else}
-                The next release you publish on an added repository gets its notes written
-                automatically.
+                The next release you publish on an added repository gets its
+                notes written automatically.
               {/if}
             </p>
           </div>
@@ -1008,10 +1193,16 @@
                 Connect a source to activate release note generation.
               </p>
               <div class="flex flex-col gap-2 sm:flex-row">
-                <button onclick={() => (step = 1)} class="btn btn-secondary w-full sm:w-auto">
+                <button
+                  onclick={() => (step = 1)}
+                  class="btn btn-secondary w-full sm:w-auto"
+                >
                   Connect a platform
                 </button>
-                <button onclick={() => (step = 2)} class="btn btn-ghost w-full sm:w-auto">
+                <button
+                  onclick={() => (step = 2)}
+                  class="btn btn-ghost w-full sm:w-auto"
+                >
                   Add repositories
                 </button>
               </div>
@@ -1021,7 +1212,9 @@
           <dl class="console-grid gap-3 text-sm sm:grid-cols-2">
             <div class="panel-soft flex items-center justify-between gap-3 p-4">
               <dt class="text-ink-2">Token</dt>
-              <dd class="status status-ok">{adminToken.trim() ? "Set" : "Not set"}</dd>
+              <dd class="status status-ok">
+                {adminToken.trim() ? "Set" : "Not set"}
+              </dd>
             </div>
             <div class="panel-soft flex items-center justify-between gap-3 p-4">
               <dt class="text-ink-2">Platforms connected</dt>
@@ -1040,15 +1233,19 @@
           <div class="space-y-3 border-t border-line pt-5">
             <h4 class="text-base font-semibold text-ink">What happens next</h4>
             <ol class="space-y-2 text-sm leading-6 text-ink-2">
-              <li>1. Annalist listens for release events on the repositories you added.</li>
               <li>
-                2. On a release, it clones the repo, summarizes the commits in the
-                <span class="text-ink">{toneLabel()}</span> tone, and writes the note into
-                the release body.
+                1. Annalist listens for release events on the repositories you
+                added.
               </li>
               <li>
-                3. You can regenerate notes, tweak the tone, or change per-repo settings from
-                the Repos page.
+                2. On a release, it clones the repo, summarizes the commits in
+                the
+                <span class="text-ink">{toneLabel()}</span> tone, and writes the note
+                into the release body.
+              </li>
+              <li>
+                3. You can regenerate notes, tweak the tone, or change per-repo
+                settings from the Repos page.
               </li>
             </ol>
           </div>
@@ -1061,9 +1258,15 @@
             <MarkdownPreview source={previewNote()} />
           </div>
 
-          <div class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:flex-wrap">
-            <a href="/repos" class="btn btn-primary w-full sm:w-auto">Go to Repos</a>
-            <a href="/settings" class="btn btn-secondary w-full sm:w-auto">Open Settings</a>
+          <div
+            class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:flex-wrap"
+          >
+            <a href="/repos" class="btn btn-primary w-full sm:w-auto"
+              >Go to Repos</a
+            >
+            <a href="/settings" class="btn btn-secondary w-full sm:w-auto"
+              >Open Settings</a
+            >
           </div>
         </section>
       {/if}

@@ -104,7 +104,7 @@ func serveIndex(sub fs.FS, w http.ResponseWriter, r *http.Request) {
 	}
 	nonceHex := hex.EncodeToString(nonce)
 
-	patched := bytes.Replace(raw, []byte("<script>"), []byte(`<script nonce="`+nonceHex+`">`), 1)
+	patched := bytes.Replace(raw, []byte("<script>"), []byte(`<script nonce="`+nonceHex+`">`), -1)
 	w.Header().Set("Content-Security-Policy",
 		"default-src 'self'; script-src 'self' 'nonce-"+nonceHex+"'; "+
 			"style-src 'self' 'unsafe-inline'; img-src 'self' data:; "+

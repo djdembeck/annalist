@@ -200,19 +200,28 @@ func (a *api) handleListAvailableRepos(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var available []availableRepo
+	var errors []string
+	var enabledPlatforms int
 	if a.cfg.GitHubEnabled() && a.gh != nil {
+		enabledPlatforms++
+		var err error
 		available, err = a.listAvailable(ctx, "github", a.gh, managedSet, available)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
+			errors = append(errors, fmt.Sprintf("github: %s", err.Error()))
 		}
 	}
 	if a.cfg.ForgejoEnabled() && a.fj != nil {
+		enabledPlatforms++
+		var err error
 		available, err = a.listAvailable(ctx, "forgejo", a.fj, managedSet, available)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
+			errors = append(errors, fmt.Sprintf("forgejo: %s", err.Error()))
 		}
+	}
+	if enabledPlatforms > 0 && len(errors) == enabledPlatforms {
+		writeErr(w, http.StatusInternalServerError,
+			"all platforms failed: "+strings.Join(errors, "; "))
+		return
 	}
 
 	if available == nil {
@@ -241,13 +250,26 @@ func (a *api) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setting := db.RepoSetting{
-		Platform: req.Platform,
-		Owner:    req.Owner,
-		Repo:     req.Repo,
-		Enabled:  true,
-		Trigger:  "auto",
+	setting, err := a.settingsFor(r.Context(), req.Platform, req.Owner, req.Repo)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
+
+	// Preserve existing per-repo overrides; only set defaults for a fresh repo.
+	if setting.Tone == "" {
+		setting.Tone = "auto"
+	}
+	if setting.Instructions == "" {
+		// inherits from global
+	}
+	if setting.Model == "" {
+		// inherits from global
+	}
+	// Temperature 0 is valid (inherits from global), so we don't reset it.
+	setting.Enabled = true
+	setting.Trigger = "auto"
+
 	if err := a.store.UpsertRepoSettings(setting); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

@@ -20,10 +20,22 @@
   ];
 
   const releaseFlow = [
-    { title: "A release ships", detail: "Your normal GitHub or Forgejo release flow continues." },
-    { title: "The webhook arrives", detail: "Annalist receives the event and checks it once." },
-    { title: "Commits become context", detail: "The configured repository history is read." },
-    { title: "A note is written back", detail: "The selected tone shapes the release body." },
+    {
+      title: "A release ships",
+      detail: "Your normal GitHub or Forgejo release flow continues.",
+    },
+    {
+      title: "The webhook arrives",
+      detail: "Annalist receives the event and checks it once.",
+    },
+    {
+      title: "Commits become context",
+      detail: "The configured repository history is read.",
+    },
+    {
+      title: "A note is written back",
+      detail: "The selected tone shapes the release body.",
+    },
   ];
 
   const toneExamples = [
@@ -120,27 +132,35 @@ No breaking changes — just upgrade and ship.`,
 </svelte:head>
 
 <div class="home-page min-h-dvh bg-page font-body text-ink">
-  <!--
-    THESIS: Turn the installed home into a calm first-run station, not a marketing landing page.
-    OWN-WORLD: Dark powder-coated panels, copper actions, cyan trace signals, and thermal-paper note proofs.
-    STORY: The operator knows what to configure, what happens next, and how tone changes the output.
-    FIRST VIEWPORT: A setup-first headline and primary action sit beside the four-stage release path; detailed proof follows below.
-    FORM: Release Trace Wall, adapted for Operate onboarding, seed aa4fba49.
-    FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
-  -->
-  <section class="home-hero mx-auto max-w-6xl px-4 pb-12 pt-10 sm:px-6 sm:pb-16 sm:pt-14 lg:pb-20 lg:pt-18">
+  <section
+    class="home-hero mx-auto max-w-6xl px-4 pb-12 pt-10 sm:px-6 sm:pb-16 sm:pt-14 lg:pb-20 lg:pt-18"
+  >
     <div class="home-hero-grid">
       <div class="home-intro">
-        <h1 class="home-title text-balance">Get the path from release to note ready.</h1>
+        <h1 class="home-title text-balance">
+          Get the path from release to note ready.
+        </h1>
         <p class="home-lede text-balance">
-          Annalist is running on your infrastructure. Complete three short setup steps, then each
-          release can arrive, pick up its configured tone, and leave with a readable note.
+          Annalist is running on your infrastructure. Complete three short setup
+          steps, then each release can arrive, pick up its configured tone, and
+          leave with a readable note.
         </p>
         <div class="home-actions">
           <a href="/setup" class="btn btn-primary">
             Open setup
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" />
+            <svg
+              class="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path
+                d="M5 12h14M12 5l7 7-7 7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
           </a>
           <a
@@ -165,7 +185,9 @@ No breaking changes — just upgrade and ship.`,
         <ol class="home-flow">
           {#each releaseFlow as stage, index}
             <li class="home-flow-item">
-              <span class="home-flow-marker" aria-hidden="true">{index + 1}</span>
+              <span class="home-flow-marker" aria-hidden="true"
+                >{index + 1}</span
+              >
               <div>
                 <h3>{stage.title}</h3>
                 <p>{stage.detail}</p>
@@ -177,26 +199,38 @@ No breaking changes — just upgrade and ship.`,
     </div>
   </section>
 
-  <section class="home-section home-section--band border-y border-line bg-surface-1" aria-labelledby="steps-heading">
+  <section
+    class="home-section home-section--band border-y border-line bg-surface-1"
+    aria-labelledby="steps-heading"
+  >
     <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
       <div class="home-section-heading">
         <h2 id="steps-heading">Three things to configure</h2>
-        <p>Start here if this is the first time you have opened this Annalist instance.</p>
+        <p>
+          Start here if this is the first time you have opened this Annalist
+          instance.
+        </p>
       </div>
 
       <div class="home-steps panel-soft">
         <ol>
           {#each setupSteps as item, index}
             <li class="home-step">
-              <span class="home-step-number" aria-hidden="true">{index + 1}</span>
+              <span class="home-step-number" aria-hidden="true"
+                >{index + 1}</span
+              >
               <div class="home-step-copy">
                 <h3>{item.title}</h3>
                 <p>{item.body}</p>
               </div>
               {#if index === 0}
-                <a href="/setup" class="btn btn-ghost">Begin <span aria-hidden="true">→</span></a>
+                <a href="/setup" class="btn btn-ghost"
+                  >Begin <span aria-hidden="true">→</span></a
+                >
               {:else}
-                <a href="/setup" class="btn btn-ghost">In setup <span aria-hidden="true">→</span></a>
+                <a href="/setup" class="btn btn-ghost"
+                  >In setup <span aria-hidden="true">→</span></a
+                >
               {/if}
             </li>
           {/each}
@@ -209,30 +243,49 @@ No breaking changes — just upgrade and ship.`,
           <p>Setup is easier when these are ready before you start.</p>
         </div>
         <ul>
-          <li><strong>Admin token</strong><span>the key for this dashboard</span></li>
-          <li><strong>Forge access</strong><span>a GitHub App or Forgejo token</span></li>
-          <li><strong>LLM endpoint</strong><span>an OpenAI-compatible URL and key</span></li>
+          <li>
+            <strong>Admin token</strong><span>the key for this dashboard</span>
+          </li>
+          <li>
+            <strong>Forge access</strong><span
+              >a GitHub App or Forgejo token</span
+            >
+          </li>
+          <li>
+            <strong>LLM endpoint</strong><span
+              >an OpenAI-compatible URL and key</span
+            >
+          </li>
         </ul>
       </div>
     </div>
   </section>
 
-  <section class="home-section mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16" aria-labelledby="preview-heading">
+  <section
+    class="home-section mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16"
+    aria-labelledby="preview-heading"
+  >
     <div class="home-section-heading home-section-heading--wide">
       <h2 id="preview-heading">See the release path before you connect it.</h2>
       <p>
-        This preview shows the same sequence Annalist uses for a real release. Your repository history
-        and configured tone replace the example content.
+        This preview shows the same sequence Annalist uses for a real release.
+        Your repository history and configured tone replace the example content.
       </p>
     </div>
     <ForgeDemo />
   </section>
 
-  <section class="home-section home-section--tone border-t border-line bg-surface-1" aria-labelledby="tone-heading">
+  <section
+    class="home-section home-section--tone border-t border-line bg-surface-1"
+    aria-labelledby="tone-heading"
+  >
     <div class="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
       <div class="home-section-heading">
         <h2 id="tone-heading">Tone control belongs next to the repository.</h2>
-        <p>Choose the shape of the note once globally, then override it where a repository needs a different register.</p>
+        <p>
+          Choose the shape of the note once globally, then override it where a
+          repository needs a different register.
+        </p>
       </div>
 
       <div class="tone-control">
@@ -241,7 +294,13 @@ No breaking changes — just upgrade and ship.`,
             <h3>Choose a preview</h3>
             <span class="chip">Same release</span>
           </div>
-          <div class="tone-tabs" role="tablist" tabindex="-1" aria-label="Tone previews" onkeydown={handleTabKeydown}>
+          <div
+            class="tone-tabs"
+            role="tablist"
+            tabindex="-1"
+            aria-label="Tone previews"
+            onkeydown={handleTabKeydown}
+          >
             {#each toneExamples as tone}
               <button
                 type="button"
@@ -258,10 +317,18 @@ No breaking changes — just upgrade and ship.`,
               </button>
             {/each}
           </div>
-          <a href="/setup" class="btn btn-secondary tone-picker-action">Set the tone in setup <span aria-hidden="true">→</span></a>
+          <a href="/setup" class="btn btn-secondary tone-picker-action"
+            >Set the tone in setup <span aria-hidden="true">→</span></a
+          >
         </div>
 
-        <div id="tone-preview" class="tone-preview" role="tabpanel" tabindex="0" aria-labelledby="tone-tab-{selectedTone}">
+        <div
+          id="tone-preview"
+          class="tone-preview"
+          role="tabpanel"
+          tabindex="0"
+          aria-labelledby="tone-tab-{selectedTone}"
+        >
           <div class="tone-preview-head">
             <div>
               <span class="trace-label">{selectedExample.tone} tone</span>
@@ -269,22 +336,39 @@ No breaking changes — just upgrade and ship.`,
             </div>
             <span class="status status--quiet">PREVIEW</span>
           </div>
-          <MarkdownPreview source={selectedExample.notes} class="home-markdown" />
+          <MarkdownPreview
+            source={selectedExample.notes}
+            class="home-markdown"
+          />
         </div>
       </div>
     </div>
   </section>
 
   <footer class="home-footer border-t border-line bg-page">
-    <div class="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 px-4 py-8 sm:flex-row sm:items-center sm:px-6">
+    <div
+      class="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 px-4 py-8 sm:flex-row sm:items-center sm:px-6"
+    >
       <div>
-        <span class="font-display text-lg tracking-tight text-ink">ANNALIST</span>
+        <span class="font-display text-lg tracking-tight text-ink"
+          >ANNALIST</span
+        >
         <p>Self-hosted release notes for GitHub and Forgejo.</p>
       </div>
       <div class="home-footer-links">
         <a href="/setup" class="focus-ring">Setup</a>
-        <a href="https://github.com/djdembeck/annalist" target="_blank" rel="noopener noreferrer" class="focus-ring">GitHub</a>
-        <a href="https://github.com/djdembeck/annalist/tree/main/examples" target="_blank" rel="noopener noreferrer" class="focus-ring">Examples</a>
+        <a
+          href="https://github.com/djdembeck/annalist"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="focus-ring">GitHub</a
+        >
+        <a
+          href="https://github.com/djdembeck/annalist/tree/main/examples"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="focus-ring">Examples</a
+        >
       </div>
     </div>
   </footer>
@@ -578,7 +662,10 @@ No breaking changes — just upgrade and ship.`,
     color: var(--color-ink-2);
     font-family: inherit;
     text-align: left;
-    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease;
   }
 
   .tone-tabs button:hover {
