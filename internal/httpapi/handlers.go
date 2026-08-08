@@ -19,6 +19,18 @@ import (
 	"github.com/djdembeck/annalist/internal/version"
 )
 
+// In-repo instruction file paths per platform.
+const (
+	instructionsPathGitHub  = ".github/release-notes-instructions.md"
+	instructionsPathForgejo = ".forgejo/release-notes.md"
+)
+
+// Source labels for effective value origin.
+const (
+	sourceGlobal = "global"
+	sourceRepo   = "repo"
+)
+
 func validPlatform(p string) bool {
 	return p == "github" || p == "forgejo"
 }
@@ -87,9 +99,9 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 		return repoItemResp{}, err
 	}
 
-	source := "global"
+	source := sourceGlobal
 	if row.Instructions != "" {
-		source = "repo"
+		source = sourceRepo
 	}
 
 	return repoItemResp{
@@ -473,20 +485,28 @@ func (a *api) handleInRepoInstructions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instPath := ".github/release-notes-instructions.md"
+	instPath := instructionsPathGitHub
 	if platform == "forgejo" {
-		instPath = ".forgejo/release-notes.md"
+		instPath = instructionsPathForgejo
 	}
 
 	var content string
 	var readErr error
-	if platform == "forgejo" && a.fj != nil {
+	if platform == "forgejo" {
+		if a.fj == nil {
+			writeErr(w, http.StatusServiceUnavailable, "forgejo client not configured")
+			return
+		}
 		content, readErr = a.fj.ReadRepoFile(r.Context(), owner, repo, instPath)
-	} else if platform == "github" && a.gh != nil {
+	} else {
+		if a.gh == nil {
+			writeErr(w, http.StatusServiceUnavailable, "github client not configured")
+			return
+		}
 		content, readErr = a.gh.ReadRepoFile(r.Context(), owner, repo, instPath)
 	}
 
-	if readErr != nil || content == "" {
+	if readErr != nil {
 		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}

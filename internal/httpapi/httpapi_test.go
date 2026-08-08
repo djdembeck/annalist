@@ -342,6 +342,9 @@ func TestHandleListReposManagedOnly(t *testing.T) {
 	if it.Effective.Source != "global" {
 		t.Errorf("effective source = %q, want global (no repo instructions set)", it.Effective.Source)
 	}
+	if it.Effective.Instructions != "i0" {
+		t.Errorf("effective instructions = %q, want fake resolve instructions i0", it.Effective.Instructions)
+	}
 }
 
 func TestHandleListReposResolveError(t *testing.T) {
