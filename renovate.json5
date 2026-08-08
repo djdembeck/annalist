@@ -1,14 +1,13 @@
 {
-  $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["config:recommended"],
-  schedule: ["before 6am on Monday"],
-  commitMessagePrefix: "ci",
-  labels: ["dependencies", "ci", "renovate"],
-  managers: ["github-actions", "dockerfile", "docker-compose"],
-  packageRules: [
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 6am on Monday"],
+  "commitMessagePrefix": "chore(deps): ",
+  "labels": ["dependencies", "ci", "renovate"],
+  "packageRules": [
     {
-      groupName: "github-actions",
-      matchManagers: ["github-actions"],
-    },
-  ],
+      "groupName": "github-actions",
+      "matchManagers": ["github-actions"]
+    }
+  ]
 }

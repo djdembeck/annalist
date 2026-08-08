@@ -5,10 +5,11 @@ on:
     types: [closed]
 
 concurrency:
-  group: pr-cleanup-${{ github.event.pull_request.head.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 permissions:
+  packages: write
   contents: read
 
 env:
@@ -19,10 +20,6 @@ jobs:
   cleanup-pr-images:
     runs-on: ubuntu-latest
     if: github.event.pull_request.head.repo.full_name == github.repository
-    permissions:
-      packages: write
-      contents: read
-
     steps:
       - name: Delete PR Docker images
         env:
