@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/djdembeck/annalist/internal/db"
 	"github.com/djdembeck/annalist/internal/pipeline"
@@ -60,6 +62,7 @@ type effective struct {
 	Model        string  `json:"model"`
 	Temperature  float64 `json:"temperature"`
 	Instructions string  `json:"instructions"`
+	Source       string  `json:"source"`
 }
 
 // repoItemResp is the JSON shape for a repo in /api/repos and the settings PUT.
@@ -83,6 +86,13 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 	if err != nil {
 		return repoItemResp{}, err
 	}
+
+	// Determine source of resolved instructions before in-repo override.
+	source := "global"
+	if row.Instructions != "" {
+		source = "repo"
+	}
+
 	resp := repoItemResp{
 		Platform:     row.Platform,
 		Owner:        row.Owner,
@@ -98,6 +108,7 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 			Model:        eff.Model,
 			Temperature:  eff.Temperature,
 			Instructions: eff.Instructions,
+			Source:       source,
 		},
 	}
 
@@ -110,11 +121,15 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 		content, err := a.fj.ReadRepoFile(ctx, row.Owner, row.Repo, instPath)
 		if err == nil && content != "" {
 			resp.Effective.Instructions = content
+			resp.Effective.Tone = "custom"
+			resp.Effective.Source = "in-repo"
 		}
 	} else if row.Platform == "github" && a.gh != nil {
 		content, err := a.gh.ReadRepoFile(ctx, row.Owner, row.Repo, instPath)
 		if err == nil && content != "" {
 			resp.Effective.Instructions = content
+			resp.Effective.Tone = "custom"
+			resp.Effective.Source = "in-repo"
 		}
 	}
 	return resp, nil
@@ -158,14 +173,27 @@ func (a *api) handleListRepos(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	items := make([]repoItemResp, 0, len(rows))
-	for _, row := range rows {
-		item, err := a.repoItem(ctx, row)
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		items = append(items, item)
+
+	items := make([]repoItemResp, len(rows))
+	eg, egCtx := errgroup.WithContext(ctx)
+	sem := make(chan struct{}, runtime.NumCPU())
+	for i, row := range rows {
+		i := i
+		row := row
+		eg.Go(func() error {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			item, err := a.repoItem(egCtx, row)
+			if err != nil {
+				return err
+			}
+			items[i] = item
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, items)
 }

@@ -104,7 +104,7 @@
     drafts[key] = {
       toneOption: !tone ? "inherit" : isPreset ? tone : "custom",
       customTone: isPreset ? "" : tone,
-      instructions: r.instructions ?? "",
+      instructions: r.effective.instructions ?? r.instructions ?? "",
       model: r.model ?? "",
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
@@ -372,7 +372,9 @@
                     bind:value={d.instructions}
                     rows="3"
                     class="field"></textarea><span class="field-group__hint"
-                    >Extra guidance the writer follows for this repository.</span
+                    >{#if r.effective.source === "in-repo"}Loaded from
+                        {#if r.platform === "forgejo"}.forgejo/release-notes.md{:else}.github/release-notes-instructions.md{/if}.
+                        Changes here are merged with in-repo instructions./{:else}Extra guidance the writer follows for this repository.{/if}</span
                   ></label
                 >
                 <label class="field-group"

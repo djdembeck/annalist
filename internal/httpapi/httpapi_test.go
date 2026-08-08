@@ -339,6 +339,9 @@ func TestHandleListReposManagedOnly(t *testing.T) {
 	if it.Effective.Model != "m0" {
 		t.Errorf("effective model = %q, want fake resolve model m0", it.Effective.Model)
 	}
+	if it.Effective.Source != "global" {
+		t.Errorf("effective source = %q, want global (no repo instructions set)", it.Effective.Source)
+	}
 }
 
 func TestHandleListReposResolveError(t *testing.T) {
@@ -352,6 +355,90 @@ func TestHandleListReposResolveError(t *testing.T) {
 	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleListReposMultipleReposParallel(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, pip, store := testAPI(t, cfg)
+	pip.eff.Tone = "t0"
+	pip.eff.Instructions = "resolved-instructions"
+	pip.eff.Model = "m0"
+	a.gh = &fakeClient{
+		repos: []pipeline.OwnerRepo{
+			{Owner: "djdembeck", Repo: "annalist"},
+			{Owner: "djdembeck", Repo: "other-repo"},
+			{Owner: "djdembeck", Repo: "third-repo"},
+		},
+		fileContents: map[string]string{
+			".github/release-notes-instructions.md": "IN-REPO PROMPT",
+		},
+	}
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Trigger: "auto",
+	}); err != nil {
+		t.Fatalf("seed annalist: %v", err)
+	}
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "djdembeck", Repo: "other-repo", Enabled: true, Trigger: "manual",
+	}); err != nil {
+		t.Fatalf("seed other-repo: %v", err)
+	}
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "djdembeck", Repo: "third-repo", Enabled: false, Trigger: "auto", Instructions: "CUSTOM ROW",
+	}); err != nil {
+		t.Fatalf("seed third-repo: %v", err)
+	}
+
+	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var items []repoItemResp
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("got %d items, want 3", len(items))
+	}
+
+	// Build a map keyed by repo name for stable assertions regardless of parallel ordering.
+	itemsByRepo := make(map[string]repoItemResp, len(items))
+	for _, it := range items {
+		itemsByRepo[it.Repo] = it
+	}
+
+	// Annalist has in-repo file — instructions overridden, tone=custom, source=in-repo.
+	annalist := itemsByRepo["annalist"]
+	if annalist.Effective != (effective{
+		Tone: "custom", Model: "m0", Temperature: 0.5,
+		Instructions: "IN-REPO PROMPT", Source: "in-repo",
+	}) {
+		t.Errorf("annalist effective = %+v, want in-repo source", annalist.Effective)
+	}
+
+	// Other-repo has in-repo file too (same fakeClient) — same override.
+	other := itemsByRepo["other-repo"]
+	if other.Effective != (effective{
+		Tone: "custom", Model: "m0", Temperature: 0.5,
+		Instructions: "IN-REPO PROMPT", Source: "in-repo",
+	}) {
+		t.Errorf("other-repo effective = %+v, want in-repo source", other.Effective)
+	}
+
+	// Third-repo has in-repo file too but also has repo-level instructions — file still wins.
+	third := itemsByRepo["third-repo"]
+	if third.Effective != (effective{
+		Tone: "custom", Model: "m0", Temperature: 0.5,
+		Instructions: "IN-REPO PROMPT", Source: "in-repo",
+	}) {
+		t.Errorf("third-repo effective = %+v, want in-repo source", third.Effective)
+	}
+	if third.Enabled {
+		t.Errorf("third-repo.Enabled = true, want false")
+	}
+	if third.Trigger != "auto" {
+		t.Errorf("third-repo.Trigger = %q, want auto", third.Trigger)
 	}
 }
 
@@ -387,6 +474,12 @@ func TestHandleListReposInRepoInstructions(t *testing.T) {
 	if items[0].Effective.Instructions != "IN-REPO PROMPT" {
 		t.Errorf("effective instructions = %q, want IN-REPO PROMPT (in-repo file should override resolved)", items[0].Effective.Instructions)
 	}
+	if items[0].Effective.Tone != "custom" {
+		t.Errorf("effective tone = %q, want custom (in-repo file should set tone to custom)", items[0].Effective.Tone)
+	}
+	if items[0].Effective.Source != "in-repo" {
+		t.Errorf("effective source = %q, want in-repo (in-repo file should set source to in-repo)", items[0].Effective.Source)
+	}
 }
 
 func TestHandleListReposInRepoInstructionsMissing(t *testing.T) {
@@ -418,6 +511,12 @@ func TestHandleListReposInRepoInstructionsMissing(t *testing.T) {
 	}
 	if items[0].Effective.Instructions != "resolved-instructions" {
 		t.Errorf("effective instructions = %q, want resolved-instructions (fallback to resolve when no in-repo file)", items[0].Effective.Instructions)
+	}
+	if items[0].Effective.Tone != "t0" {
+		t.Errorf("effective tone = %q, want t0 (resolved tone should not be custom when no in-repo file)", items[0].Effective.Tone)
+	}
+	if items[0].Effective.Source != "global" {
+		t.Errorf("effective source = %q, want global (no repo instructions set, so source is global)", items[0].Effective.Source)
 	}
 }
 
