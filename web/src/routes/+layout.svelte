@@ -38,6 +38,7 @@
   FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 -->
 <div class="app-shell">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   <header class="operator-nav">
     <nav class="nav-inner" aria-label="Primary navigation">
       <a href="/" class="brand-lockup focus-ring" aria-label="Annalist home">
@@ -52,7 +53,7 @@
             role="status"
             aria-label={setupComplete ? "Local onboarding complete" : "Local onboarding pending"}
           >
-            <span class="signal-dot" aria-hidden="true"></span>
+            <span class="signal-dot {setupComplete ? 'signal-dot--healthy' : 'signal-dot--heat'}" aria-hidden="true"></span>
             {setupComplete ? "ONBOARDING DONE" : "ONBOARDING PENDING"}
           </span>
           <div class="nav-links">
@@ -88,6 +89,7 @@
   </header>
 
   <main
+    id="main-content"
     class="shell-main {$page.url.pathname === '/' ? 'shell-main-public' : 'shell-main-console'}"
   >
     {@render children()}

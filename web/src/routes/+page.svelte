@@ -69,6 +69,45 @@ No breaking changes — just upgrade and ship.`,
   const selectedExample = $derived(
     toneExamples.find((tone) => tone.tone === selectedTone) ?? toneExamples[0],
   );
+
+  function handleTabKeydown(event: KeyboardEvent) {
+    const tab = (event.target as HTMLElement).closest("[role='tab']");
+    if (!tab) return;
+
+    const tabs = Array.from(
+      (event.currentTarget as HTMLElement).querySelectorAll("[role='tab']"),
+    ) as HTMLButtonElement[];
+    const current = tabs.indexOf(tab as HTMLButtonElement);
+    let next = current;
+
+    switch (event.key) {
+      case "ArrowRight": {
+        event.preventDefault();
+        next = (current + 1) % tabs.length;
+        break;
+      }
+      case "ArrowLeft": {
+        event.preventDefault();
+        next = (current - 1 + tabs.length) % tabs.length;
+        break;
+      }
+      case "Home": {
+        event.preventDefault();
+        next = 0;
+        break;
+      }
+      case "End": {
+        event.preventDefault();
+        next = tabs.length - 1;
+        break;
+      }
+    }
+
+    if (next !== current) {
+      tabs[next].focus();
+      tabs[next].click();
+    }
+  }
 </script>
 
 <svelte:head>
@@ -77,6 +116,7 @@ No breaking changes — just upgrade and ship.`,
     name="description"
     content="Configure Annalist once, then let each release arrive with a readable note."
   />
+  <meta name="theme-color" content="#0b0f14" />
 </svelte:head>
 
 <div class="home-page min-h-dvh bg-page font-body text-ink">
@@ -201,13 +241,15 @@ No breaking changes — just upgrade and ship.`,
             <h3>Choose a preview</h3>
             <span class="chip">Same release</span>
           </div>
-          <div class="tone-tabs" role="tablist" aria-label="Tone previews">
+          <div class="tone-tabs" role="tablist" tabindex="-1" aria-label="Tone previews" onkeydown={handleTabKeydown}>
             {#each toneExamples as tone}
               <button
                 type="button"
                 role="tab"
+                id="tone-tab-{tone.tone}"
                 aria-selected={tone.tone === selectedTone}
                 aria-controls="tone-preview"
+                tabindex={tone.tone === selectedTone ? 0 : -1}
                 class:active={tone.tone === selectedTone}
                 onclick={() => (selectedTone = tone.tone)}
               >
@@ -219,7 +261,7 @@ No breaking changes — just upgrade and ship.`,
           <a href="/setup" class="btn btn-secondary tone-picker-action">Set the tone in setup <span aria-hidden="true">→</span></a>
         </div>
 
-        <div id="tone-preview" class="tone-preview" role="tabpanel" aria-label={`${selectedExample.tone} tone preview`}>
+        <div id="tone-preview" class="tone-preview" role="tabpanel" tabindex="0" aria-labelledby="tone-tab-{selectedTone}">
           <div class="tone-preview-head">
             <div>
               <span class="trace-label">{selectedExample.tone} tone</span>
@@ -236,7 +278,7 @@ No breaking changes — just upgrade and ship.`,
   <footer class="home-footer border-t border-line bg-page">
     <div class="mx-auto flex max-w-6xl flex-col items-start justify-between gap-4 px-4 py-8 sm:flex-row sm:items-center sm:px-6">
       <div>
-        <span class="font-display text-lg tracking-tight text-white">ANNALIST</span>
+        <span class="font-display text-lg tracking-tight text-ink">ANNALIST</span>
         <p>Self-hosted release notes for GitHub and Forgejo.</p>
       </div>
       <div class="home-footer-links">
@@ -270,10 +312,10 @@ No breaking changes — just upgrade and ship.`,
     max-width: 12ch;
     color: var(--color-ink);
     font-family: var(--font-display);
-    font-size: clamp(2.65rem, 7vw, 5rem);
+    font-size: clamp(2.75rem, 7vw, 5.75rem);
     font-weight: 400;
     letter-spacing: -0.035em;
-    line-height: 0.96;
+    line-height: 0.95;
   }
 
   .home-lede {
@@ -481,7 +523,7 @@ No breaking changes — just upgrade and ship.`,
     gap: 0.3rem;
     min-width: 0;
     padding-top: 0.75rem;
-    border-top: 2px solid var(--trace-copper);
+    border-top: 2px solid var(--trace-line-strong);
   }
 
   .home-expectations strong {
@@ -575,7 +617,7 @@ No breaking changes — just upgrade and ship.`,
 
   .tone-preview {
     min-width: 0;
-    border: 1px solid var(--trace-line);
+    border: 1px solid var(--trace-paper-edge);
     border-radius: 0.25rem;
     background: var(--trace-ink);
     padding: 1rem;
@@ -683,6 +725,10 @@ No breaking changes — just upgrade and ship.`,
 
     .home-expectations,
     .tone-control {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .home-expectations ul {
       grid-template-columns: minmax(0, 1fr);
     }
   }

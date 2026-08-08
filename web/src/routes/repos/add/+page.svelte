@@ -214,6 +214,11 @@
   }
 </script>
 
+<svelte:head>
+  <title>Add repositories · Annalist</title>
+  <meta name="description" content="Connect repositories to Annalist's release-note pipeline." />
+</svelte:head>
+
 <div class="trace-wall">
   <header class="section-head">
     <div>
@@ -228,6 +233,26 @@
     <section class="panel" aria-busy="true" aria-label="Loading available repositories">
       <p class="trace-label">Reading enabled source inventory</p>
       <div class="skeleton mt-4 h-11 w-full"></div><div class="skeleton mt-3 h-16 w-full"></div><div class="skeleton mt-3 h-16 w-full"></div>
+    </section>
+  {:else if error}
+    <section class="panel panel--error" role="alert" aria-label="Source intake error">
+      <p class="trace-label">Intake failed</p>
+      <p class="mt-2 text-sm text-alert">{error}</p>
+      <div class="mt-4 flex flex-col gap-3 sm:flex-row">
+        <button onclick={load} disabled={loading} class="btn btn-primary w-full sm:w-auto">
+          Retry
+        </button>
+        <a href="/repos" class="btn btn-secondary w-full sm:w-auto">Back to repositories</a>
+      </div>
+    </section>
+    <section class="panel panel-soft manual-source">
+      <div><p class="trace-label">Manual entry</p><h2 class="mt-1">Place a source directly</h2><p class="mt-2 text-sm text-ink-2">Use this when discovery is unavailable or the repository is outside the filtered inventory.</p></div>
+      <div class="manual-source__fields">
+        <label class="field-group"><span class="field-group__label">Platform</span><select bind:value={manualPlatform} class="field">{#each SOURCES as s}<option value={s}>{s}</option>{/each}</select></label>
+        <label class="field-group"><span class="field-group__label">Owner</span><input bind:value={manualOwner} placeholder="owner" class="field" /></label>
+        <label class="field-group"><span class="field-group__label">Repository</span><input bind:value={manualRepo} placeholder="repo" class="field" /></label>
+        <button onclick={addManual} disabled={saving} class="btn btn-secondary manual-source__action">{saving ? "Adding…" : "Add manually"}</button>
+      </div>
     </section>
   {:else if status}
     <!-- Live summary replaces static 3-step trace -->

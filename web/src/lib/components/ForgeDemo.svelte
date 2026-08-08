@@ -40,6 +40,7 @@
   let activeStage = $state(0);
   let paused = $state(false);
   let reducedMotion = $state(false);
+  let traceRail: HTMLOListElement;
 
   onMount(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -56,6 +57,17 @@
     media.addEventListener("change", syncMotion);
     document.addEventListener("visibilitychange", syncVisibility);
 
+    const updateTraceDistance = () => {
+      const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const distance = Math.max(0, traceRail.clientWidth - rootFontSize * 1.1);
+      traceRail.style.setProperty("--trace-distance", `${distance}px`);
+      traceRail.style.setProperty("--trace-stage-one", `${distance / 3}px`);
+      traceRail.style.setProperty("--trace-stage-two", `${(distance * 2) / 3}px`);
+    };
+    const resizeObserver = new ResizeObserver(updateTraceDistance);
+    resizeObserver.observe(traceRail);
+    updateTraceDistance();
+
     const interval = window.setInterval(() => {
       if (paused || reducedMotion) return;
       activeStage = (activeStage + 1) % stages.length;
@@ -63,6 +75,7 @@
 
     return () => {
       window.clearInterval(interval);
+      resizeObserver.disconnect();
       media.removeEventListener("change", syncMotion);
       document.removeEventListener("visibilitychange", syncVisibility);
     };
@@ -105,7 +118,7 @@
         <span class="trace-label">Pipeline</span>
         <span class="trace-pipeline-state">{stages[activeStage].detail}</span>
       </div>
-      <ol class="trace-rail" aria-label="Release processing stages">
+      <ol class="trace-rail" bind:this={traceRail} aria-label="Release processing stages">
         {#each stages as stage, index}
           <li class="trace-node" class:active={activeStage >= index} class:current={activeStage === index}>
             <span class="trace-node-index" aria-hidden="true">{index + 1}</span>
@@ -319,7 +332,6 @@
     left: 0;
     width: 0.55rem;
     height: 0.55rem;
-    transform: translateX(-50%);
     animation: trace-journey 5.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
   }
 
@@ -328,8 +340,8 @@
   }
 
   .trace-reduced .trace-signal {
-    left: calc(100% - 1.1rem);
     animation: none;
+    transform: translate3d(calc(-50% + var(--trace-distance, 0px)), 0, 0);
   }
 
   .trace-proof {
@@ -398,16 +410,16 @@
 
   @keyframes trace-journey {
     0% {
-      left: 0;
+      transform: translate3d(-50%, 0, 0);
     }
     30% {
-      left: 33.333%;
+      transform: translate3d(calc(-50% + var(--trace-stage-one, 0px)), 0, 0);
     }
     63% {
-      left: 66.666%;
+      transform: translate3d(calc(-50% + var(--trace-stage-two, 0px)), 0, 0);
     }
     100% {
-      left: calc(100% - 1.1rem);
+      transform: translate3d(calc(-50% + var(--trace-distance, 0px)), 0, 0);
     }
   }
 
@@ -425,8 +437,8 @@
 
   @media (prefers-reduced-motion: reduce) {
     .trace-signal {
-      left: calc(100% - 1.1rem);
       animation: none;
+      transform: translate3d(calc(-50% + var(--trace-distance, 0px)), 0, 0);
     }
 
     .trace-node-index,

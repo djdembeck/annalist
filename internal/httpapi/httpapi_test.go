@@ -665,7 +665,7 @@ func TestHandleGenerate(t *testing.T) {
 	a, pip, _ := testAPI(t, &config.Config{})
 
 	t.Run("success", func(t *testing.T) {
-		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","from_tag":"v0.9.0","force":true}`,
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","from_tag":"v0.9.0","force":true,"publish":true}`,
 			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
 		w := do(a.handleGenerate, r)
 		if w.Code != http.StatusOK {
@@ -693,6 +693,27 @@ func TestHandleGenerate(t *testing.T) {
 		}
 		if !pip.opts[0].Force || !pip.opts[0].Publish {
 			t.Errorf("opts = %+v, want force+publish", pip.opts[0])
+		}
+	})
+
+	t.Run("publish omitted defaults false", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("bad json: %v", err)
+		}
+		if body["published"] != false {
+			t.Errorf("published = %v, want false", body["published"])
+		}
+		if len(pip.opts) != 1 || pip.opts[0].Publish || pip.opts[0].Force {
+			t.Errorf("opts = %+v, want preview-only", pip.opts)
 		}
 	})
 

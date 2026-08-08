@@ -111,6 +111,10 @@
   let showSharedNamespaces = $state(false);
   let sortBy = $state<"name" | "activity">("activity");
 
+  // Resume marker — tracks where we should return after a token re-auth.
+  // Never stores the token itself.
+  let resumeStep = $state<number | null>(null);
+
   // Per-repository add results for batch reconciliation.
   type RepoAddStatus = "pending" | "success" | "failure";
   let repoAddResults = $state<Record<string, { status: RepoAddStatus; error?: string }>>({});
@@ -184,6 +188,7 @@
   }
 
   function resetExpiredSession(): void {
+    resumeStep = step;
     setToken("");
     adminToken = "";
     status = null;
@@ -198,8 +203,14 @@
     setToken(adminToken);
     try {
       status = await getStatus();
-      step = 1;
       skipWarning = false;
+      // Resume at previous station if we were interrupted by a 401.
+      if (resumeStep !== null && resumeStep > 0) {
+        step = resumeStep;
+        resumeStep = null;
+      } else {
+        step = 1;
+      }
     } catch (e) {
       if (e instanceof Error && e.message === "Unauthorized") {
         error = "That token was not accepted. Check your ADMIN_TOKEN and try again.";
@@ -405,6 +416,7 @@
 
 <svelte:head>
   <title>Setup · Annalist</title>
+  <meta name="description" content="Connect platforms, choose repositories, and shape Annalist's release-note tone." />
 </svelte:head>
 
 <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
@@ -475,7 +487,7 @@
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
         <div>
           <p class="trace-label">STATION {String(step + 1).padStart(2, "0")}</p>
-          <h2 id="station-heading" class="mt-1 text-xl font-semibold text-ink">{STEPS[step]}</h2>
+          <h2 id="station-heading" aria-live="polite" class="mt-1 text-xl font-semibold text-ink">{STEPS[step]}</h2>
         </div>
         {#if busy || loading || saving}
           <span class="status status-active" aria-live="polite">
@@ -491,13 +503,11 @@
         Step {step + 1} of {STEPS.length}: {STEPS[step]}.
       </div>
 
-      <div role="alert" aria-live="assertive">
-        {#if error}
-          <p class="mb-6 border border-alert/40 bg-alert/10 p-3 text-sm text-alert">
-            {error}
-          </p>
-        {/if}
-      </div>
+      {#if error}
+        <div class="panel panel--error text-alert" role="alert" aria-live="assertive">
+          {error}
+        </div>
+      {/if}
 
       <!-- Step 1 — Welcome & Token -->
       {#if step === 0}
@@ -832,13 +842,28 @@
                       {/if}
                     </div>
                     {#if failed > 0}
-                      <button
-                        onclick={retryFailedAdds}
-                        disabled={saving}
-                        class="btn btn-secondary w-full sm:w-auto"
-                      >
-                        {saving ? "Retrying…" : `Retry ${failed} failed`}
-                      </button>
+                      <div class="flex flex-col gap-3 sm:flex-row">
+                        <button
+                          onclick={retryFailedAdds}
+                          disabled={saving}
+                          class="btn btn-secondary w-full sm:w-auto"
+                        >
+                          {saving ? "Retrying…" : `Retry ${failed} failed`}
+                        </button>
+                        {#if succeeded > 0}
+                          <button
+                            onclick={() => (step = 3)}
+                            class="btn btn-ghost w-full sm:w-auto"
+                          >
+                            Continue to tone
+                          </button>
+                        {/if}
+                      </div>
+                      {#if succeeded > 0}
+                        <p class="status status-error text-xs" role="status">
+                          Unresolved repositories will remain inactive until they are successfully added.
+                        </p>
+                      {/if}
                     {/if}
                     {#if succeeded > 0 && failed === 0}
                       <button

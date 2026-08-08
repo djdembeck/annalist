@@ -383,7 +383,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	publish := true
+	publish := false
 	if req.Publish != nil {
 		publish = *req.Publish
 	}

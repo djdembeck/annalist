@@ -28,7 +28,7 @@
       type="button"
       aria-pressed={mode === "rendered"}
       onclick={() => (mode = "rendered")}
-      class="rounded px-2 py-[0.625rem] text-xs transition-colors min-h-[2.75rem] {mode === 'rendered'
+      class="rounded min-w-[2.75rem] px-2 py-[0.625rem] text-xs transition-colors min-h-[2.75rem] {mode === 'rendered'
         ? 'bg-surface-2 text-ink'
         : 'text-ink-3 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring'}"
     >
@@ -38,7 +38,7 @@
       type="button"
       aria-pressed={mode === "raw"}
       onclick={() => (mode = "raw")}
-      class="rounded px-2 py-[0.625rem] text-xs transition-colors min-h-[2.75rem] {mode === 'raw'
+      class="rounded min-w-[2.75rem] px-2 py-[0.625rem] text-xs transition-colors min-h-[2.75rem] {mode === 'raw'
         ? 'bg-surface-2 text-ink'
         : 'text-ink-3 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring'}"
     >

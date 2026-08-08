@@ -85,6 +85,11 @@
   }
 </script>
 
+<svelte:head>
+  <title>Settings · Annalist</title>
+  <meta name="description" content="Tune Annalist's global release-note contract and tone." />
+</svelte:head>
+
 <div class="trace-wall">
   <header class="section-head">
     <div>
@@ -109,7 +114,7 @@
   {:else if settings}
     <div class="settings-layout">
       <section class="panel settings-form" aria-label="Global release note defaults">
-        <div class="section-head section-head--compact"><div><p class="trace-label">Tone contract</p><h2>Global defaults</h2></div><span class="status status--healthy"><span class="signal-dot signal-dot--cyan" aria-hidden="true"></span>Editable</span></div>
+        <div class="section-head section-head--compact"><div><p class="trace-label">Tone contract</p><h2>Global defaults</h2></div><span class="status status--healthy"><span class="signal-dot signal-dot--muted" aria-hidden="true"></span>Editable</span></div>
         <div class="grid gap-5">
           <label class="field-group"><span class="field-group__label">Tone</span><select bind:value={toneOption} class="field"><option value="inherit">Inherit (neutral)</option>{#each PRESET_OPTIONS as p (p)}<option value={p}>{p}</option>{/each}<option value="custom">Custom…</option></select><span class="field-group__hint">Choose the tone used when a repository does not override it.</span></label>
           {#if toneOption === "custom"}<label class="field-group"><span class="field-group__label">Custom tone</span><input bind:value={customTone} placeholder="Freeform persona" class="field" /></label>{/if}

@@ -57,6 +57,7 @@ export type GenerateRequest = {
   to_tag: string;
   from_tag?: string | null;
   force?: boolean;
+  publish?: boolean;
 };
 
 export type Settings = {
