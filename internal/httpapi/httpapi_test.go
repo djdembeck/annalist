@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,8 +57,9 @@ func (f *fakePip) GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pi
 
 // fakeClient is a controllable ghClient/fjClient double.
 type fakeClient struct {
-	repos []pipeline.OwnerRepo
-	err   error
+	repos          []pipeline.OwnerRepo
+	err            error
+	fileContents   map[string]string
 }
 
 func (f *fakeClient) WebhookHandler(p *pipeline.Pipeline) http.Handler {
@@ -69,6 +71,14 @@ func (f *fakeClient) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error
 		return nil, f.err
 	}
 	return f.repos, nil
+}
+
+func (f *fakeClient) ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error) {
+	content, ok := f.fileContents[path]
+	if ok {
+		return content, nil
+	}
+	return "", fmt.Errorf("file not found: %s", path)
 }
 
 // testAPI builds an api with a real temp-db store and a fake pip.
@@ -342,6 +352,72 @@ func TestHandleListReposResolveError(t *testing.T) {
 	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", w.Code)
+	}
+}
+
+func TestHandleListReposInRepoInstructions(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, pip, store := testAPI(t, cfg)
+	pip.eff.Instructions = "resolved-instructions"
+	a.gh = &fakeClient{
+		repos: []pipeline.OwnerRepo{
+			{Owner: "djdembeck", Repo: "annalist"},
+		},
+		fileContents: map[string]string{
+			".github/release-notes-instructions.md": "IN-REPO PROMPT",
+		},
+	}
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Trigger: "auto",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var items []repoItemResp
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if items[0].Effective.Instructions != "IN-REPO PROMPT" {
+		t.Errorf("effective instructions = %q, want IN-REPO PROMPT (in-repo file should override resolved)", items[0].Effective.Instructions)
+	}
+}
+
+func TestHandleListReposInRepoInstructionsMissing(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, pip, store := testAPI(t, cfg)
+	pip.eff.Instructions = "resolved-instructions"
+	a.gh = &fakeClient{
+		repos: []pipeline.OwnerRepo{
+			{Owner: "djdembeck", Repo: "annalist"},
+		},
+		fileContents: map[string]string{}, // empty — file not found
+	}
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Trigger: "auto",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var items []repoItemResp
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if items[0].Effective.Instructions != "resolved-instructions" {
+		t.Errorf("effective instructions = %q, want resolved-instructions (fallback to resolve when no in-repo file)", items[0].Effective.Instructions)
 	}
 }
 

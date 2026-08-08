@@ -83,7 +83,7 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 	if err != nil {
 		return repoItemResp{}, err
 	}
-	return repoItemResp{
+	resp := repoItemResp{
 		Platform:     row.Platform,
 		Owner:        row.Owner,
 		Repo:         row.Repo,
@@ -99,7 +99,25 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 			Temperature:  eff.Temperature,
 			Instructions: eff.Instructions,
 		},
-	}, nil
+	}
+
+	// In-repo instructions file has the highest precedence.
+	instPath := ".github/release-notes-instructions.md"
+	if row.Platform == "forgejo" {
+		instPath = ".forgejo/release-notes.md"
+	}
+	if row.Platform == "forgejo" && a.fj != nil {
+		content, err := a.fj.ReadRepoFile(ctx, row.Owner, row.Repo, instPath)
+		if err == nil && content != "" {
+			resp.Effective.Instructions = content
+		}
+	} else if row.Platform == "github" && a.gh != nil {
+		content, err := a.gh.ReadRepoFile(ctx, row.Owner, row.Repo, instPath)
+		if err == nil && content != "" {
+			resp.Effective.Instructions = content
+		}
+	}
+	return resp, nil
 }
 
 // settingsFor returns the stored row for a repo, or a default row when absent.
