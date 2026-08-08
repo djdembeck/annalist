@@ -87,13 +87,12 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 		return repoItemResp{}, err
 	}
 
-	// Determine source of resolved instructions before in-repo override.
 	source := "global"
 	if row.Instructions != "" {
 		source = "repo"
 	}
 
-	resp := repoItemResp{
+	return repoItemResp{
 		Platform:     row.Platform,
 		Owner:        row.Owner,
 		Repo:         row.Repo,
@@ -110,29 +109,7 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 			Instructions: eff.Instructions,
 			Source:       source,
 		},
-	}
-
-	// In-repo instructions file has the highest precedence.
-	instPath := ".github/release-notes-instructions.md"
-	if row.Platform == "forgejo" {
-		instPath = ".forgejo/release-notes.md"
-	}
-	if row.Platform == "forgejo" && a.fj != nil {
-		content, err := a.fj.ReadRepoFile(ctx, row.Owner, row.Repo, instPath)
-		if err == nil && content != "" {
-			resp.Effective.Instructions = content
-			resp.Effective.Tone = "custom"
-			resp.Effective.Source = "in-repo"
-		}
-	} else if row.Platform == "github" && a.gh != nil {
-		content, err := a.gh.ReadRepoFile(ctx, row.Owner, row.Repo, instPath)
-		if err == nil && content != "" {
-			resp.Effective.Instructions = content
-			resp.Effective.Tone = "custom"
-			resp.Effective.Source = "in-repo"
-		}
-	}
-	return resp, nil
+	}, nil
 }
 
 // settingsFor returns the stored row for a repo, or a default row when absent.
@@ -482,6 +459,38 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		"release_id": releaseID,
 		"published":  publish,
 	})
+}
+
+// handleInRepoInstructions reads the instructions file from the repo's
+// in-repo location (.github/ or .forgejo/). It is an on-demand endpoint — the
+// batch /api/repos endpoint does not call the platform API for speed.
+func (a *api) handleInRepoInstructions(w http.ResponseWriter, r *http.Request) {
+	platform := chi.URLParam(r, "platform")
+	owner := chi.URLParam(r, "owner")
+	repo := chi.URLParam(r, "repo")
+	if !validPlatform(platform) {
+		writeErr(w, http.StatusBadRequest, "invalid platform")
+		return
+	}
+
+	instPath := ".github/release-notes-instructions.md"
+	if platform == "forgejo" {
+		instPath = ".forgejo/release-notes.md"
+	}
+
+	var content string
+	var readErr error
+	if platform == "forgejo" && a.fj != nil {
+		content, readErr = a.fj.ReadRepoFile(r.Context(), owner, repo, instPath)
+	} else if platform == "github" && a.gh != nil {
+		content, readErr = a.gh.ReadRepoFile(r.Context(), owner, repo, instPath)
+	}
+
+	if readErr != nil || content == "" {
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"instructions": content})
 }
 
 // settingsResp is the global-settings response, including the LLM/platform block.

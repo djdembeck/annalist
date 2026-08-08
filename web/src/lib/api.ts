@@ -155,6 +155,16 @@ export function addRepo(repo: {
   });
 }
 
+export function getInRepoInstructions(
+  platform: string,
+  owner: string,
+  repo: string,
+): Promise<string | null> {
+  return apiFetch<{ instructions?: string }>(
+    `/api/repos/${platform}/${owner}/${repo}/in-repo-instructions`,
+  ).then((r) => r.instructions ?? null);
+}
+
 export function putRepoSettings(
   platform: string,
   owner: string,

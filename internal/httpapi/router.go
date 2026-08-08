@@ -71,6 +71,7 @@ func New(cfg *config.Config, store *db.Store, llmClient *llm.Client, pip *pipeli
 		r.Post("/repos", a.handleAddRepo)
 		r.Put("/repos/{platform}/{owner}/{repo}/settings", a.handlePutRepoSettings)
 		r.Post("/repos/{platform}/{owner}/{repo}/generate", a.handleGenerate)
+		r.Get("/repos/{platform}/{owner}/{repo}/in-repo-instructions", a.handleInRepoInstructions)
 		r.Get("/settings", a.handleGetSettings)
 		r.Put("/settings", a.handlePutSettings)
 	})

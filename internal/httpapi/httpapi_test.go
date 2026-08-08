@@ -370,9 +370,6 @@ func TestHandleListReposMultipleReposParallel(t *testing.T) {
 			{Owner: "djdembeck", Repo: "other-repo"},
 			{Owner: "djdembeck", Repo: "third-repo"},
 		},
-		fileContents: map[string]string{
-			".github/release-notes-instructions.md": "IN-REPO PROMPT",
-		},
 	}
 	if err := store.UpsertRepoSettings(db.RepoSetting{
 		Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Trigger: "auto",
@@ -408,115 +405,37 @@ func TestHandleListReposMultipleReposParallel(t *testing.T) {
 		itemsByRepo[it.Repo] = it
 	}
 
-	// Annalist has in-repo file — instructions overridden, tone=custom, source=in-repo.
+	// Annalist — instructions from Resolve().
 	annalist := itemsByRepo["annalist"]
 	if annalist.Effective != (effective{
-		Tone: "custom", Model: "m0", Temperature: 0.5,
-		Instructions: "IN-REPO PROMPT", Source: "in-repo",
+		Tone: "t0", Model: "m0", Temperature: 0.5,
+		Instructions: "resolved-instructions", Source: "global",
 	}) {
-		t.Errorf("annalist effective = %+v, want in-repo source", annalist.Effective)
+		t.Errorf("annalist effective = %+v, want resolved source", annalist.Effective)
 	}
 
-	// Other-repo has in-repo file too (same fakeClient) — same override.
+	// Other-repo — same resolved instructions.
 	other := itemsByRepo["other-repo"]
 	if other.Effective != (effective{
-		Tone: "custom", Model: "m0", Temperature: 0.5,
-		Instructions: "IN-REPO PROMPT", Source: "in-repo",
+		Tone: "t0", Model: "m0", Temperature: 0.5,
+		Instructions: "resolved-instructions", Source: "global",
 	}) {
-		t.Errorf("other-repo effective = %+v, want in-repo source", other.Effective)
+		t.Errorf("other-repo effective = %+v, want resolved source", other.Effective)
 	}
 
-	// Third-repo has in-repo file too but also has repo-level instructions — file still wins.
+	// Third-repo has repo-level instructions — source is "repo".
 	third := itemsByRepo["third-repo"]
 	if third.Effective != (effective{
-		Tone: "custom", Model: "m0", Temperature: 0.5,
-		Instructions: "IN-REPO PROMPT", Source: "in-repo",
+		Tone: "t0", Model: "m0", Temperature: 0.5,
+		Instructions: "resolved-instructions", Source: "repo",
 	}) {
-		t.Errorf("third-repo effective = %+v, want in-repo source", third.Effective)
+		t.Errorf("third-repo effective = %+v, want repo source", third.Effective)
 	}
 	if third.Enabled {
 		t.Errorf("third-repo.Enabled = true, want false")
 	}
 	if third.Trigger != "auto" {
 		t.Errorf("third-repo.Trigger = %q, want auto", third.Trigger)
-	}
-}
-
-func TestHandleListReposInRepoInstructions(t *testing.T) {
-	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, pip, store := testAPI(t, cfg)
-	pip.eff.Instructions = "resolved-instructions"
-	a.gh = &fakeClient{
-		repos: []pipeline.OwnerRepo{
-			{Owner: "djdembeck", Repo: "annalist"},
-		},
-		fileContents: map[string]string{
-			".github/release-notes-instructions.md": "IN-REPO PROMPT",
-		},
-	}
-	if err := store.UpsertRepoSettings(db.RepoSetting{
-		Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Trigger: "auto",
-	}); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
-	}
-	var items []repoItemResp
-	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
-		t.Fatalf("bad json: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("got %d items, want 1", len(items))
-	}
-	if items[0].Effective.Instructions != "IN-REPO PROMPT" {
-		t.Errorf("effective instructions = %q, want IN-REPO PROMPT (in-repo file should override resolved)", items[0].Effective.Instructions)
-	}
-	if items[0].Effective.Tone != "custom" {
-		t.Errorf("effective tone = %q, want custom (in-repo file should set tone to custom)", items[0].Effective.Tone)
-	}
-	if items[0].Effective.Source != "in-repo" {
-		t.Errorf("effective source = %q, want in-repo (in-repo file should set source to in-repo)", items[0].Effective.Source)
-	}
-}
-
-func TestHandleListReposInRepoInstructionsMissing(t *testing.T) {
-	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, pip, store := testAPI(t, cfg)
-	pip.eff.Instructions = "resolved-instructions"
-	a.gh = &fakeClient{
-		repos: []pipeline.OwnerRepo{
-			{Owner: "djdembeck", Repo: "annalist"},
-		},
-		fileContents: map[string]string{}, // empty — file not found
-	}
-	if err := store.UpsertRepoSettings(db.RepoSetting{
-		Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Trigger: "auto",
-	}); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
-	}
-	var items []repoItemResp
-	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
-		t.Fatalf("bad json: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("got %d items, want 1", len(items))
-	}
-	if items[0].Effective.Instructions != "resolved-instructions" {
-		t.Errorf("effective instructions = %q, want resolved-instructions (fallback to resolve when no in-repo file)", items[0].Effective.Instructions)
-	}
-	if items[0].Effective.Tone != "t0" {
-		t.Errorf("effective tone = %q, want t0 (resolved tone should not be custom when no in-repo file)", items[0].Effective.Tone)
-	}
-	if items[0].Effective.Source != "global" {
-		t.Errorf("effective source = %q, want global (no repo instructions set, so source is global)", items[0].Effective.Source)
 	}
 }
 
@@ -1000,6 +919,58 @@ func TestSpaThroughRouter(t *testing.T) {
 			t.Errorf("content-type = %q, want json", w.Header().Get("Content-Type"))
 		}
 	})
+}
+
+func TestHandleInRepoInstructionsPresent(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg)
+	a.gh = &fakeClient{
+		fileContents: map[string]string{
+			".github/release-notes-instructions.md": "IN-REPO PROMPT",
+		},
+	}
+
+	req := newReq(http.MethodGet, "/api/repos/github/djdembeck/annalist/in-repo-instructions", "", map[string]string{
+		"platform": "github",
+		"owner":    "djdembeck",
+		"repo":     "annalist",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if body["instructions"] != "IN-REPO PROMPT" {
+		t.Errorf("instructions = %q, want IN-REPO PROMPT", body["instructions"])
+	}
+}
+
+func TestHandleInRepoInstructionsMissing(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg)
+	a.gh = &fakeClient{
+		fileContents: map[string]string{}, // empty — file not found
+	}
+
+	req := newReq(http.MethodGet, "/api/repos/github/djdembeck/annalist/in-repo-instructions", "", map[string]string{
+		"platform": "github",
+		"owner":    "djdembeck",
+		"repo":     "annalist",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("body = %v, want empty object {}", body)
+	}
 }
 
 // Compile-time check that the seam stays behavior-preserving: the concrete

@@ -6,7 +6,7 @@
     resolveTone,
     SAVE_MSG_TIMEOUT,
   } from "$lib/repoUtils";
-  import { getRepos, putRepoSettings, generate, type Repo } from "$lib/api";
+  import { getRepos, putRepoSettings, generate, getInRepoInstructions, type Repo } from "$lib/api";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
@@ -97,6 +97,8 @@
     }
   }
 
+  let inRepoPending = $state<Record<string, boolean>>({});
+
   function openSettings(r: Repo): void {
     const key = repoKey(r);
     const tone = r.tone ?? "";
@@ -104,12 +106,29 @@
     drafts[key] = {
       toneOption: !tone ? "inherit" : isPreset ? tone : "custom",
       customTone: isPreset ? "" : tone,
-      instructions: r.effective.instructions ?? r.instructions ?? "",
+      instructions: r.instructions ?? "",
       model: r.model ?? "",
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
     };
     openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
+    // Load in-repo instructions in the background.
+    inRepoPending[key] = true;
+    getInRepoInstructions(r.platform, r.owner, r.repo)
+      .then((content) => {
+        if (content && openPanel[key] === "settings" && drafts[key]) {
+          // Prepend in-repo instructions below existing DB instructions.
+          const existing = drafts[key].instructions;
+          if (content === existing) {
+            return; // Already identical — no change needed.
+          }
+          drafts[key].instructions = content;
+        }
+        inRepoPending[key] = false;
+      })
+      .catch(() => {
+        inRepoPending[key] = false;
+      });
   }
 
   function openGenerate(r: Repo): void {
@@ -372,9 +391,8 @@
                     bind:value={d.instructions}
                     rows="3"
                     class="field"></textarea><span class="field-group__hint"
-                    >{#if r.effective.source === "in-repo"}Loaded from
-                        {#if r.platform === "forgejo"}.forgejo/release-notes.md{:else}.github/release-notes-instructions.md{/if}.
-                        Changes here are merged with in-repo instructions./{:else}Extra guidance the writer follows for this repository.{/if}</span
+                    >{#if inRepoPending[key] === true}Loading in-repo instructions…
+                        {:else}Extra guidance the writer follows for this repository.{/if}</span
                   ></label
                 >
                 <label class="field-group"
