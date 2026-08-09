@@ -23,12 +23,14 @@ import (
 type ghClient interface {
 	WebhookHandler(p *pipeline.Pipeline) http.Handler
 	ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error)
+	ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error)
 }
 
 // fjClient is the subset of the Forgejo platform client the HTTP API needs.
 type fjClient interface {
 	WebhookHandler(p *pipeline.Pipeline) http.Handler
 	ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error)
+	ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error)
 }
 
 // pipService is the subset of the pipeline the HTTP API needs, so handlers can
@@ -69,6 +71,7 @@ func New(cfg *config.Config, store *db.Store, llmClient *llm.Client, pip *pipeli
 		r.Post("/repos", a.handleAddRepo)
 		r.Put("/repos/{platform}/{owner}/{repo}/settings", a.handlePutRepoSettings)
 		r.Post("/repos/{platform}/{owner}/{repo}/generate", a.handleGenerate)
+		r.Get("/repos/{platform}/{owner}/{repo}/in-repo-instructions", a.handleInRepoInstructions)
 		r.Get("/settings", a.handleGetSettings)
 		r.Put("/settings", a.handlePutSettings)
 	})

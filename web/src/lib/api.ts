@@ -25,6 +25,8 @@ export type Repo = {
     tone: string | null;
     model: string | null;
     temperature: number | null;
+    instructions: string | null;
+    source: string | null;
   };
 };
 
@@ -151,6 +153,16 @@ export function addRepo(repo: {
     method: "POST",
     body: JSON.stringify(repo),
   });
+}
+
+export function getInRepoInstructions(
+  platform: string,
+  owner: string,
+  repo: string,
+): Promise<string | null> {
+  return apiFetch<{ instructions?: string }>(
+    `/api/repos/${platform}/${owner}/${repo}/in-repo-instructions`,
+  ).then((r) => r.instructions ?? null);
 }
 
 export function putRepoSettings(
