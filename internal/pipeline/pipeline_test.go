@@ -590,6 +590,7 @@ func TestGenerateNotesFilterEmptyLog(t *testing.T) {
 	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "chore: only chore")
 	gitNoAsk(t, origin, "tag", "v1.0.0")
 	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "chore: another chore")
+	gitNoAsk(t, origin, "tag", "v1.1.0")
 	f.origin = origin
 
 	if err := store.UpsertSettings(db.Settings{CommitTypes: "feat"}); err != nil {

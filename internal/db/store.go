@@ -106,7 +106,7 @@ func (s *Store) ensureColumn(table, column, ddl string) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var cid, notnull, pk int
 		var name, ctype string

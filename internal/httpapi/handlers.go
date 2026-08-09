@@ -90,7 +90,7 @@ type repoItemResp struct {
 	Model        string    `json:"model"`
 	Temperature  *float64  `json:"temperature"`
 	Trigger      string    `json:"trigger"`
-	CommitTypes  string    `json:"commitTypes"`
+	CommitTypes  string    `json:"commit_types"`
 	Effective    effective `json:"effective"`
 }
 

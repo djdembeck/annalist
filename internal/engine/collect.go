@@ -174,6 +174,9 @@ func ParseCommitTypes(s string) []string {
 // type(scope)!: description  or  type!: description  or  type: description
 var commitTypeRe = regexp.MustCompile(`^([A-Za-z0-9_-]+)(?:\(([^)]*)\))?(!)?: (.*)$`)
 
+// breakingChangeRe matches "BREAKING CHANGE:" or "BREAKING-CHANGE:" at start of line.
+var breakingChangeRe = regexp.MustCompile(`(?im)^BREAKING[ -]CHANGE:`)
+
 // FilterCommitLog takes raw NUL-delimited commit records (each prefixed with "- ")
 // and filters them by includeTypes. Breaking commits are always kept with their
 // body appended. Untyped commits are always kept. Typed commits are kept only if
@@ -217,7 +220,7 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 			breaking = matches[3] == "!"
 			// Also check body for BREAKING CHANGE: trailer
 			if !breaking && body != "" {
-				breaking = regexp.MustCompile(`(?im)^BREAKING[ -]CHANGE:`).MatchString(body)
+				breaking = breakingChangeRe.MatchString(body)
 			}
 		}
 
@@ -232,7 +235,7 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 		} else if !hasType {
 			// Untyped commits always kept
 			kept = append(kept, "- "+subject)
-		} else if includeTypes == nil || len(includeTypes) == 0 {
+		} else if len(includeTypes) == 0 {
 			// No filter configured, keep all
 			kept = append(kept, "- "+subject)
 		} else {

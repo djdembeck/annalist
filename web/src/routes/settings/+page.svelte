@@ -4,9 +4,13 @@
   import { getSettings, putSettings, type Settings } from "$lib/api";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
-  import { handleAuthError, formatError } from "$lib/composables/useAuthErrorHandler";
+  import {
+    handleAuthError,
+    formatError,
+  } from "$lib/composables/useAuthErrorHandler";
 
   const PRESET_OPTIONS = ["chronicler", "engineer", "launch"];
+  const DEFAULT_COMMIT_TYPES = "fix,feat,refactor,perf";
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
@@ -23,19 +27,17 @@
 
   let platformStatus = $derived(
     settings
-      ? (settings.github && settings.forgejo
-          ? "Both GitHub and Forgejo are configured."
-          : settings.github
-            ? "GitHub configured, Forgejo not configured."
-            : settings.forgejo
-              ? "Forgejo configured, GitHub not configured."
-              : "No platforms configured yet — add a platform below to start.")
-      : undefined
+      ? settings.github && settings.forgejo
+        ? "Both GitHub and Forgejo are configured."
+        : settings.github
+          ? "GitHub configured, Forgejo not configured."
+          : settings.forgejo
+            ? "Forgejo configured, GitHub not configured."
+            : "No platforms configured yet — add a platform below to start."
+      : undefined,
   );
   let headerLede = $derived(
-    settings
-      ? `${platformStatus} · Model ${settings.llm.model}`
-      : undefined
+    settings ? `${platformStatus} · Model ${settings.llm.model}` : undefined,
   );
 
   async function load(): Promise<void> {
@@ -59,7 +61,7 @@
       if (handleAuthError(e)) return;
       error = formatError(
         e,
-        "Could not load settings — the server may be unreachable. Check your connection and try refreshing."
+        "Could not load settings — the server may be unreachable. Check your connection and try refreshing.",
       );
     } finally {
       loading = false;
@@ -91,7 +93,10 @@
       error = "";
     } catch (e) {
       if (handleAuthError(e)) return;
-      error = formatError(e, "Failed to save settings — check your connection and try again.");
+      error = formatError(
+        e,
+        "Failed to save settings — check your connection and try again.",
+      );
     } finally {
       saving = false;
     }
@@ -107,7 +112,11 @@
 </svelte:head>
 
 <div class="trace-wall">
-  <SectionHead label="Operations / global contract" title="Machine contract &amp; tone proof" lede={headerLede}>
+  <SectionHead
+    label="Operations / global contract"
+    title="Machine contract &amp; tone proof"
+    lede={headerLede}
+  >
     {#snippet actions()}
       <a href="/repos" class="btn btn-secondary">Repository inventory</a>
     {/snippet}
@@ -130,7 +139,12 @@
         class="panel settings-form"
         aria-label="Global release note defaults"
       >
-        <SectionHead label="Tone contract" title="Global defaults" compact headingLevel="h2">
+        <SectionHead
+          label="Tone contract"
+          title="Global defaults"
+          compact
+          headingLevel="h2"
+        >
           {#snippet actions()}
             <span class="status status--healthy"
               ><span class="signal-dot signal-dot--muted" aria-hidden="true"
@@ -197,10 +211,12 @@
           <label class="field-group"
             ><span class="field-group__label">Commit types</span><input
               bind:value={commitTypes}
-              placeholder="fix,feat,refactor,perf"
+              placeholder={DEFAULT_COMMIT_TYPES}
               class="field"
             /><span class="field-group__hint"
-              >Comma-separated conventional commit types included in notes. Blank = server default (fix,feat,refactor,perf). Breaking changes are always included.</span
+              >Comma-separated conventional commit types included in notes.
+              Blank = server default ({DEFAULT_COMMIT_TYPES}). Breaking changes
+              are always included.</span
             ></label
           >
           <div class="flex flex-wrap items-center gap-3">
@@ -216,7 +232,12 @@
 
       <aside class="settings-proof">
         <section class="panel panel-soft" aria-label="Machine contract">
-          <SectionHead label="Machine contract" title="Connection state" compact headingLevel="h2">
+          <SectionHead
+            label="Machine contract"
+            title="Connection state"
+            compact
+            headingLevel="h2"
+          >
             {#snippet actions()}
               <span class="signal-dot signal-dot--healthy" aria-hidden="true"
               ></span>
@@ -281,7 +302,8 @@
 Model: {model.trim() || settings.llm.model || "server default"}
 Temperature: {temperature !== "" ? temperature : "server default"}
 Instructions: {instructions.trim() || "No additional instructions."}
-Commit types: {commitTypes.trim() || "server default (fix,feat,refactor,perf)"}</pre>
+Commit types: {commitTypes.trim() ||
+              `server default (${DEFAULT_COMMIT_TYPES})`}</pre>
           <p class="mt-3 text-xs text-ink-3">
             This proof reflects the values in the form. Repository-level
             settings can override the global contract.

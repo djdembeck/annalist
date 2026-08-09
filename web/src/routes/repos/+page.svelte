@@ -6,7 +6,13 @@
     resolveTone,
     SAVE_MSG_TIMEOUT,
   } from "$lib/repoUtils";
-  import { getRepos, putRepoSettings, generate, getInRepoInstructions, type Repo } from "$lib/api";
+  import {
+    getRepos,
+    putRepoSettings,
+    generate,
+    getInRepoInstructions,
+    type Repo,
+  } from "$lib/api";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
@@ -54,7 +60,7 @@
   let temperatureError = $state<Record<string, string | null>>({});
 
   let inventoryLede = $derived(
-    (loadState === "success" || loadState === "error")
+    loadState === "success" || loadState === "error"
       ? `${repos.length} ${repos.length === 1 ? "repository" : "repositories"} connected, ${repos.filter((r) => r.enabled).length} enabled.`
       : undefined,
   );
@@ -132,21 +138,24 @@
     drafts[key] = {
       toneOption: !tone ? "inherit" : isPreset ? tone : "custom",
       customTone: isPreset ? "" : tone,
-      instructions: (inRepoInstructions[key] ?? r.instructions) ?? "",
+      instructions: inRepoInstructions[key] ?? r.instructions ?? "",
       model: r.model ?? "",
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
       commitTypes: r.commit_types ?? "",
     };
     openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
-    // Ensure in-repo instructions are loaded.
     loadInRepoInstructions(r);
   }
 
   // Computed: get the effective instructions for display,
   // preferring in-repo if loaded, else resolved.
   function getEffectiveInstructions(r: Repo): string {
-    return inRepoInstructions[repoKey(r)] ?? r.effective.instructions ?? "neutral (default)";
+    return (
+      inRepoInstructions[repoKey(r)] ??
+      r.effective.instructions ??
+      "neutral (default)"
+    );
   }
 
   function openGenerate(r: Repo): void {
@@ -297,8 +306,10 @@
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="chip">{r.platform}</span>
-                {#if inRepoInstructions[key] || r.effective.instructions}
-                  <span class="chip" title="Custom voice/prompt configured">Voice</span>
+                {#if inRepoInstructions[key] || r.instructions}
+                  <span class="chip" title="Custom voice/prompt configured"
+                    >Voice</span
+                  >
                 {/if}
                 <span
                   class="status {r.enabled
@@ -327,7 +338,9 @@
             <div>
               <p class="trace-label">Effective tone</p>
               <p class="mt-1 text-sm text-ink">
-                {inRepoInstructions[key] ? "custom" : r.effective.tone ?? "neutral"}
+                {inRepoInstructions[key]
+                  ? "custom"
+                  : (r.effective.tone ?? "neutral")}
               </p>
             </div>
             <div>
@@ -338,8 +351,12 @@
             </div>
             <div>
               <p class="trace-label">Effective voice</p>
-              <p class="mt-1 text-sm text-ink break-all max-h-8 overflow-hidden"
-                 title={getEffectiveInstructions(r) !== "neutral (default)" ? getEffectiveInstructions(r) : ""}>
+              <p
+                class="mt-1 text-sm text-ink break-all max-h-8 overflow-hidden"
+                title={getEffectiveInstructions(r) !== "neutral (default)"
+                  ? getEffectiveInstructions(r)
+                  : ""}
+              >
                 {inRepoPending[key] ? "loading…" : getEffectiveInstructions(r)}
               </p>
             </div>
@@ -410,8 +427,10 @@
                     bind:value={d.instructions}
                     rows="3"
                     class="field"></textarea><span class="field-group__hint"
-                    >{#if inRepoPending[key] === true}Loading in-repo instructions…
-                        {:else}Extra guidance the writer follows for this repository.{/if}</span
+                    >{#if inRepoPending[key] === true}Loading in-repo
+                      instructions…
+                    {:else}Extra guidance the writer follows for this
+                      repository.{/if}</span
                   ></label
                 >
                 <label class="field-group"
@@ -457,13 +476,16 @@
                     placeholder="fix,feat,refactor,perf"
                     class="field"
                   /><span class="field-group__hint"
-                    >Comma-separated commit types. Blank = inherit global. Breaking changes are always included.</span
+                    >Comma-separated commit types. Blank = inherit global.
+                    Breaking changes are always included.</span
                   ></label
                 >
               </div>
               <p class="mt-4 text-xs text-ink-3">
                 Effective: tone <span class="text-ink"
-                  >{inRepoInstructions[key] ? "custom" : r.effective.tone ?? "neutral"}</span
+                  >{inRepoInstructions[key]
+                    ? "custom"
+                    : (r.effective.tone ?? "neutral")}</span
                 >
                 · model
                 <span class="text-ink">{r.effective.model ?? "inherit"}</span>
@@ -476,17 +498,32 @@
                 >
                 · voice
                 <span class="text-ink"
-                  >{inRepoInstructions[key] ? "custom (in-repo)" : (r.effective.instructions ? "custom" : "neutral (default)")}</span
+                  >{inRepoInstructions[key]
+                    ? "custom (in-repo)"
+                    : r.effective.instructions
+                      ? "custom"
+                      : "neutral (default)"}</span
                 >
                 · commit types
-                <span class="text-ink">{r.effective.commitTypes?.length ? r.effective.commitTypes.join(", ") : "inherit"}</span>
+                <span class="text-ink"
+                  >{r.effective.commitTypes?.length
+                    ? r.effective.commitTypes.join(", ")
+                    : "inherit"}</span
+                >
               </p>
               {#if inRepoInstructions[key] || r.effective.instructions}
                 <details class="mt-4">
-                  <summary class="trace-label cursor-pointer select-none">View effective voice/prompt</summary>
-                  <div class="note-paper mt-2 text-sm whitespace-pre-wrap overflow-auto max-h-64 font-mono">
+                  <summary class="trace-label cursor-pointer select-none"
+                    >View effective voice/prompt</summary
+                  >
+                  <div
+                    class="note-paper mt-2 text-sm whitespace-pre-wrap overflow-auto max-h-64 font-mono"
+                  >
                     {#if inRepoInstructions[key]}
-                      In-repo instructions (.github/release-notes-instructions.md):\n\n{inRepoInstructions[key]}
+                      In-repo instructions
+                      (.github/release-notes-instructions.md):\n\n{inRepoInstructions[
+                        key
+                      ]}
                     {:else}
                       {r.effective.instructions}
                     {/if}

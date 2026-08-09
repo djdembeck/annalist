@@ -89,7 +89,7 @@ export type SettingsUpdate = {
 
 export function getToken(): string {
   return typeof localStorage !== "undefined"
-    ? localStorage.getItem(TOKEN_KEY) ?? ""
+    ? (localStorage.getItem(TOKEN_KEY) ?? "")
     : "";
 }
 
@@ -176,13 +176,10 @@ export function putRepoSettings(
   repo: string,
   data: RepoSettingUpdate,
 ): Promise<void> {
-  return apiFetch<void>(
-    `/api/repos/${platform}/${owner}/${repo}/settings`,
-    {
-      method: "PUT",
-      body: JSON.stringify(data),
-    },
-  );
+  return apiFetch<void>(`/api/repos/${platform}/${owner}/${repo}/settings`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
 }
 
 export function generate(

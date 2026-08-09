@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -683,7 +684,7 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("commit_types PUT status = %d", w2.Code)
 	}
 	var item2 repoItemResp
-	json.Unmarshal(w2.Body.Bytes(), &item2)
+	_ = json.Unmarshal(w2.Body.Bytes(), &item2)
 	if item2.CommitTypes != "fix,feat" {
 		t.Errorf("commit_types = %q, want fix,feat", item2.CommitTypes)
 	}
@@ -697,7 +698,7 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
 	w3 := do(a.handlePutRepoSettings, r3)
 	var item3 repoItemResp
-	json.Unmarshal(w3.Body.Bytes(), &item3)
+	_ = json.Unmarshal(w3.Body.Bytes(), &item3)
 	if item3.CommitTypes != "" {
 		t.Errorf("commit_types after null = %q, want empty", item3.CommitTypes)
 	}
@@ -782,7 +783,7 @@ func TestHandlePutSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("commit_types PUT status = %d", w2.Code)
 	}
 	var body2 map[string]any
-	json.Unmarshal(w2.Body.Bytes(), &body2)
+	_ = json.Unmarshal(w2.Body.Bytes(), &body2)
 	if body2["commit_types"] != "fix,feat" {
 		t.Errorf("commit_types = %v, want fix,feat", body2["commit_types"])
 	}
@@ -792,7 +793,7 @@ func TestHandlePutSettingsRoundTrip(t *testing.T) {
 		nil)
 	w3 := do(a.handlePutSettings, r3)
 	var body3 map[string]any
-	json.Unmarshal(w3.Body.Bytes(), &body3)
+	_ = json.Unmarshal(w3.Body.Bytes(), &body3)
 	if body3["commit_types"] != "" {
 		t.Errorf("commit_types after null = %v, want empty", body3["commit_types"])
 	}
@@ -1028,3 +1029,91 @@ func TestHandleInRepoInstructionsMissing(t *testing.T) {
 // Compile-time check that the seam stays behavior-preserving: the concrete
 // pipeline must still satisfy pipService.
 var _ pipService = (*pipeline.Pipeline)(nil)
+
+func TestHandleInRepoInstructionsNilGitHubClient(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg)
+	a.gh = nil // explicitly nil
+
+	req := newReq(http.MethodGet, "/api/repos/github/djdembeck/annalist/in-repo-instructions", "", map[string]string{
+		"platform": "github",
+		"owner":    "djdembeck",
+		"repo":     "annalist",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleInRepoInstructionsNilForgejoClient(t *testing.T) {
+	cfg := &config.Config{Forgejo: config.ForgejoConfig{Token: "t"}}
+	a, _, _ := testAPI(t, cfg)
+	a.fj = nil // explicitly nil
+
+	req := newReq(http.MethodGet, "/api/repos/forgejo/fjuser/repo/in-repo-instructions", "", map[string]string{
+		"platform": "forgejo",
+		"owner":    "fjuser",
+		"repo":     "repo",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleInRepoInstructionsForgejoClient(t *testing.T) {
+	cfg := &config.Config{Forgejo: config.ForgejoConfig{Token: "t"}}
+	a, _, _ := testAPI(t, cfg)
+	a.fj = &fakeClient{
+		fileContents: map[string]string{
+			".forgejo/release-notes.md": "FORGEJO IN-REPO PROMPT",
+		},
+	}
+
+	req := newReq(http.MethodGet, "/api/repos/forgejo/fjuser/repo/in-repo-instructions", "", map[string]string{
+		"platform": "forgejo",
+		"owner":    "fjuser",
+		"repo":     "repo",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if body["instructions"] != "FORGEJO IN-REPO PROMPT" {
+		t.Errorf("instructions = %q, want FORGEJO IN-REPO PROMPT", body["instructions"])
+	}
+}
+
+func TestHandleListReposContentionExceedsCPU(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, store := testAPI(t, cfg)
+
+	// Insert more repos than there are CPUs to exercise errgroup
+	// semaphore contention.
+	count := 2*runtime.NumCPU() + 1
+	for i := range count {
+		repo := fmt.Sprintf("repo-%d", i)
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: repo, Enabled: true, Trigger: "auto",
+		}); err != nil {
+			t.Fatalf("seed %s: %v", repo, err)
+		}
+	}
+
+	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var items []repoItemResp
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(items) != count {
+		t.Errorf("got %d items, want %d", len(items), count)
+	}
+}
