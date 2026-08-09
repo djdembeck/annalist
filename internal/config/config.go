@@ -39,6 +39,7 @@ type LLMConfig struct {
 	Temperature float64 `mapstructure:"temperature"`
 	MaxTokens   int     `mapstructure:"max_tokens"`
 	TimeoutS    int     `mapstructure:"timeout_s"`
+	CommitTypes string  `mapstructure:"commit_types"`
 }
 
 // GitHubConfig configures the GitHub App used for API access and webhooks.
@@ -77,13 +78,14 @@ func Load() (*Config, error) {
 	v.SetDefault("llm.temperature", 0.85)
 	v.SetDefault("llm.max_tokens", 4096)
 	v.SetDefault("llm.timeout_s", 120)
+	v.SetDefault("llm.commit_types", "fix,feat,refactor,perf")
 
 	// BindEnv makes every key resolvable from its env var even when it has no
 	// default and no config.yaml entry. Without this, viper's Unmarshal path
 	// (over AllSettings) silently drops env-only keys like ADMIN_TOKEN.
 	for _, key := range []string{
 		"server.port", "server.host", "data.dir",
-		"llm.base_url", "llm.api_key", "llm.model", "llm.temperature", "llm.max_tokens", "llm.timeout_s",
+		"llm.base_url", "llm.api_key", "llm.model", "llm.temperature", "llm.max_tokens", "llm.timeout_s", "llm.commit_types",
 		"github.app_id", "github.app_private_key_file", "github.webhook_secret",
 		"forgejo.url", "forgejo.token", "forgejo.webhook_secret",
 		"admin.token",

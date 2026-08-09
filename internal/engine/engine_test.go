@@ -87,6 +87,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 		"as bullet points",
 		"Features",
 		"Output ONLY the release notes text",
+		"**Breaking:**",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("default prompt missing %q", want)

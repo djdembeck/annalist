@@ -6,7 +6,7 @@
     resolveTone,
     SAVE_MSG_TIMEOUT,
   } from "$lib/repoUtils";
-  import { getRepos, putRepoSettings, generate, type Repo } from "$lib/api";
+  import { getRepos, putRepoSettings, generate, getInRepoInstructions, type Repo } from "$lib/api";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
@@ -25,6 +25,7 @@
     model: string;
     temperature: string;
     trigger: string;
+    commitTypes: string;
   };
 
   let repos = $state<Repo[]>([]);
@@ -58,22 +59,6 @@
       : undefined,
   );
 
-  async function refresh(): Promise<void> {
-    loadError = "";
-    loadState = "loading";
-    try {
-      repos = await getRepos();
-      loadState = "success";
-    } catch (e) {
-      if (handleAuthError(e)) return;
-      loadState = "error";
-      loadError = formatError(
-        e,
-        "Could not load repositories — check your connection and try again.",
-      );
-    }
-  }
-
   onMount(refresh);
 
   async function toggleEnabled(r: Repo): Promise<void> {
@@ -97,6 +82,49 @@
     }
   }
 
+  // Cached in-repo instructions, populated after page load in parallel.
+  let inRepoInstructions = $state<Record<string, string | null>>({});
+  let inRepoPending = $state<Record<string, boolean>>({});
+
+  function loadInRepoInstructions(repo: Repo): void {
+    const key = repoKey(repo);
+    if (inRepoInstructions[key] !== undefined) return; // Already loaded.
+    inRepoPending[key] = true;
+    getInRepoInstructions(repo.platform, repo.owner, repo.repo)
+      .then((content) => {
+        inRepoInstructions[key] = content;
+        inRepoPending[key] = false;
+        // Update settings drafts if panel is open.
+        if (openPanel[key] === "settings" && content && drafts[key]) {
+          drafts[key].instructions = content;
+        }
+      })
+      .catch(() => {
+        inRepoInstructions[key] = null;
+        inRepoPending[key] = false;
+      });
+  }
+
+  async function refresh(): Promise<void> {
+    loadError = "";
+    loadState = "loading";
+    try {
+      repos = await getRepos();
+      loadState = "success";
+      // Kick off in-repo instruction fetches in parallel (non-blocking).
+      for (const r of repos) {
+        loadInRepoInstructions(r);
+      }
+    } catch (e) {
+      if (handleAuthError(e)) return;
+      loadState = "error";
+      loadError = formatError(
+        e,
+        "Could not load repositories — check your connection and try again.",
+      );
+    }
+  }
+
   function openSettings(r: Repo): void {
     const key = repoKey(r);
     const tone = r.tone ?? "";
@@ -104,12 +132,21 @@
     drafts[key] = {
       toneOption: !tone ? "inherit" : isPreset ? tone : "custom",
       customTone: isPreset ? "" : tone,
-      instructions: r.instructions ?? "",
+      instructions: (inRepoInstructions[key] ?? r.instructions) ?? "",
       model: r.model ?? "",
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
+      commitTypes: r.commit_types ?? "",
     };
     openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
+    // Ensure in-repo instructions are loaded.
+    loadInRepoInstructions(r);
+  }
+
+  // Computed: get the effective instructions for display,
+  // preferring in-repo if loaded, else resolved.
+  function getEffectiveInstructions(r: Repo): string {
+    return inRepoInstructions[repoKey(r)] ?? r.effective.instructions ?? "neutral (default)";
   }
 
   function openGenerate(r: Repo): void {
@@ -141,6 +178,7 @@
         model: d.model.trim() ? d.model : null,
         temperature: tempResult.value,
         trigger: d.trigger,
+        commit_types: d.commitTypes.trim() ? d.commitTypes : null,
       });
       await refresh();
       saveMsg[key] = "Saved";
@@ -258,7 +296,11 @@
           <header class="repo-workpiece__header">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
-                <span class="chip">{r.platform}</span><span
+                <span class="chip">{r.platform}</span>
+                {#if inRepoInstructions[key] || r.effective.instructions}
+                  <span class="chip" title="Custom voice/prompt configured">Voice</span>
+                {/if}
+                <span
                   class="status {r.enabled
                     ? 'status--healthy'
                     : 'status--quiet'}"
@@ -285,13 +327,20 @@
             <div>
               <p class="trace-label">Effective tone</p>
               <p class="mt-1 text-sm text-ink">
-                {r.effective.tone ?? "neutral"}
+                {inRepoInstructions[key] ? "custom" : r.effective.tone ?? "neutral"}
               </p>
             </div>
             <div>
               <p class="trace-label">Model</p>
               <p class="mt-1 break-all text-sm text-ink">
                 {r.effective.model ?? "inherit"}
+              </p>
+            </div>
+            <div>
+              <p class="trace-label">Effective voice</p>
+              <p class="mt-1 text-sm text-ink break-all max-h-8 overflow-hidden"
+                 title={getEffectiveInstructions(r) !== "neutral (default)" ? getEffectiveInstructions(r) : ""}>
+                {inRepoPending[key] ? "loading…" : getEffectiveInstructions(r)}
               </p>
             </div>
             <div>
@@ -361,7 +410,8 @@
                     bind:value={d.instructions}
                     rows="3"
                     class="field"></textarea><span class="field-group__hint"
-                    >Extra guidance the writer follows for this repository.</span
+                    >{#if inRepoPending[key] === true}Loading in-repo instructions…
+                        {:else}Extra guidance the writer follows for this repository.{/if}</span
                   ></label
                 >
                 <label class="field-group"
@@ -401,10 +451,19 @@
                     >Auto runs on release webhooks; manual disables webhooks.</span
                   ></label
                 >
+                <label class="field-group"
+                  ><span class="field-group__label">Commit types</span><input
+                    bind:value={d.commitTypes}
+                    placeholder="fix,feat,refactor,perf"
+                    class="field"
+                  /><span class="field-group__hint"
+                    >Comma-separated commit types. Blank = inherit global. Breaking changes are always included.</span
+                  ></label
+                >
               </div>
               <p class="mt-4 text-xs text-ink-3">
                 Effective: tone <span class="text-ink"
-                  >{r.effective.tone ?? "neutral"}</span
+                  >{inRepoInstructions[key] ? "custom" : r.effective.tone ?? "neutral"}</span
                 >
                 · model
                 <span class="text-ink">{r.effective.model ?? "inherit"}</span>
@@ -415,7 +474,25 @@
                     ? r.effective.temperature
                     : "inherit"}</span
                 >
+                · voice
+                <span class="text-ink"
+                  >{inRepoInstructions[key] ? "custom (in-repo)" : (r.effective.instructions ? "custom" : "neutral (default)")}</span
+                >
+                · commit types
+                <span class="text-ink">{r.effective.commitTypes?.length ? r.effective.commitTypes.join(", ") : "inherit"}</span>
               </p>
+              {#if inRepoInstructions[key] || r.effective.instructions}
+                <details class="mt-4">
+                  <summary class="trace-label cursor-pointer select-none">View effective voice/prompt</summary>
+                  <div class="note-paper mt-2 text-sm whitespace-pre-wrap overflow-auto max-h-64 font-mono">
+                    {#if inRepoInstructions[key]}
+                      In-repo instructions (.github/release-notes-instructions.md):\n\n{inRepoInstructions[key]}
+                    {:else}
+                      {r.effective.instructions}
+                    {/if}
+                  </div>
+                </details>
+              {/if}
               <div class="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   onclick={() => saveSettings(r)}

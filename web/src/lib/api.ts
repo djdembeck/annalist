@@ -21,10 +21,14 @@ export type Repo = {
   model: string | null;
   temperature: number | null;
   trigger: string;
+  commit_types: string | null;
   effective: {
     tone: string | null;
     model: string | null;
     temperature: number | null;
+    instructions: string | null;
+    source: string | null;
+    commitTypes: string[] | null;
   };
 };
 
@@ -45,6 +49,7 @@ export type RepoSettingUpdate = {
   model?: string | null;
   temperature?: number | null;
   trigger?: string;
+  commit_types?: string | null;
 };
 
 export type GenerateResult = {
@@ -65,6 +70,7 @@ export type Settings = {
   instructions: string | null;
   model: string | null;
   temperature: number | null;
+  commit_types: string | null;
   llm: {
     base_url: string;
     model: string;
@@ -78,6 +84,7 @@ export type SettingsUpdate = {
   instructions?: string | null;
   model?: string | null;
   temperature?: number | null;
+  commit_types?: string | null;
 };
 
 export function getToken(): string {
@@ -151,6 +158,16 @@ export function addRepo(repo: {
     method: "POST",
     body: JSON.stringify(repo),
   });
+}
+
+export function getInRepoInstructions(
+  platform: string,
+  owner: string,
+  repo: string,
+): Promise<string | null> {
+  return apiFetch<{ instructions?: string }>(
+    `/api/repos/${platform}/${owner}/${repo}/in-repo-instructions`,
+  ).then((r) => r.instructions ?? null);
 }
 
 export function putRepoSettings(

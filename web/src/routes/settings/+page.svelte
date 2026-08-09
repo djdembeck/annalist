@@ -19,6 +19,7 @@
   let model = $state("");
   let temperature = $state("");
   let temperatureError = $state("");
+  let commitTypes = $state("");
 
   let platformStatus = $derived(
     settings
@@ -51,6 +52,7 @@
       instructions = s.instructions ?? "";
       model = s.model ?? "";
       temperature = s.temperature === null ? "" : String(s.temperature);
+      commitTypes = s.commit_types ?? "";
       temperatureError = "";
       error = "";
     } catch (e) {
@@ -82,6 +84,7 @@
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
         temperature: tempResult.value,
+        commit_types: commitTypes.trim() ? commitTypes : null,
       });
       saved = true;
       temperatureError = "";
@@ -191,6 +194,15 @@
                 >{/if}</label
             >
           </div>
+          <label class="field-group"
+            ><span class="field-group__label">Commit types</span><input
+              bind:value={commitTypes}
+              placeholder="fix,feat,refactor,perf"
+              class="field"
+            /><span class="field-group__hint"
+              >Comma-separated conventional commit types included in notes. Blank = server default (fix,feat,refactor,perf). Breaking changes are always included.</span
+            ></label
+          >
           <div class="flex flex-wrap items-center gap-3">
             <button onclick={save} disabled={saving} class="btn btn-primary"
               >{saving ? "Saving…" : "Save contract"}</button
@@ -268,7 +280,8 @@
                 : toneOption}
 Model: {model.trim() || settings.llm.model || "server default"}
 Temperature: {temperature !== "" ? temperature : "server default"}
-Instructions: {instructions.trim() || "No additional instructions."}</pre>
+Instructions: {instructions.trim() || "No additional instructions."}
+Commit types: {commitTypes.trim() || "server default (fix,feat,refactor,perf)"}</pre>
           <p class="mt-3 text-xs text-ink-3">
             This proof reflects the values in the form. Repository-level
             settings can override the global contract.
