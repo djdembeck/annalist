@@ -7,6 +7,11 @@
     SAVE_MSG_TIMEOUT,
   } from "$lib/repoUtils";
   import {
+    COMMIT_TYPE_OPTIONS,
+    formatCommitTypes,
+    getCommitTypeSelection,
+  } from "$lib/commitTypes";
+  import {
     getRepos,
     putRepoSettings,
     generate,
@@ -31,7 +36,9 @@
     model: string;
     temperature: string;
     trigger: string;
-    commitTypes: string;
+    inheritCommitTypes: boolean;
+    selectedCommitTypes: string[];
+    customCommitTypes: string;
   };
 
   let repos = $state<Repo[]>([]);
@@ -135,6 +142,7 @@
     const key = repoKey(r);
     const tone = r.tone ?? "";
     const isPreset = PRESETS.includes(tone);
+    const commitTypeSelection = getCommitTypeSelection(r.commit_types);
     drafts[key] = {
       toneOption: !tone ? "inherit" : isPreset ? tone : "custom",
       customTone: isPreset ? "" : tone,
@@ -142,7 +150,9 @@
       model: r.model ?? "",
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
-      commitTypes: r.commit_types ?? "",
+      inheritCommitTypes: !r.commit_types,
+      selectedCommitTypes: commitTypeSelection.selected,
+      customCommitTypes: commitTypeSelection.custom.join(", "),
     };
     openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
     // Ensure in-repo instructions are loaded.
@@ -188,7 +198,9 @@
         model: d.model.trim() ? d.model : null,
         temperature: tempResult.value,
         trigger: d.trigger,
-        commit_types: d.commitTypes.trim() ? d.commitTypes : null,
+        commit_types: d.inheritCommitTypes
+          ? null
+          : formatCommitTypes(d.selectedCommitTypes, d.customCommitTypes),
       });
       await refresh();
       saveMsg[key] = "Saved";
@@ -471,16 +483,69 @@
                     >Auto runs on release webhooks; manual disables webhooks.</span
                   ></label
                 >
-                <label class="field-group"
-                  ><span class="field-group__label">Commit types</span><input
-                    bind:value={d.commitTypes}
-                    placeholder="fix,feat,refactor,perf"
-                    class="field"
-                  /><span class="field-group__hint"
-                    >Comma-separated commit types. Blank = inherit global.
-                    Breaking changes are always included.</span
-                  ></label
-                >
+                <fieldset class="field-group md:col-span-2">
+                  <legend class="field-group__label">Commit types</legend>
+                  <label class="check-control">
+                    <input
+                      class="check-input"
+                      type="checkbox"
+                      checked={d.inheritCommitTypes}
+                      onchange={(event) => {
+                        d.inheritCommitTypes = event.currentTarget.checked;
+                      }}
+                    />
+                    <span>Inherit global selection</span>
+                  </label>
+                  <div
+                    class:commit-type-grid--disabled={d.inheritCommitTypes}
+                    class="commit-type-grid"
+                    aria-label="Repository commit types"
+                  >
+                    {#each COMMIT_TYPE_OPTIONS as option (option.value)}
+                      <label
+                        class="check-control commit-type-option"
+                        class:commit-type-option--selected={d.selectedCommitTypes.includes(
+                          option.value,
+                        )}
+                      >
+                        <input
+                          class="check-input"
+                          type="checkbox"
+                          disabled={d.inheritCommitTypes}
+                          checked={d.selectedCommitTypes.includes(option.value)}
+                          onchange={(event) => {
+                            const checked = event.currentTarget.checked;
+                            d.selectedCommitTypes = checked
+                              ? [...d.selectedCommitTypes, option.value]
+                              : d.selectedCommitTypes.filter(
+                                  (type) => type !== option.value,
+                                );
+                          }}
+                        />
+                        <span>
+                          <strong>{option.value}</strong>
+                          <small>{option.description}</small>
+                        </span>
+                      </label>
+                    {/each}
+                  </div>
+                  <label class="field-group__custom-types">
+                    <span class="field-group__hint"
+                      >Additional types (optional)</span
+                    >
+                    <input
+                      bind:value={d.customCommitTypes}
+                      disabled={d.inheritCommitTypes}
+                      placeholder="security,breaking"
+                      class="field"
+                    />
+                  </label>
+                  <span class="field-group__hint"
+                    >{d.inheritCommitTypes
+                      ? "Uses the global selection."
+                      : "Selected types are included in notes. Breaking changes are always included."}</span
+                  >
+                </fieldset>
               </div>
               <p class="mt-4 text-xs text-ink-3">
                 Effective: tone <span class="text-ink"

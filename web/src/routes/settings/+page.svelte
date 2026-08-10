@@ -1,6 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { parseTemperature, resolveTone } from "$lib/repoUtils";
+  import {
+    COMMIT_TYPE_OPTIONS,
+    DEFAULT_COMMIT_TYPES,
+    formatCommitTypes,
+    getCommitTypeSelection,
+  } from "$lib/commitTypes";
   import { getSettings, putSettings, type Settings } from "$lib/api";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
@@ -10,7 +16,6 @@
   } from "$lib/composables/useAuthErrorHandler";
 
   const PRESET_OPTIONS = ["chronicler", "engineer", "launch"];
-  const DEFAULT_COMMIT_TYPES = "all commit types";
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
@@ -23,7 +28,8 @@
   let model = $state("");
   let temperature = $state("");
   let temperatureError = $state("");
-  let commitTypes = $state("");
+  let selectedCommitTypes = $state<string[]>(DEFAULT_COMMIT_TYPES);
+  let customCommitTypes = $state("");
 
   let platformStatus = $derived(
     settings
@@ -54,7 +60,9 @@
       instructions = s.instructions ?? "";
       model = s.model ?? "";
       temperature = s.temperature === null ? "" : String(s.temperature);
-      commitTypes = s.commit_types ?? "";
+      const commitTypeSelection = getCommitTypeSelection(s.commit_types);
+      selectedCommitTypes = commitTypeSelection.selected;
+      customCommitTypes = commitTypeSelection.custom.join(", ");
       temperatureError = "";
       error = "";
     } catch (e) {
@@ -86,7 +94,7 @@
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
         temperature: tempResult.value,
-        commit_types: commitTypes.trim() ? commitTypes : null,
+        commit_types: formatCommitTypes(selectedCommitTypes, customCommitTypes),
       });
       saved = true;
       temperatureError = "";
@@ -208,16 +216,49 @@
                 >{/if}</label
             >
           </div>
-          <label class="field-group"
-            ><span class="field-group__label">Commit types</span><input
-              bind:value={commitTypes}
-              placeholder={DEFAULT_COMMIT_TYPES}
-              class="field"
-            /><span class="field-group__hint"
-              >Comma-separated conventional commit types included in notes.
-              Blank = all commit types. Breaking changes are always included.</span
-            ></label
-          >
+          <fieldset class="field-group">
+            <legend class="field-group__label">Commit types</legend>
+            <div class="commit-type-grid" aria-label="Global commit types">
+              {#each COMMIT_TYPE_OPTIONS as option (option.value)}
+                <label
+                  class="check-control commit-type-option"
+                  class:commit-type-option--selected={selectedCommitTypes.includes(
+                    option.value,
+                  )}
+                >
+                  <input
+                    class="check-input"
+                    type="checkbox"
+                    checked={selectedCommitTypes.includes(option.value)}
+                    onchange={(event) => {
+                      const checked = event.currentTarget.checked;
+                      selectedCommitTypes = checked
+                        ? [...selectedCommitTypes, option.value]
+                        : selectedCommitTypes.filter(
+                            (type) => type !== option.value,
+                          );
+                    }}
+                  />
+                  <span>
+                    <strong>{option.value}</strong>
+                    <small>{option.description}</small>
+                  </span>
+                </label>
+              {/each}
+            </div>
+            <label class="field-group__custom-types">
+              <span class="field-group__hint">Additional types (optional)</span>
+              <input
+                bind:value={customCommitTypes}
+                placeholder="security,breaking"
+                class="field"
+              />
+            </label>
+            <span class="field-group__hint"
+              >Selected types are included in notes. Breaking changes are always
+              included.</span
+            >
+          </fieldset>
           <div class="flex flex-wrap items-center gap-3">
             <button onclick={save} disabled={saving} class="btn btn-primary"
               >{saving ? "Saving…" : "Save contract"}</button
@@ -301,8 +342,8 @@
 Model: {model.trim() || settings.llm.model || "server default"}
 Temperature: {temperature !== "" ? temperature : "server default"}
 Instructions: {instructions.trim() || "No additional instructions."}
-Commit types: {commitTypes.trim() ||
-              `server default (${DEFAULT_COMMIT_TYPES})`}</pre>
+Commit types: {formatCommitTypes(selectedCommitTypes, customCommitTypes) ||
+              "all commit types"}</pre>
           <p class="mt-3 text-xs text-ink-3">
             This proof reflects the values in the form. Repository-level
             settings can override the global contract.
