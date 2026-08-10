@@ -145,6 +145,7 @@
       commitTypes: r.commit_types ?? "",
     };
     openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
+    // Ensure in-repo instructions are loaded.
     loadInRepoInstructions(r);
   }
 
