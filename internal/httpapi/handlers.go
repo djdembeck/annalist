@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -76,7 +77,7 @@ type effective struct {
 	Temperature  float64  `json:"temperature"`
 	Instructions string   `json:"instructions"`
 	Source       string   `json:"source"`
-	CommitTypes  []string `json:"commitTypes"`
+	CommitTypes  []string `json:"commit_types"`
 }
 
 // repoItemResp is the JSON shape for a repo in /api/repos and the settings PUT.
@@ -526,7 +527,11 @@ func (a *api) handleInRepoInstructions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if readErr != nil {
-		writeJSON(w, http.StatusOK, map[string]any{})
+		if errors.Is(readErr, pipeline.ErrNotFound) {
+			writeJSON(w, http.StatusOK, map[string]any{})
+			return
+		}
+		writeErr(w, http.StatusBadGateway, readErr.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"instructions": content})

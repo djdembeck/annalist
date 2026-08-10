@@ -239,10 +239,10 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 			// No filter configured, keep all
 			kept = append(kept, "- "+subject)
 		} else {
-			// Check if type is in include set
-			commitType := matches[1]
+			// Check if type is in include set (case-insensitive)
+			commitType := strings.ToLower(matches[1])
 			for _, allowed := range includeTypes {
-				if commitType == allowed {
+				if commitType == strings.ToLower(allowed) {
 					kept = append(kept, "- "+subject)
 					break
 				}

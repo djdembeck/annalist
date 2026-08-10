@@ -78,7 +78,7 @@ func Load() (*Config, error) {
 	v.SetDefault("llm.temperature", 0.85)
 	v.SetDefault("llm.max_tokens", 4096)
 	v.SetDefault("llm.timeout_s", 120)
-	v.SetDefault("llm.commit_types", "fix,feat,refactor,perf")
+	// No default for llm.commit_types — empty string keeps all commit types.
 
 	// BindEnv makes every key resolvable from its env var even when it has no
 	// default and no config.yaml entry. Without this, viper's Unmarshal path

@@ -285,6 +285,24 @@ func TestFilterCommitLog(t *testing.T) {
 			types: []string{"feat"},
 			want:  "- feat(api): new endpoint",
 		},
+		{
+			name:  "uppercase subject lowercase includeTypes kept",
+			raw:   "- FIX: patch bug\x00- chore: tidy\x00",
+			types: []string{"fix"},
+			want:  "- FIX: patch bug",
+		},
+		{
+			name:  "lowercase subject uppercase includeTypes kept",
+			raw:   "- fix: patch bug\x00- chore: tidy\x00",
+			types: []string{"FIX"},
+			want:  "- fix: patch bug",
+		},
+		{
+			name:  "mixed case drop",
+			raw:   "- docs: update\x00- feat: add login\x00",
+			types: []string{"fix", "feat"},
+			want:  "- feat: add login",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

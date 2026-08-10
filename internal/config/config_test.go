@@ -67,8 +67,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LLM.TimeoutS != 120 {
 		t.Errorf("llm.timeout_s = %d, want 120", cfg.LLM.TimeoutS)
 	}
-	if cfg.LLM.CommitTypes != "fix,feat,refactor,perf" {
-		t.Errorf("llm.commit_types = %q, want fix,feat,refactor,perf", cfg.LLM.CommitTypes)
+	if cfg.LLM.CommitTypes != "" {
+		t.Errorf("llm.commit_types = %q, want empty (no default)", cfg.LLM.CommitTypes)
 	}
 	if cfg.Forgejo.URL != "" {
 		t.Errorf("forgejo.url = %q, want empty (no default; set FORGEJO_URL to enable Forgejo)", cfg.Forgejo.URL)

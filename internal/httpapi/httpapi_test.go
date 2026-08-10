@@ -75,11 +75,14 @@ func (f *fakeClient) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error
 }
 
 func (f *fakeClient) ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
 	content, ok := f.fileContents[path]
 	if ok {
 		return content, nil
 	}
-	return "", fmt.Errorf("file not found: %s", path)
+	return "", fmt.Errorf("%w: %s", pipeline.ErrNotFound, path)
 }
 
 // testAPI builds an api with a real temp-db store and a fake pip.
@@ -1086,6 +1089,27 @@ func TestHandleInRepoInstructionsForgejoClient(t *testing.T) {
 	}
 	if body["instructions"] != "FORGEJO IN-REPO PROMPT" {
 		t.Errorf("instructions = %q, want FORGEJO IN-REPO PROMPT", body["instructions"])
+	}
+}
+
+func TestHandleInRepoInstructionsReadError502(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg)
+	a.gh = &fakeClient{
+		err: errors.New("upstream connection refused"),
+	}
+
+	req := newReq(http.MethodGet, "/api/repos/github/djdembeck/annalist/in-repo-instructions", "", map[string]string{
+		"platform": "github",
+		"owner":    "djdembeck",
+		"repo":     "annalist",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "upstream connection refused") {
+		t.Errorf("body = %q, want error text", w.Body.String())
 	}
 }
 

@@ -507,8 +507,8 @@
                 >
                 · commit types
                 <span class="text-ink"
-                  >{r.effective.commitTypes?.length
-                    ? r.effective.commitTypes.join(", ")
+                  >{r.effective.commit_types?.length
+                    ? r.effective.commit_types.join(", ")
                     : "inherit"}</span
                 >
               </p>

@@ -28,7 +28,7 @@ export type Repo = {
     temperature: number | null;
     instructions: string | null;
     source: string | null;
-    commitTypes: string[] | null;
+    commit_types: string[] | null;
   };
 };
 

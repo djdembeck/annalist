@@ -10,7 +10,7 @@
   } from "$lib/composables/useAuthErrorHandler";
 
   const PRESET_OPTIONS = ["chronicler", "engineer", "launch"];
-  const DEFAULT_COMMIT_TYPES = "fix,feat,refactor,perf";
+  const DEFAULT_COMMIT_TYPES = "all commit types";
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
@@ -215,8 +215,7 @@
               class="field"
             /><span class="field-group__hint"
               >Comma-separated conventional commit types included in notes.
-              Blank = server default ({DEFAULT_COMMIT_TYPES}). Breaking changes
-              are always included.</span
+              Blank = all commit types. Breaking changes are always included.</span
             ></label
           >
           <div class="flex flex-wrap items-center gap-3">
