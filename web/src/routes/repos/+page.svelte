@@ -8,6 +8,7 @@
   } from "$lib/repoUtils";
   import {
     COMMIT_TYPE_OPTIONS,
+    DEFAULT_COMMIT_TYPES,
     formatCommitTypes,
     getCommitTypeSelection,
   } from "$lib/commitTypes";
@@ -491,7 +492,15 @@
                       type="checkbox"
                       checked={d.inheritCommitTypes}
                       onchange={(event) => {
-                        d.inheritCommitTypes = event.currentTarget.checked;
+                        const inherit = event.currentTarget.checked;
+                        d.inheritCommitTypes = inherit;
+                        if (
+                          !inherit &&
+                          d.selectedCommitTypes.length === 0 &&
+                          !d.customCommitTypes.trim()
+                        ) {
+                          d.selectedCommitTypes = [...DEFAULT_COMMIT_TYPES];
+                        }
                       }}
                     />
                     <span>Inherit global selection</span>
@@ -543,7 +552,13 @@
                   <span class="field-group__hint"
                     >{d.inheritCommitTypes
                       ? "Uses the global selection."
-                      : "Selected types are included in notes. Breaking changes are always included."}</span
+                      : formatCommitTypes(
+                            d.selectedCommitTypes,
+                            d.customCommitTypes,
+                          )
+                        ? "Selected types are included in notes."
+                        : "No filter saved — all commit types are included."} Breaking
+                    changes are always included.</span
                   >
                 </fieldset>
               </div>

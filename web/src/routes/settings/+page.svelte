@@ -255,8 +255,10 @@
               />
             </label>
             <span class="field-group__hint"
-              >Selected types are included in notes. Breaking changes are always
-              included.</span
+              >{formatCommitTypes(selectedCommitTypes, customCommitTypes)
+                ? "Selected types are included in notes."
+                : "No filter saved — all commit types are included."} Breaking changes
+              are always included.</span
             >
           </fieldset>
           <div class="flex flex-wrap items-center gap-3">

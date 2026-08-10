@@ -36,9 +36,8 @@ export function getCommitTypeSelection(value: string | null | undefined): {
   custom: string[];
 } {
   const parsed = splitCommitTypes(value);
-  const source = parsed.length ? parsed : DEFAULT_COMMIT_TYPES;
   const selected = COMMIT_TYPE_OPTIONS.filter((option) =>
-    source.some((type) => type.toLowerCase() === option.value),
+    parsed.some((type) => type.toLowerCase() === option.value),
   ).map((option) => option.value);
   const custom = parsed.filter(
     (type) => !KNOWN_COMMIT_TYPES.has(type.toLowerCase()),
