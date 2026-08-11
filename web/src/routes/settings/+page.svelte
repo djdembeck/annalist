@@ -224,7 +224,7 @@
                 >{/if}</label
             >
           </div>
-          <fieldset class="field-group">
+          <fieldset class="field-group" disabled={saving}>
             <legend class="field-group__label">Commit types</legend>
             <div class="commit-type-grid" aria-label="Global commit types">
               {#each COMMIT_TYPE_OPTIONS as option (option.value)}
