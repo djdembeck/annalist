@@ -505,53 +505,54 @@
                     />
                     <span>Inherit global selection</span>
                   </label>
-                  <div
-                    class:commit-type-grid--disabled={d.inheritCommitTypes}
-                    class="commit-type-grid"
-                    aria-label="Repository commit types"
-                  >
-                    {#each COMMIT_TYPE_OPTIONS as option (option.value)}
-                      <label
-                        class="check-control commit-type-option"
-                        class:commit-type-option--selected={d.selectedCommitTypes.includes(
-                          option.value,
-                        )}
-                      >
-                        <input
-                          class="check-input"
-                          type="checkbox"
-                          disabled={d.inheritCommitTypes}
-                          checked={d.selectedCommitTypes.includes(option.value)}
-                          onchange={(event) => {
-                            const checked = event.currentTarget.checked;
-                            d.selectedCommitTypes = checked
-                              ? [...d.selectedCommitTypes, option.value]
-                              : d.selectedCommitTypes.filter(
-                                  (type) => type !== option.value,
-                                );
-                          }}
-                        />
-                        <span>
-                          <strong>{option.value}</strong>
-                          <small>{option.description}</small>
-                        </span>
-                      </label>
-                    {/each}
-                  </div>
-                  <label class="field-group__custom-types">
-                    <span class="field-group__hint"
-                      >Additional types (optional)</span
+                  {#if !d.inheritCommitTypes}
+                    <div
+                      class="commit-type-grid"
+                      aria-label="Repository commit types"
                     >
-                    <input
-                      bind:value={d.customCommitTypes}
-                      disabled={d.inheritCommitTypes}
-                      placeholder="security,breaking"
-                      class="field"
-                    />
-                  </label>
+                      {#each COMMIT_TYPE_OPTIONS as option (option.value)}
+                        <label
+                          class="check-control commit-type-option"
+                          class:commit-type-option--selected={d.selectedCommitTypes.includes(
+                            option.value,
+                          )}
+                        >
+                          <input
+                            class="check-input"
+                            type="checkbox"
+                            checked={d.selectedCommitTypes.includes(
+                              option.value,
+                            )}
+                            onchange={(event) => {
+                              const checked = event.currentTarget.checked;
+                              d.selectedCommitTypes = checked
+                                ? [...d.selectedCommitTypes, option.value]
+                                : d.selectedCommitTypes.filter(
+                                    (type) => type !== option.value,
+                                  );
+                            }}
+                          />
+                          <span>
+                            <strong>{option.value}</strong>
+                            <small>{option.description}</small>
+                          </span>
+                        </label>
+                      {/each}
+                    </div>
+                    <label class="field-group__custom-types">
+                      <span class="field-group__hint"
+                        >Additional types (optional)</span
+                      >
+                      <input
+                        bind:value={d.customCommitTypes}
+                        placeholder="security,breaking"
+                        class="field"
+                      />
+                    </label>
+                  {/if}
                   <span class="field-group__hint"
                     >{d.inheritCommitTypes
-                      ? "Uses the global selection."
+                      ? "Uses the global selection. Turn off inheritance to choose repository-specific types."
                       : formatCommitTypes(
                             d.selectedCommitTypes,
                             d.customCommitTypes,

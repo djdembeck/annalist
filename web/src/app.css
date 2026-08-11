@@ -1014,10 +1014,6 @@ textarea.field {
   gap: var(--trace-space-2);
 }
 
-.commit-type-grid--disabled {
-  opacity: 0.55;
-}
-
 .commit-type-option {
   align-items: flex-start;
   min-height: 3.5rem;

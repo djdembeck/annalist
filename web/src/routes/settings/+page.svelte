@@ -30,6 +30,7 @@
   let temperatureError = $state("");
   let selectedCommitTypes = $state<string[]>(DEFAULT_COMMIT_TYPES);
   let customCommitTypes = $state("");
+  let commitTypesDirty = $state(false);
 
   let platformStatus = $derived(
     settings
@@ -61,8 +62,12 @@
       model = s.model ?? "";
       temperature = s.temperature === null ? "" : String(s.temperature);
       const commitTypeSelection = getCommitTypeSelection(s.commit_types);
-      selectedCommitTypes = commitTypeSelection.selected;
+      const hasSavedCommitTypes = Boolean(s.commit_types?.trim());
+      selectedCommitTypes = hasSavedCommitTypes
+        ? commitTypeSelection.selected
+        : [...DEFAULT_COMMIT_TYPES];
       customCommitTypes = commitTypeSelection.custom.join(", ");
+      commitTypesDirty = false;
       temperatureError = "";
       error = "";
     } catch (e) {
@@ -94,8 +99,11 @@
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
         temperature: tempResult.value,
-        commit_types: formatCommitTypes(selectedCommitTypes, customCommitTypes),
+        commit_types: commitTypesDirty
+          ? formatCommitTypes(selectedCommitTypes, customCommitTypes)
+          : (settings?.commit_types ?? null),
       });
+      commitTypesDirty = false;
       saved = true;
       temperatureError = "";
       error = "";
@@ -237,6 +245,7 @@
                         : selectedCommitTypes.filter(
                             (type) => type !== option.value,
                           );
+                      commitTypesDirty = true;
                     }}
                   />
                   <span>
@@ -250,14 +259,17 @@
               <span class="field-group__hint">Additional types (optional)</span>
               <input
                 bind:value={customCommitTypes}
+                oninput={() => (commitTypesDirty = true)}
                 placeholder="security,breaking"
                 class="field"
               />
             </label>
             <span class="field-group__hint"
-              >{formatCommitTypes(selectedCommitTypes, customCommitTypes)
-                ? "Selected types are included in notes."
-                : "No filter saved — all commit types are included."} Breaking changes
+              >{!commitTypesDirty && !settings?.commit_types?.trim()
+                ? "Default selection shown for new installs. Change a checkbox to save a filter."
+                : formatCommitTypes(selectedCommitTypes, customCommitTypes)
+                  ? "Selected types are included in notes."
+                  : "No filter saved — all commit types are included."} Breaking changes
               are always included.</span
             >
           </fieldset>
@@ -344,8 +356,10 @@
 Model: {model.trim() || settings.llm.model || "server default"}
 Temperature: {temperature !== "" ? temperature : "server default"}
 Instructions: {instructions.trim() || "No additional instructions."}
-Commit types: {formatCommitTypes(selectedCommitTypes, customCommitTypes) ||
-              "all commit types"}</pre>
+Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()
+              ? `${DEFAULT_COMMIT_TYPES.join(",")} (default, not saved)`
+              : formatCommitTypes(selectedCommitTypes, customCommitTypes) ||
+                "all commit types"}</pre>
           <p class="mt-3 text-xs text-ink-3">
             This proof reflects the values in the form. Repository-level
             settings can override the global contract.
