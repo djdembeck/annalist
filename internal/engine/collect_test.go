@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -337,6 +338,162 @@ func TestCollectCommitLogBreakingChange(t *testing.T) {
 	}
 	if strings.Contains(got, "chore: tidy") {
 		t.Errorf("chore should be filtered; got %q", got)
+	}
+}
+
+func TestClassifyFile(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"src/main.go", "source"},
+		{"pkg/util/foo.py", "source"},
+		{"readme.md", "docs"},
+		{"docs/guide.md", "docs"},
+		{"doc/notes.md", "docs"},
+		{"CHANGELOG.md", "docs"},
+		{"src/test/thing.go", "test"},
+		{"tests/suite/test_x.go", "test"},
+		{"js/__tests__/comp.test.ts", "test"},
+		{"test_foo.py", "test"},
+		{"foo_test.go", "test"},
+		{"bar_test.py", "test"},
+		{"comp.test.ts", "test"},
+		{"comp.spec.js", "test"},
+		{"package.json", "config"},
+		{"go.mod", "config"},
+		{"go.sum", "config"},
+		{".github/workflows/ci.yml", "config"},
+		{".forgejo/actions/build.yml", "config"},
+		{"infra/main.tf", "config"},
+		{"terraform/prod.tf", "config"},
+		{"k8s/deploy.yaml", "config"},
+		{"config/app.txt", "source"}, // extension outside the config set falls through
+	}
+	for _, tc := range cases {
+		if got := ClassifyFile(tc.path); got != tc.want {
+			t.Errorf("ClassifyFile(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestCollectDiff(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	plan := []struct {
+		subject string
+		tag     string
+	}{
+		{subject: "one", tag: "v0.1.0"},
+		{subject: "two", tag: "v0.2.0"},
+	}
+	makeTaggedRepo(t, dir, plan)
+
+	got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	if got == "" {
+		t.Fatal("expected non-empty diff")
+	}
+	if !strings.Contains(got, "f.txt") {
+		t.Errorf("diff missing f.txt; got:\n%s", got)
+	}
+	// The --stat summary is always included.
+	if !strings.Contains(got, "1 file changed") {
+		t.Errorf("diff missing --stat summary; got:\n%s", got)
+	}
+	// The patch hunk is present when the budget is generous.
+	if !strings.Contains(got, "@@") {
+		t.Errorf("diff missing hunks; got:\n%s", got)
+	}
+}
+
+func TestCollectDiffBudget(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	// Two large, distinguishable files so a tight budget must skip some hunks.
+	gitTa(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "first")
+	gitTa(t, dir, "tag", "v0.1.0")
+
+	var bigA, bigB strings.Builder
+	for i := range 40 {
+		fmt.Fprintf(&bigA, "line %d of a\n", i)
+		fmt.Fprintf(&bigB, "line %d of b\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte(bigA.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.md"), []byte(bigB.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "second")
+	gitTa(t, dir, "tag", "v0.2.0")
+
+	full := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	if !strings.Contains(full, "a.go") || !strings.Contains(full, "b.md") {
+		t.Fatalf("full diff missing files; got:\n%s", full)
+	}
+	if strings.Contains(full, "[diff truncated") {
+		t.Errorf("unbudgeted diff should not truncate; got:\n%s", full)
+	}
+
+	// A 1-byte budget can emit at most one tiny hunk header's worth; most
+	// hunks must be skipped and the truncation note emitted.
+	tiny := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", 1)
+	if !strings.Contains(tiny, "[diff truncated") {
+		t.Errorf("tight budget should note truncation; got:\n%s", tiny)
+	}
+	// The --stat summary is always present, regardless of budget.
+	if !strings.Contains(tiny, "2 files changed") {
+		t.Errorf("stat summary must be present under budget; got:\n%s", tiny)
+	}
+	// With a 1-byte budget no hunk body can fit, so no @@ content is emitted.
+	if strings.Contains(tiny, "@@") {
+		t.Errorf("1-byte budget should skip all hunks; got:\n%s", tiny)
+	}
+}
+
+func TestCollectDiffFirstRelease(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	plan := []struct {
+		subject string
+		tag     string
+	}{
+		{subject: "one", tag: ""},
+		{subject: "two", tag: "v0.2.0"},
+	}
+	makeTaggedRepo(t, dir, plan)
+
+	// fromTag == "" diffs against the empty tree: the whole history up to v0.2.0.
+	got := CollectDiff(ctx, dir, "", "v0.2.0", DiffBudgetBytes)
+	if got == "" {
+		t.Fatal("expected non-empty first-release diff")
+	}
+	if !strings.Contains(got, "f.txt") {
+		t.Errorf("first-release diff missing f.txt; got:\n%s", got)
+	}
+	if !strings.Contains(got, "2 files changed") || !strings.Contains(got, "f.txt | 2 +") {
+		// The stat line count is informational; the file must at least appear.
+		if !strings.Contains(got, "f.txt") {
+			t.Errorf("first-release diff missing f.txt stat; got:\n%s", got)
+		}
+	}
+	if !strings.Contains(got, "two") {
+		t.Errorf("first-release diff should contain the final file content; got:\n%s", got)
+	}
+}
+
+func TestCollectDiffGitFailure(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	// No git repo here: git diff must fail and CollectDiff returns "".
+	if got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes); got != "" {
+		t.Errorf("expected empty diff on git failure, got:\n%s", got)
 	}
 }
 

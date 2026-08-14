@@ -120,6 +120,28 @@ func TestSettingsCRUD(t *testing.T) {
 	if got.Tone != "replaced" || got.Model != "" || got.Temperature != nil {
 		t.Errorf("replace semantics wrong: %+v", got)
 	}
+
+	// Mode round-trips as a plain string ("" on the global row).
+	if err := s.UpsertSettings(Settings{Mode: "deep"}); err != nil {
+		t.Fatalf("UpsertSettings deep mode: %v", err)
+	}
+	got, err = s.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings mode: %v", err)
+	}
+	if got.Mode != "deep" {
+		t.Errorf("mode = %q, want deep", got.Mode)
+	}
+	if err := s.UpsertSettings(Settings{Mode: ""}); err != nil {
+		t.Fatalf("UpsertSettings empty mode: %v", err)
+	}
+	got, err = s.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings empty mode: %v", err)
+	}
+	if got.Mode != "" {
+		t.Errorf("mode = %q, want empty", got.Mode)
+	}
 }
 
 func TestRepoSettingsCRUD(t *testing.T) {
@@ -224,6 +246,32 @@ func TestRepoSettingsCRUD(t *testing.T) {
 	}
 	if got.Trigger != "manual" {
 		t.Errorf("trigger should persist across update, got %q", got.Trigger)
+	}
+
+	// Mode: explicit "deep" round-trips; empty (NULL) reads back as "" (inherit).
+	if err := s.UpsertRepoSettings(RepoSetting{
+		Platform: "forgejo", Owner: "o", Repo: "r2", Enabled: true, Mode: "deep",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got2, err = s.GetRepoSettings("forgejo", "o", "r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2 == nil || got2.Mode != "deep" {
+		t.Errorf("mode = %+v, want deep", got2)
+	}
+	if err := s.UpsertRepoSettings(RepoSetting{
+		Platform: "forgejo", Owner: "o", Repo: "r2", Enabled: true, Mode: "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got2, err = s.GetRepoSettings("forgejo", "o", "r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2 == nil || got2.Mode != "" {
+		t.Errorf("mode = %+v, want empty (inherit)", got2)
 	}
 }
 

@@ -977,6 +977,141 @@ func TestSpaThroughRouter(t *testing.T) {
 	})
 }
 
+func TestHandleGenerateMode(t *testing.T) {
+	a, pip, _ := testAPI(t, &config.Config{})
+
+	t.Run("mode deep is passed through", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","mode":"deep"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		if len(pip.opts) != 1 || pip.opts[0].Mode != "deep" {
+			t.Errorf("opts = %+v, want Mode deep", pip.opts)
+		}
+	})
+
+	t.Run("absent mode stays empty", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		if len(pip.opts) != 1 || pip.opts[0].Mode != "" {
+			t.Errorf("opts = %+v, want empty mode", pip.opts)
+		}
+	})
+
+	t.Run("invalid mode rejected", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","mode":"bogus"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+		if len(pip.calls) != 0 {
+			t.Errorf("pipeline called %d times on invalid mode, want 0", len(pip.calls))
+		}
+	})
+}
+
+func TestHandlePutSettingsMode(t *testing.T) {
+	a, _, store := testAPI(t, &config.Config{})
+
+	// Set mode to deep, verify response and store.
+	r := newReq(http.MethodPut, "/api/settings", `{"mode":"deep"}`, nil)
+	w := do(a.handlePutSettings, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if body["mode"] != "deep" {
+		t.Errorf("response mode = %v, want deep", body["mode"])
+	}
+	s, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if s.Mode != "deep" {
+		t.Errorf("stored mode = %q, want deep", s.Mode)
+	}
+
+	// GET reflects it.
+	w = do(a.handleGetSettings, httptest.NewRequest(http.MethodGet, "http://test/api/settings", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", w.Code)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if got["mode"] != "deep" {
+		t.Errorf("GET mode = %v, want deep", got["mode"])
+	}
+
+	// Invalid mode rejected.
+	r = newReq(http.MethodPut, "/api/settings", `{"mode":"nope"}`, nil)
+	w = do(a.handlePutSettings, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid mode status = %d, want 400", w.Code)
+	}
+
+	// Explicit null clears.
+	r = newReq(http.MethodPut, "/api/settings", `{"mode":null}`, nil)
+	w = do(a.handlePutSettings, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("null mode status = %d, want 200", w.Code)
+	}
+	var cleared map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &cleared); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if cleared["mode"] != "" {
+		t.Errorf("mode after null = %v, want empty", cleared["mode"])
+	}
+}
+
+func TestHandleListReposMode(t *testing.T) {
+	a, pip, store := testAPI(t, &config.Config{})
+	// Seed a repo row with an explicit deep mode.
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "o", Repo: "r", Enabled: true, Trigger: "auto", Mode: "deep",
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// The fake resolver reports the effective mode as the resolved value.
+	pip.eff.Mode = "deep"
+
+	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var items []repoItemResp
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if items[0].Mode != "deep" {
+		t.Errorf("item mode = %q, want deep", items[0].Mode)
+	}
+	if items[0].Effective.Mode != "deep" {
+		t.Errorf("effective mode = %q, want deep", items[0].Effective.Mode)
+	}
+}
+
 func TestHandleInRepoInstructionsPresent(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
 	a, _, _ := testAPI(t, cfg)

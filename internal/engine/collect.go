@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -272,4 +273,219 @@ func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, inclu
 		return ""
 	}
 	return FilterCommitLog(string(out), includeTypes)
+}
+
+// DiffBudgetBytes caps the hunk content (excluding the always-included --stat
+// summary) sent to the LLM in deep mode. Follows the ai-publish 256 KB default.
+const DiffBudgetBytes = 256 * 1024
+
+// ClassifyFile maps a repository path to one of the deep-mode diff classes:
+// "source", "test", "config", or "docs". Deterministic; order matters (docs,
+// then test, then config, source as the default).
+func ClassifyFile(path string) string {
+	p := strings.ToLower(strings.ReplaceAll(path, `\`, "/"))
+
+	if p == "readme.md" || strings.HasSuffix(p, ".md") ||
+		strings.HasPrefix(p, "docs/") || strings.HasPrefix(p, "doc/") {
+		return "docs"
+	}
+
+	if strings.Contains(p, "/test/") || strings.Contains(p, "/tests/") ||
+		strings.Contains(p, "/__tests__/") || strings.Contains(p, "tests/") ||
+		strings.HasPrefix(p, "test_") ||
+		strings.HasSuffix(p, "_test.go") || strings.HasSuffix(p, "_test.py") ||
+		strings.HasSuffix(p, ".test.ts") || strings.HasSuffix(p, ".test.js") ||
+		strings.HasSuffix(p, ".spec.ts") || strings.HasSuffix(p, ".spec.js") {
+		return "test"
+	}
+
+	switch {
+	case strings.HasSuffix(p, ".json") || strings.HasSuffix(p, ".yml") || strings.HasSuffix(p, ".yaml") ||
+		strings.HasSuffix(p, ".toml") || strings.HasSuffix(p, ".ini") || strings.HasSuffix(p, ".lock") ||
+		strings.HasSuffix(p, ".mod") || strings.HasSuffix(p, ".sum") || strings.HasSuffix(p, ".cfg") ||
+		strings.HasSuffix(p, ".conf") || strings.HasSuffix(p, ".env") || strings.HasSuffix(p, ".xml") ||
+		strings.HasSuffix(p, ".tf") || strings.HasSuffix(p, ".bicep") || strings.HasSuffix(p, ".properties"):
+		return "config"
+	case strings.HasPrefix(p, ".github/") || strings.HasPrefix(p, ".forgejo/") ||
+		strings.HasPrefix(p, "infra/") || strings.HasPrefix(p, "terraform/") || strings.HasPrefix(p, "k8s/"):
+		return "config"
+	}
+	return "source"
+}
+
+// classPriority orders deep-mode diff classes for byte-budget selection:
+// source first, then config, test, docs.
+var classPriority = map[string]int{
+	"source": 0,
+	"config": 1,
+	"test":   2,
+	"docs":   3,
+}
+
+// diffUnit is one budgeted hunk of a file section of the patch.
+type diffUnit struct {
+	class      string
+	filePath   string
+	fileHeader string
+	hunkText   string
+	origIndex  int
+}
+
+// CollectDiff assembles the deep-mode diff between fromTag and toTag: a
+// `git diff --stat` summary (always included, regardless of budget) followed
+// by hunks selected under maxBytes by file-class priority. Returns "" on git
+// failure or when there is no diff content at all.
+//
+// When fromTag is non-empty the range is three-dot (from...to): git diffs
+// from merge-base(from,to), which equals from on linear history and stays
+// correct on rebased branches — the merge-base anchoring tag-to-tag release
+// flow needs. The unchanged commit log (from..to) covers the same endpoints
+// in the common linear case. When fromTag is empty (first release) the diff
+// is taken against the empty tree, which has no merge base with toTag, so a
+// plain two-commit range is used.
+func CollectDiff(ctx context.Context, workdir, fromTag, toTag string, maxBytes int) string {
+	rangeSpec := fromTag + "..." + toTag
+	if fromTag == "" {
+		cmd := exec.CommandContext(ctx, "git", "hash-object", "-t", "tree", "/dev/null")
+		cmd.Dir = workdir
+		treeOut, err := cmd.Output()
+		if err != nil {
+			return ""
+		}
+		rangeSpec = strings.TrimSpace(string(treeOut)) + ".." + toTag
+	}
+
+	statOut, err := runGit(ctx, workdir, "diff", "--stat", rangeSpec)
+	if err != nil {
+		return ""
+	}
+	patchOut, err := runGit(ctx, workdir, "diff", "--patch", "-U3", rangeSpec)
+	if err != nil {
+		return ""
+	}
+	statText := strings.TrimSpace(string(statOut))
+
+	units := parseDiff(string(patchOut))
+	body, skipped := selectHunks(units, maxBytes)
+
+	var b strings.Builder
+	b.WriteString(statText)
+	b.WriteString("\n")
+	b.WriteString(body)
+	if skipped > 0 {
+		fmt.Fprintf(&b, "\n\n[diff truncated: %d more hunk(s) omitted to stay within the %d-byte budget]", skipped, maxBytes)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// runGit runs a git subcommand in workdir and returns raw stdout.
+func runGit(ctx context.Context, workdir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = workdir
+	return cmd.Output()
+}
+
+// parseDiff splits a git patch into per-hunk units. Sections with no @@ block
+// (binary files, empty diffs) contribute no units — they are represented
+// only in the --stat summary.
+func parseDiff(patch string) []diffUnit {
+	var units []diffUnit
+	orig := 0
+	for _, sec := range strings.Split(patch, "diff --git ")[1:] {
+		sec = "diff --git " + sec
+		filePath := diffFilePath(sec)
+		idx := strings.Index(sec, "\n@@")
+		if idx < 0 {
+			continue
+		}
+		header := sec[:idx+1] // through the newline before the first @@
+		rest := sec[idx+1:]
+		for strings.HasPrefix(rest, "@@") {
+			k := strings.Index(rest, "\n@@")
+			var hunk string
+			if k < 0 {
+				hunk = rest
+			} else {
+				hunk = rest[:k+1]
+				rest = rest[k+1:]
+			}
+			units = append(units, diffUnit{
+				class:      ClassifyFile(filePath),
+				filePath:   filePath,
+				fileHeader: header,
+				hunkText:   hunk,
+				origIndex:  orig,
+			})
+			orig++
+			if k < 0 {
+				break
+			}
+		}
+	}
+	return units
+}
+
+// diffFilePath extracts the file path from a section's `diff --git a/<old>
+// b/<new>` line, preferring the b/ (new) path and falling back to the a/
+// path for deletions (b//dev/null).
+func diffFilePath(section string) string {
+	line := section
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = line[:i]
+	}
+	rest, ok := strings.CutPrefix(line, "diff --git ")
+	if !ok {
+		return ""
+	}
+	// The b/ marker is the last " b/" so paths containing " b/" still parse.
+	i := strings.LastIndex(rest, " b/")
+	if i < 0 {
+		return strings.TrimPrefix(rest, "a/")
+	}
+	old := strings.TrimPrefix(rest[:i], "a/")
+	neu := rest[i+3:]
+	if neu == "/dev/null" {
+		return old
+	}
+	return neu
+}
+
+// selectHunks deterministically orders units by (class priority, file path,
+// original position) and greedily emits hunks under maxBytes. A hunk that
+// would exceed the budget is skipped whole (never truncated mid-hunk); later
+// cheaper hunks may still fit. Returns the emitted text and skip count.
+func selectHunks(units []diffUnit, maxBytes int) (string, int) {
+	sorted := make([]diffUnit, len(units))
+	copy(sorted, units)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		pi, pj := classPriority[sorted[i].class], classPriority[sorted[j].class]
+		if pi != pj {
+			return pi < pj
+		}
+		if sorted[i].filePath != sorted[j].filePath {
+			return sorted[i].filePath < sorted[j].filePath
+		}
+		return sorted[i].origIndex < sorted[j].origIndex
+	})
+
+	emitted := make(map[string]bool, len(sorted))
+	var out strings.Builder
+	used, skipped := 0, 0
+	for _, u := range sorted {
+		cost := len(u.hunkText)
+		if !emitted[u.filePath] {
+			cost += len(u.fileHeader)
+		}
+		if used+cost > maxBytes {
+			skipped++
+			continue
+		}
+		if !emitted[u.filePath] {
+			out.WriteString(u.fileHeader)
+			emitted[u.filePath] = true
+		}
+		out.WriteString(u.hunkText)
+		used += cost
+	}
+	return out.String(), skipped
 }

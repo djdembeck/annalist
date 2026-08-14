@@ -26,6 +26,7 @@
   let customTone = $state("");
   let instructions = $state("");
   let model = $state("");
+  let mode = $state("lite");
   let temperature = $state("");
   let temperatureError = $state("");
   let selectedCommitTypes = $state<string[]>(DEFAULT_COMMIT_TYPES);
@@ -60,6 +61,7 @@
       customTone = PRESET_OPTIONS.includes(tone) ? "" : tone;
       instructions = s.instructions ?? "";
       model = s.model ?? "";
+      mode = s.mode === "deep" ? "deep" : "lite";
       temperature = s.temperature === null ? "" : String(s.temperature);
       const commitTypeSelection = getCommitTypeSelection(s.commit_types);
       const hasSavedCommitTypes = Boolean(s.commit_types?.trim());
@@ -98,6 +100,7 @@
         tone,
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
+        mode,
         temperature: tempResult.value,
         commit_types: commitTypesDirty
           ? formatCommitTypes(selectedCommitTypes, customCommitTypes)
@@ -224,6 +227,16 @@
                 >{/if}</label
             >
           </div>
+          <label class="field-group"
+            ><span class="field-group__label">Mode</span
+            ><select bind:value={mode} class="field"
+              ><option value="lite">lite — commit log only</option
+              ><option value="deep">deep — commit log + diff</option></select
+            ><span class="field-group__hint"
+              >deep inspects the code diff between tags; it costs more per
+              release.</span
+            ></label
+          >
           <fieldset class="field-group" disabled={saving}>
             <legend class="field-group__label">Commit types</legend>
             <div class="commit-type-grid" aria-label="Global commit types">
@@ -354,6 +367,7 @@
                 ? "neutral"
                 : toneOption}
 Model: {model.trim() || settings.llm.model || "server default"}
+Mode: {mode}
 Temperature: {temperature !== "" ? temperature : "server default"}
 Instructions: {instructions.trim() || "No additional instructions."}
 Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()

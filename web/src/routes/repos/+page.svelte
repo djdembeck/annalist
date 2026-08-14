@@ -35,6 +35,7 @@
     customTone: string;
     instructions: string;
     model: string;
+    mode: string;
     temperature: string;
     trigger: string;
     inheritCommitTypes: boolean;
@@ -149,6 +150,8 @@
       customTone: isPreset ? "" : tone,
       instructions: inRepoInstructions[key] ?? r.instructions ?? "",
       model: r.model ?? "",
+      mode:
+        r.mode === "deep" ? "deep" : r.mode === "lite" ? "lite" : "inherit",
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
       inheritCommitTypes: !r.commit_types,
@@ -197,6 +200,7 @@
         tone,
         instructions: d.instructions.trim() ? d.instructions : null,
         model: d.model.trim() ? d.model : null,
+        mode: d.mode === "inherit" ? null : d.mode,
         temperature: tempResult.value,
         trigger: d.trigger,
         commit_types: d.inheritCommitTypes
@@ -484,6 +488,18 @@
                     >Auto runs on release webhooks; manual disables webhooks.</span
                   ></label
                 >
+                <label class="field-group"
+                  ><span class="field-group__label">Mode</span><select
+                    bind:value={d.mode}
+                    class="field"
+                    ><option value="inherit">Inherit (global)</option
+                    ><option value="lite">lite — commit log only</option
+                    ><option value="deep">deep — commit log + diff</option
+                  ></select><span class="field-group__hint"
+                    >deep also sends the code diff to the model for this
+                    repository.</span
+                  ></label
+                >
                 <fieldset class="field-group md:col-span-2">
                   <legend class="field-group__label">Commit types</legend>
                   <label class="check-control">
@@ -592,6 +608,7 @@
                     ? r.effective.commit_types.join(", ")
                     : "inherit"}</span
                 >
+                · mode <span class="text-ink">{r.effective.mode ?? "inherit"}</span>
               </p>
               {#if inRepoInstructions[key] || r.effective.instructions}
                 <details class="mt-4">

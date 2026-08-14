@@ -419,6 +419,95 @@ func TestResolvePrecedence(t *testing.T) {
 	})
 }
 
+// TestResolveModePrecedence covers the mode resolution chain:
+// repo row → global row → default "lite".
+func TestResolveModePrecedence(t *testing.T) {
+	_, _, _, store := fixture(t, nil, nil)
+	pip := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model", Temperature: 0.7}}, DB: store}
+
+	t.Run("global mode applies with no repo row", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{Mode: "deep"}); err != nil {
+			t.Fatal(err)
+		}
+		_, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Mode != "deep" {
+			t.Errorf("mode = %q, want deep", r.Mode)
+		}
+	})
+
+	t.Run("repo row beats global", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{Mode: "lite"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r", Enabled: true, Mode: "deep",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Mode != "deep" {
+			t.Errorf("mode = %q, want deep (row wins)", r.Mode)
+		}
+	})
+
+	t.Run("both empty defaults to lite", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{Mode: ""}); err != nil {
+			t.Fatal(err)
+		}
+		_, r, err := pip.Resolve(context.Background(), "forgejo", "o", "r-empty")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Mode != "lite" {
+			t.Errorf("mode = %q, want lite", r.Mode)
+		}
+	})
+}
+
+// TestGenerateNotesDeepMode verifies the full GenerateNotes flow: deep mode
+// sends the diff to the LLM, the default (lite) does not.
+func TestGenerateNotesDeepMode(t *testing.T) {
+	t.Run("deep mode includes the diff in the prompt", func(t *testing.T) {
+		pip, stub, _, _ := fixture(t, nil, nil)
+		notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-deep"), Options{Mode: "deep"})
+		if err != nil {
+			t.Fatalf("GenerateNotes deep: %v", err)
+		}
+		if notes != "FLOWING PROSE" {
+			t.Errorf("notes = %q, want FLOWING PROSE", notes)
+		}
+		if stub.calls != 1 {
+			t.Fatalf("stub calls = %d, want 1", stub.calls)
+		}
+		u := stub.user()
+		for _, want := range []string{"<diff>", "f.txt", "</diff>"} {
+			if !strings.Contains(u, want) {
+				t.Errorf("deep user message missing %q; got:\n%s", want, u)
+			}
+		}
+	})
+
+	t.Run("default mode stays lite (no diff block)", func(t *testing.T) {
+		pip, stub, _, _ := fixture(t, nil, nil)
+		if _, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-default"), Options{}); err != nil {
+			t.Fatalf("GenerateNotes default: %v", err)
+		}
+		if stub.calls != 1 {
+			t.Fatalf("stub calls = %d, want 1", stub.calls)
+		}
+		u := stub.user()
+		if strings.Contains(u, "<diff>") {
+			t.Errorf("lite user message must not contain <diff>; got:\n%s", u)
+		}
+	})
+}
+
 // instructionsPathFor matches the pipeline's per-platform in-repo file path.
 func instructionsPathFor(platform string) string {
 	if platform == "forgejo" {
