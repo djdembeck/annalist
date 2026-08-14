@@ -41,7 +41,7 @@
   const toneExamples = [
     {
       tone: "chronicler",
-      blurb: "Neutral, factual — records what shipped and why.",
+      blurb: "The project's historian — every change, framed as the story so far.",
       notes: `## v1.4.0 — circuit breaker & staleness fixes
 
 ### Added
@@ -55,7 +55,7 @@
     },
     {
       tone: "engineer",
-      blurb: "Terse, technical — the commit log, summarized.",
+      blurb: "The diff-accurate record — component, behavior, caveats.",
       notes: `# v1.4.0
 
 - gateway: circuit-breaker middleware; cascade-safe.
@@ -65,7 +65,7 @@
     },
     {
       tone: "launch",
-      blurb: "Upbeat, outward-facing — built for the changelog.",
+      blurb: "The outward announcement — every change, framed by what it means for the user.",
       notes: `# v1.4.0 is here
 
 A more resilient, more honest release.

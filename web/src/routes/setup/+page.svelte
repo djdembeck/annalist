@@ -27,9 +27,11 @@
 
   const PRESET_DESCRIPTIONS: Record<string, string> = {
     chronicler:
-      "Narrative. Tells the story of what changed and why it matters.",
-    engineer: "Concise. Terse bullet items that get straight to the point.",
-    launch: "Upbeat. Celebratory and energized for a big reveal.",
+      "The historian — frames each change as part of the project's story.",
+    engineer:
+      "The record-keeper — names the component and behavior, fact-first.",
+    launch:
+      "The announcement — leads with what each change means for the user.",
   };
 
   const STEPS = [
@@ -1085,12 +1087,14 @@
             <select bind:value={toneOption} class="field">
               <option value="inherit">Inherit (server default)</option>
               <option value="chronicler"
-                >Chronicler — tells the story of what changed</option
+                >Chronicler — frames each change as part of the story</option
               >
               <option value="engineer"
-                >Engineer — terse, right to the point</option
+                >Engineer — names component and behavior, fact-first</option
               >
-              <option value="launch">Launch — upbeat and celebratory</option>
+              <option value="launch"
+                >Launch — leads with what each change means for users</option
+              >
               <option value="custom">Custom…</option>
             </select>
           </label>

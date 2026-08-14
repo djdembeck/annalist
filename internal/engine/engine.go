@@ -30,11 +30,14 @@ const rulesBlock = `Rules:
 - Mention the version number naturally in the opening prose section
 - Keep the tone and style consistent with the persona above
 - If any commit is a breaking change (its subject has ! after the type or scope, or its body contains a BREAKING CHANGE: line), list those changes first within their category, each bullet starting with **Breaking:**. Never omit a breaking change and never render it without the **Breaking:** prefix
-- Output ONLY the release notes text: the prose section and the categorized bullet sections. No preamble, no meta-commentary`
+- Output ONLY the release notes text: the prose section and the categorized bullet sections. No preamble, no meta-commentary
+- Every commit in the log must become exactly one bullet. Never omit a commit.
+- Never merge two distinct commits into a single bullet.
+- Never invent a change, component, or behavior that is not present in the commit log.`
 
 // neutralPersona is the default voice used when the resolved tone is empty.
 func neutralPersona() string {
-	return `You write friendly, precise release notes for software users and developers. You explain what changed and why it matters, in plain language.`
+	return `You write release notes in a neutral, factual voice for software users and developers. Report every commit in the log exactly once, as one bullet per commit, never omitting, merging, or inventing.`
 }
 
 // BuildSystemPrompt assembles the system prompt for a resolved configuration.
