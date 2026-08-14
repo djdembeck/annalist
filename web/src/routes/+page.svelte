@@ -41,7 +41,7 @@
   const toneExamples = [
     {
       tone: "chronicler",
-      blurb: "Neutral, factual — records what shipped and why.",
+      blurb: "The project's historian — every change, framed as the story so far.",
       notes: `## v1.4.0 — circuit breaker & staleness fixes
 
 ### Added
@@ -55,7 +55,7 @@
     },
     {
       tone: "engineer",
-      blurb: "Terse, technical — the commit log, summarized.",
+      blurb: "The diff-accurate record — component, behavior, caveats.",
       notes: `# v1.4.0
 
 - gateway: circuit-breaker middleware; cascade-safe.
@@ -65,7 +65,7 @@
     },
     {
       tone: "launch",
-      blurb: "Upbeat, outward-facing — built for the changelog.",
+      blurb: "The outward announcement — every change, framed by what it means for the user.",
       notes: `# v1.4.0 is here
 
 A more resilient, more honest release.
@@ -73,6 +73,7 @@ A more resilient, more honest release.
 - **Smarter under pressure.** Circuit breaking stops one outage from becoming five.
 - **Fresh quotas, fast.** Rate limits reset the instant you change your config.
 - **Cleaner numbers.** Healthier histogram labels in your metrics collector.
+- **Webhook auth documented.** Everything you need to verify incoming events is now in the docs.
 
 No breaking changes — just upgrade and ship.`,
     },

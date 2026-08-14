@@ -26,29 +26,44 @@ func TestBuildSystemPrompt(t *testing.T) {
 		wantContains []string
 	}{
 		{
-			name:         "empty tone uses neutral persona",
-			tone:         "",
-			wantContains: []string{"You write friendly, precise release notes"},
+			name: "empty tone uses neutral persona",
+			tone: "",
+			wantContains: []string{
+				"You write release notes in a neutral, factual voice",
+				"Every commit in the provided log must become exactly one bullet",
+			},
 		},
 		{
-			name:         "chronicler preset",
-			tone:         "chronicler",
-			wantContains: []string{"You are a chronicler: the careful writer who records a project's history as it unfolds."},
+			name: "chronicler preset",
+			tone: "chronicler",
+			wantContains: []string{
+				"You are a chronicler: the careful writer who records a project's history as it unfolds, serving readers who want each release as a narrative chapter.",
+				"Never merge two distinct changes into one bullet",
+			},
 		},
 		{
-			name:         "engineer preset",
-			tone:         "engineer",
-			wantContains: []string{"You are a staff engineer writing release notes for other engineers."},
+			name: "engineer preset",
+			tone: "engineer",
+			wantContains: []string{
+				"You are a technical writer producing a precise change record for engineers who need to know what changed and where.",
+				"Never merge two distinct changes into one bullet",
+			},
 		},
 		{
-			name:         "launch preset",
-			tone:         "launch",
-			wantContains: []string{"You are a product launch writer preparing the announcement a team would be proud to share."},
+			name: "launch preset",
+			tone: "launch",
+			wantContains: []string{
+				"You are a product announcer writing release notes for end users and stakeholders who care about what the change means for them.",
+				"Never merge two distinct changes into one bullet",
+			},
 		},
 		{
-			name:         "custom freeform tone is verbatim",
-			tone:         "custom freeform persona text",
-			wantContains: []string{"custom freeform persona text"},
+			name: "custom freeform tone is verbatim",
+			tone: "custom freeform persona text",
+			wantContains: []string{
+				"custom freeform persona text",
+				"Every commit in the provided log must become exactly one bullet",
+			},
 		},
 	}
 
