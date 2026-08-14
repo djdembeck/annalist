@@ -31,7 +31,7 @@ const rulesBlock = `Rules:
 - Keep the tone and style consistent with the persona above
 - If any commit is a breaking change (its subject has ! after the type or scope, or its body contains a BREAKING CHANGE: line), list those changes first within their category, each bullet starting with **Breaking:**. Never omit a breaking change and never render it without the **Breaking:** prefix
 - Output ONLY the release notes text: the prose section and the categorized bullet sections. No preamble, no meta-commentary
-- Every commit in the log must become exactly one bullet. Never omit a commit.
+- Every commit in the provided log must become exactly one bullet. Never omit a commit.
 - Never merge two distinct commits into a single bullet.
 - Never invent a change, component, or behavior that is not present in the commit log.`
 
@@ -80,6 +80,9 @@ func (e *Engine) Generate(ctx context.Context, r Resolved, toTag, fromTag, commi
 		System:      prompt,
 		User:        userMsg,
 		Temperature: r.Temperature,
-		MaxTokens:   4096,
+		// TODO: MaxTokens is fixed at 4096. With one bullet per commit, large
+		// release ranges may exceed this limit and truncate. Consider computing
+		// MaxTokens based on commit count.
+		MaxTokens: 4096,
 	})
 }

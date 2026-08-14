@@ -73,6 +73,7 @@ A more resilient, more honest release.
 - **Smarter under pressure.** Circuit breaking stops one outage from becoming five.
 - **Fresh quotas, fast.** Rate limits reset the instant you change your config.
 - **Cleaner numbers.** Healthier histogram labels in your metrics collector.
+- **Webhook auth documented.** Everything you need to verify incoming events is now in the docs.
 
 No breaking changes — just upgrade and ship.`,
     },
