@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/djdembeck/annalist/internal/db"
+	"github.com/djdembeck/annalist/internal/engine"
 	"github.com/djdembeck/annalist/internal/pipeline"
 	"github.com/djdembeck/annalist/internal/version"
 )
@@ -70,11 +72,12 @@ func decodePresenceMap(r *http.Request) (map[string]json.RawMessage, error) {
 
 // effective is the resolved (inherited) tone/model/temperature/instructions preview.
 type effective struct {
-	Tone         string  `json:"tone"`
-	Model        string  `json:"model"`
-	Temperature  float64 `json:"temperature"`
-	Instructions string  `json:"instructions"`
-	Source       string  `json:"source"`
+	Tone         string   `json:"tone"`
+	Model        string   `json:"model"`
+	Temperature  float64  `json:"temperature"`
+	Instructions string   `json:"instructions"`
+	Source       string   `json:"source"`
+	CommitTypes  []string `json:"commit_types"`
 }
 
 // repoItemResp is the JSON shape for a repo in /api/repos and the settings PUT.
@@ -88,6 +91,7 @@ type repoItemResp struct {
 	Model        string    `json:"model"`
 	Temperature  *float64  `json:"temperature"`
 	Trigger      string    `json:"trigger"`
+	CommitTypes  string    `json:"commit_types"`
 	Effective    effective `json:"effective"`
 }
 
@@ -114,12 +118,14 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 		Model:        row.Model,
 		Temperature:  row.Temperature,
 		Trigger:      row.Trigger,
+		CommitTypes:  row.CommitTypes,
 		Effective: effective{
 			Tone:         eff.Tone,
 			Model:        eff.Model,
 			Temperature:  eff.Temperature,
 			Instructions: eff.Instructions,
 			Source:       source,
+			CommitTypes:  eff.CommitTypes,
 		},
 	}, nil
 }
@@ -386,6 +392,20 @@ func (a *api) handlePutRepoSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// commit_types: present non-null sets, explicit null clears.
+	if raw, ok := m["commit_types"]; ok {
+		if string(raw) == "null" {
+			setting.CommitTypes = ""
+		} else {
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			setting.CommitTypes = strings.Join(engine.ParseCommitTypes(v), ",")
+		}
+	}
+
 	// enabled / trigger: applied only when present and non-null.
 	if raw, ok := m["enabled"]; ok && string(raw) != "null" {
 		var v bool
@@ -507,7 +527,11 @@ func (a *api) handleInRepoInstructions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if readErr != nil {
-		writeJSON(w, http.StatusOK, map[string]any{})
+		if errors.Is(readErr, pipeline.ErrNotFound) {
+			writeJSON(w, http.StatusOK, map[string]any{})
+			return
+		}
+		writeErr(w, http.StatusBadGateway, readErr.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"instructions": content})
@@ -520,6 +544,7 @@ func (a *api) settingsResp(s db.Settings) map[string]any {
 		"instructions": s.Instructions,
 		"model":        s.Model,
 		"temperature":  s.Temperature,
+		"commit_types": s.CommitTypes,
 		"llm": map[string]string{
 			"base_url": a.cfg.LLM.BaseURL,
 			"model":    a.cfg.LLM.Model,
@@ -592,6 +617,20 @@ func (a *api) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.Temperature = &v
+		}
+	}
+
+	// commit_types: present non-null sets, explicit null clears.
+	if raw, ok := m["commit_types"]; ok {
+		if string(raw) == "null" {
+			s.CommitTypes = ""
+		} else {
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			s.CommitTypes = strings.Join(engine.ParseCommitTypes(v), ",")
 		}
 	}
 

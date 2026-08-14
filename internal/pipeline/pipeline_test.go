@@ -346,6 +346,75 @@ func TestResolvePrecedence(t *testing.T) {
 			t.Error("enabled should be false for a disabled row")
 		}
 	})
+
+	t.Run("commit types: no row falls back to global", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{
+			Tone: "global-tone", CommitTypes: "fix,feat",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.CommitTypes) != 2 || r.CommitTypes[0] != "fix" || r.CommitTypes[1] != "feat" {
+			t.Errorf("commit types = %v, want [fix feat]", r.CommitTypes)
+		}
+	})
+
+	t.Run("commit types: repo overrides global", func(t *testing.T) {
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r-new",
+			Enabled: true, CommitTypes: "fix",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.CommitTypes) != 1 || r.CommitTypes[0] != "fix" {
+			t.Errorf("commit types = %v, want [fix]", r.CommitTypes)
+		}
+	})
+
+	t.Run("commit types: empty repo inherits global", func(t *testing.T) {
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r-new",
+			Enabled: true, CommitTypes: "",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.CommitTypes) != 2 || r.CommitTypes[0] != "fix" || r.CommitTypes[1] != "feat" {
+			t.Errorf("commit types = %v, want [fix feat]", r.CommitTypes)
+		}
+	})
+
+	t.Run("commit types: no global falls back to config", func(t *testing.T) {
+		pip2 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model", Temperature: 0.7, CommitTypes: "perf"}}, DB: store}
+		if err := store.UpsertSettings(db.Settings{
+			Tone: "", CommitTypes: "",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r-new",
+			Enabled: true, CommitTypes: "",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, r, err := pip2.Resolve(context.Background(), "github", "o", "r-new")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.CommitTypes) != 1 || r.CommitTypes[0] != "perf" {
+			t.Errorf("commit types = %v, want [perf]", r.CommitTypes)
+		}
+	})
 }
 
 // instructionsPathFor matches the pipeline's per-platform in-repo file path.
@@ -450,6 +519,93 @@ func TestGenerateNotesEmptyLog(t *testing.T) {
 	}
 	if stub.calls != 0 {
 		t.Errorf("LLM called %d times for empty log, want 0", stub.calls)
+	}
+}
+
+// TestGenerateNotesCommitTypeFilter verifies the full GenerateNotes flow with
+// commit-type filtering: included types, excluded types, breaking changes
+// (always kept with body), and untyped commits (always kept).
+func TestGenerateNotesCommitTypeFilter(t *testing.T) {
+	pip, stub, f, store := fixture(t, nil, nil)
+
+	// Build a local repo with mixed commit types
+	dir := t.TempDir()
+	origin := filepath.Join(dir, "origin")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitNoAsk(t, origin, "init", "-q")
+	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "baseline")
+	gitNoAsk(t, origin, "tag", "v1.0.0")
+	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "feat: add feature a")
+	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "fix: repair b")
+	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "chore: tidy c")
+	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "feat!: break api d", "-m", "BREAKING CHANGE: d broke everything")
+	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "docs: note e")
+	gitNoAsk(t, origin, "tag", "v1.1.0")
+	f.origin = origin
+
+	// Global setting: only fix and feat
+	if err := store.UpsertSettings(db.Settings{CommitTypes: "fix,feat"}); err != nil {
+		t.Fatal(err)
+	}
+
+	notes, err := pip.GenerateNotes(context.Background(), genSpec("v1.1.0", "rel-filter"), Options{})
+	if err != nil {
+		t.Fatalf("GenerateNotes: %v", err)
+	}
+	if stub.calls != 1 {
+		t.Fatalf("LLM called %d times, want 1", stub.calls)
+	}
+
+	userMsg := stub.user()
+	for _, want := range []string{"feat: add feature a", "fix: repair b", "feat!: break api d", "BREAKING CHANGE: d broke everything"} {
+		if !strings.Contains(userMsg, want) {
+			t.Errorf("user message missing %q; got:\n%s", want, userMsg)
+		}
+	}
+	for _, absent := range []string{"chore: tidy c", "docs: note e"} {
+		if strings.Contains(userMsg, absent) {
+			t.Errorf("user message should not contain %q; got:\n%s", absent, userMsg)
+		}
+	}
+	// Notes are returned (LLM returned "FLOWING PROSE")
+	if notes != "FLOWING PROSE" {
+		t.Errorf("notes = %q, want FLOWING PROSE", notes)
+	}
+}
+
+// TestGenerateNotesFilterEmptyLog verifies that when all commits in the range
+// are filtered out, the pipeline returns "No changes documented." without
+// calling the LLM.
+func TestGenerateNotesFilterEmptyLog(t *testing.T) {
+	pip, stub, f, store := fixture(t, nil, nil)
+
+	dir := t.TempDir()
+	origin := filepath.Join(dir, "origin")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitNoAsk(t, origin, "init", "-q")
+	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "chore: only chore")
+	gitNoAsk(t, origin, "tag", "v1.0.0")
+	gitNoAsk(t, origin, "commit", "-q", "--allow-empty", "-m", "chore: another chore")
+	gitNoAsk(t, origin, "tag", "v1.1.0")
+	f.origin = origin
+
+	if err := store.UpsertSettings(db.Settings{CommitTypes: "feat"}); err != nil {
+		t.Fatal(err)
+	}
+
+	notes, err := pip.GenerateNotes(context.Background(), genSpec("v1.1.0", "rel-filtered"), Options{})
+	if err != nil {
+		t.Fatalf("GenerateNotes: %v", err)
+	}
+	if notes != "No changes documented." {
+		t.Errorf("notes = %q, want %q", notes, "No changes documented.")
+	}
+	if stub.calls != 0 {
+		t.Errorf("LLM called %d times when all commits filtered, want 0", stub.calls)
 	}
 }
 

@@ -1008,6 +1008,59 @@ textarea.field {
   font-size: 0.8125rem;
 }
 
+.commit-type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: var(--trace-space-2);
+}
+
+.commit-type-option {
+  align-items: flex-start;
+  min-height: 3.5rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--trace-line);
+  border-radius: 0.25rem;
+  background: var(--trace-panel);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.commit-type-option:hover:not(:has(input:disabled)) {
+  border-color: var(--trace-cyan);
+  background: var(--trace-control);
+}
+
+.commit-type-option--selected {
+  border-color: var(--trace-cyan);
+  background: var(--trace-raised);
+  color: var(--trace-ink);
+}
+
+.commit-type-option > span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.commit-type-option strong {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.commit-type-option small {
+  color: var(--trace-muted);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+}
+
+.field-group__custom-types {
+  display: grid;
+  gap: var(--trace-space-2);
+}
+
 .source-list {
   display: grid;
   gap: 1px;

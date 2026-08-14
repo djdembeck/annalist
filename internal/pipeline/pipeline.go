@@ -167,11 +167,22 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 	if model == "" {
 		model = p.Cfg.LLM.Model
 	}
+
+	// Resolve commit types with same precedence: repo → global → config.
+	commitTypes := global.CommitTypes
+	if row != nil && row.CommitTypes != "" {
+		commitTypes = row.CommitTypes
+	}
+	if commitTypes == "" {
+		commitTypes = p.Cfg.LLM.CommitTypes
+	}
+
 	resolved := engine.Resolved{
 		Tone:         tone,
 		Instructions: instructions,
 		Model:        model,
 		Temperature:  p.Cfg.LLM.Temperature,
+		CommitTypes:  engine.ParseCommitTypes(commitTypes),
 	}
 	if temperature != nil {
 		resolved.Temperature = *temperature
@@ -234,12 +245,11 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	if strings.HasPrefix(from, "-") || strings.HasPrefix(spec.ToTag, "-") {
 		return "", fmt.Errorf("pipeline: invalid tag %q", spec.ToTag)
 	}
-	commitLog := engine.CollectCommitLog(ctx, workdir, from, spec.ToTag)
-
 	_, resolved, err := p.Resolve(ctx, spec.Platform, spec.Owner, spec.Repo)
 	if err != nil {
 		return "", err
 	}
+	commitLog := engine.CollectCommitLog(ctx, workdir, from, spec.ToTag, resolved.CommitTypes)
 
 	// In-repo instructions file has the highest precedence.
 	instructionsPath := ".github/release-notes-instructions.md"

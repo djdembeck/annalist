@@ -189,17 +189,152 @@ func TestCollectCommitLog(t *testing.T) {
 	ctx := context.Background()
 
 	// Reverse chronological from HEAD yields all subjects oldest-first.
-	if got := CollectCommitLog(ctx, dir, "", ""); got != "- first\n- second\n- third\n- fourth" {
+	if got := CollectCommitLog(ctx, dir, "", "", nil); got != "- first\n- second\n- third\n- fourth" {
 		t.Errorf("CollectCommitLog(all) = %q", got)
 	}
 	// Range v0.1.0..HEAD excludes the tagged commit itself and (unlike the
 	// --reverse HEAD path) lists newest-first.
-	if got := CollectCommitLog(ctx, dir, "v0.1.0", "HEAD"); got != "- fourth\n- third" {
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "HEAD", nil); got != "- fourth\n- third" {
 		t.Errorf("CollectCommitLog(range) = %q", got)
 	}
 	// Equal bounds yield no commits.
-	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.1.0"); got != "" {
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.1.0", nil); got != "" {
 		t.Errorf("CollectCommitLog(equal) = %q, want empty", got)
+	}
+}
+
+func TestParseCommitTypes(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{in: "", want: nil},
+		{in: "feat", want: []string{"feat"}},
+		{in: "fix,feat", want: []string{"fix", "feat"}},
+		{in: " fix , feat , refactor ", want: []string{"fix", "feat", "refactor"}},
+		{in: ",,,", want: nil},
+		{in: "feat,", want: []string{"feat"}},
+		{in: ",feat", want: []string{"feat"}},
+	}
+	for _, tc := range cases {
+		got := ParseCommitTypes(tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("ParseCommitTypes(%q) = %v, want %v", tc.in, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("ParseCommitTypes(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+
+func TestFilterCommitLog(t *testing.T) {
+	cases := []struct {
+		name  string
+		raw   string
+		types []string
+		want  string
+	}{
+		{
+			name:  "include matches kept",
+			raw:   "- feat: add login\x00- fix: patch bug\x00",
+			types: []string{"feat"},
+			want:  "- feat: add login",
+		},
+		{
+			name:  "non-include typed dropped",
+			raw:   "- chore: tidy\x00- feat: add login\x00",
+			types: []string{"feat"},
+			want:  "- feat: add login",
+		},
+		{
+			name:  "bang shorthand kept",
+			raw:   "- feat!: break api\x00- chore: tidy\x00",
+			types: []string{"fix"},
+			want:  "- feat!: break api",
+		},
+		{
+			name:  "breaking change trailer kept with body",
+			raw:   "- docs: update readme\n\nBREAKING CHANGE: api removed\x00- chore: tidy\x00",
+			types: []string{"fix"},
+			want:  "- docs: update readme\n\nBREAKING CHANGE: api removed",
+		},
+		{
+			name:  "untyped kept",
+			raw:   "- Merge pull request #1\x00- feat: add login\x00",
+			types: []string{"feat"},
+			want:  "- Merge pull request #1\n- feat: add login",
+		},
+		{
+			name:  "nil include keeps all",
+			raw:   "- feat: add login\x00- chore: tidy\x00",
+			types: nil,
+			want:  "- feat: add login\n- chore: tidy",
+		},
+		{
+			name:  "empty include keeps all",
+			raw:   "- feat: add login\x00- chore: tidy\x00",
+			types: []string{},
+			want:  "- feat: add login\n- chore: tidy",
+		},
+		{
+			name:  "scope parsing",
+			raw:   "- feat(api): new endpoint\x00- chore: tidy\x00",
+			types: []string{"feat"},
+			want:  "- feat(api): new endpoint",
+		},
+		{
+			name:  "uppercase subject lowercase includeTypes kept",
+			raw:   "- FIX: patch bug\x00- chore: tidy\x00",
+			types: []string{"fix"},
+			want:  "- FIX: patch bug",
+		},
+		{
+			name:  "lowercase subject uppercase includeTypes kept",
+			raw:   "- fix: patch bug\x00- chore: tidy\x00",
+			types: []string{"FIX"},
+			want:  "- fix: patch bug",
+		},
+		{
+			name:  "mixed case drop",
+			raw:   "- docs: update\x00- feat: add login\x00",
+			types: []string{"fix", "feat"},
+			want:  "- feat: add login",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FilterCommitLog(tc.raw, tc.types)
+			if got != tc.want {
+				t.Errorf("FilterCommitLog() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCollectCommitLogBreakingChange(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	// Build a repo with a breaking change commit (body via -m -m)
+	gitTa(t, dir, "init", "-q")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "feat: baseline")
+	gitTa(t, dir, "tag", "v1.0.0")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "feat!: break api", "-m", "BREAKING CHANGE: the old api is removed")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "chore: tidy")
+
+	// Breaking commit body should survive even when chore is filtered
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"feat"})
+	if !strings.Contains(got, "feat!: break api") {
+		t.Errorf("breaking commit missing; got %q", got)
+	}
+	if !strings.Contains(got, "BREAKING CHANGE: the old api is removed") {
+		t.Errorf("breaking change body missing; got %q", got)
+	}
+	if strings.Contains(got, "chore: tidy") {
+		t.Errorf("chore should be filtered; got %q", got)
 	}
 }
 

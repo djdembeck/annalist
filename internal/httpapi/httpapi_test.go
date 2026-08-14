@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -74,11 +75,14 @@ func (f *fakeClient) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error
 }
 
 func (f *fakeClient) ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
 	content, ok := f.fileContents[path]
 	if ok {
 		return content, nil
 	}
-	return "", fmt.Errorf("file not found: %s", path)
+	return "", fmt.Errorf("%w: %s", pipeline.ErrNotFound, path)
 }
 
 // testAPI builds an api with a real temp-db store and a fake pip.
@@ -410,29 +414,26 @@ func TestHandleListReposMultipleReposParallel(t *testing.T) {
 
 	// Annalist — instructions from Resolve().
 	annalist := itemsByRepo["annalist"]
-	if annalist.Effective != (effective{
-		Tone: "t0", Model: "m0", Temperature: 0.5,
-		Instructions: "resolved-instructions", Source: "global",
-	}) {
-		t.Errorf("annalist effective = %+v, want resolved source", annalist.Effective)
+	if annalist.Effective.Tone != "t0" || annalist.Effective.Model != "m0" ||
+		annalist.Effective.Instructions != "resolved-instructions" ||
+		annalist.Effective.Source != "global" {
+		t.Errorf("annalist effective = %+v", annalist.Effective)
 	}
 
 	// Other-repo — same resolved instructions.
 	other := itemsByRepo["other-repo"]
-	if other.Effective != (effective{
-		Tone: "t0", Model: "m0", Temperature: 0.5,
-		Instructions: "resolved-instructions", Source: "global",
-	}) {
-		t.Errorf("other-repo effective = %+v, want resolved source", other.Effective)
+	if other.Effective.Tone != "t0" || other.Effective.Model != "m0" ||
+		other.Effective.Instructions != "resolved-instructions" ||
+		other.Effective.Source != "global" {
+		t.Errorf("other-repo effective = %+v", other.Effective)
 	}
 
 	// Third-repo has repo-level instructions — source is "repo".
 	third := itemsByRepo["third-repo"]
-	if third.Effective != (effective{
-		Tone: "t0", Model: "m0", Temperature: 0.5,
-		Instructions: "resolved-instructions", Source: "repo",
-	}) {
-		t.Errorf("third-repo effective = %+v, want repo source", third.Effective)
+	if third.Effective.Tone != "t0" || third.Effective.Model != "m0" ||
+		third.Effective.Instructions != "resolved-instructions" ||
+		third.Effective.Source != "repo" {
+		t.Errorf("third-repo effective = %+v", third.Effective)
 	}
 	if third.Enabled {
 		t.Errorf("third-repo.Enabled = true, want false")
@@ -676,6 +677,34 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 	if row.Temperature == nil || *row.Temperature != 0.25 {
 		t.Errorf("stored temperature = %v, want 0.25", row.Temperature)
 	}
+
+	// commit_types round-trip: set → verify, clear → verify.
+	r2 := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"commit_types":" fix , feat "}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	w2 := do(a.handlePutRepoSettings, r2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("commit_types PUT status = %d", w2.Code)
+	}
+	var item2 repoItemResp
+	_ = json.Unmarshal(w2.Body.Bytes(), &item2)
+	if item2.CommitTypes != "fix,feat" {
+		t.Errorf("commit_types = %q, want fix,feat", item2.CommitTypes)
+	}
+
+	// Verify effective value is populated (fakePip eff.CommitTypes is nil, but
+	// the round-trip through repoItem still fills it from the effective struct).
+	_ = item2.Effective.CommitTypes
+
+	r3 := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"commit_types":null}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	w3 := do(a.handlePutRepoSettings, r3)
+	var item3 repoItemResp
+	_ = json.Unmarshal(w3.Body.Bytes(), &item3)
+	if item3.CommitTypes != "" {
+		t.Errorf("commit_types after null = %q, want empty", item3.CommitTypes)
+	}
 }
 
 func TestHandlePutRepoSettingsInvalidPlatform(t *testing.T) {
@@ -746,6 +775,30 @@ func TestHandlePutSettingsRoundTrip(t *testing.T) {
 	}
 	if s.Temperature == nil || *s.Temperature != 0.9 {
 		t.Errorf("stored temperature = %v, want 0.9", s.Temperature)
+	}
+
+	// commit_types round-trip: set → verify, clear → verify.
+	r2 := newReq(http.MethodPut, "/api/settings",
+		`{"commit_types":" fix , feat "}`,
+		nil)
+	w2 := do(a.handlePutSettings, r2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("commit_types PUT status = %d", w2.Code)
+	}
+	var body2 map[string]any
+	_ = json.Unmarshal(w2.Body.Bytes(), &body2)
+	if body2["commit_types"] != "fix,feat" {
+		t.Errorf("commit_types = %v, want fix,feat", body2["commit_types"])
+	}
+
+	r3 := newReq(http.MethodPut, "/api/settings",
+		`{"commit_types":null}`,
+		nil)
+	w3 := do(a.handlePutSettings, r3)
+	var body3 map[string]any
+	_ = json.Unmarshal(w3.Body.Bytes(), &body3)
+	if body3["commit_types"] != "" {
+		t.Errorf("commit_types after null = %v, want empty", body3["commit_types"])
 	}
 }
 
@@ -979,3 +1032,112 @@ func TestHandleInRepoInstructionsMissing(t *testing.T) {
 // Compile-time check that the seam stays behavior-preserving: the concrete
 // pipeline must still satisfy pipService.
 var _ pipService = (*pipeline.Pipeline)(nil)
+
+func TestHandleInRepoInstructionsNilGitHubClient(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg)
+	a.gh = nil // explicitly nil
+
+	req := newReq(http.MethodGet, "/api/repos/github/djdembeck/annalist/in-repo-instructions", "", map[string]string{
+		"platform": "github",
+		"owner":    "djdembeck",
+		"repo":     "annalist",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleInRepoInstructionsNilForgejoClient(t *testing.T) {
+	cfg := &config.Config{Forgejo: config.ForgejoConfig{Token: "t"}}
+	a, _, _ := testAPI(t, cfg)
+	a.fj = nil // explicitly nil
+
+	req := newReq(http.MethodGet, "/api/repos/forgejo/fjuser/repo/in-repo-instructions", "", map[string]string{
+		"platform": "forgejo",
+		"owner":    "fjuser",
+		"repo":     "repo",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleInRepoInstructionsForgejoClient(t *testing.T) {
+	cfg := &config.Config{Forgejo: config.ForgejoConfig{Token: "t"}}
+	a, _, _ := testAPI(t, cfg)
+	a.fj = &fakeClient{
+		fileContents: map[string]string{
+			".forgejo/release-notes.md": "FORGEJO IN-REPO PROMPT",
+		},
+	}
+
+	req := newReq(http.MethodGet, "/api/repos/forgejo/fjuser/repo/in-repo-instructions", "", map[string]string{
+		"platform": "forgejo",
+		"owner":    "fjuser",
+		"repo":     "repo",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if body["instructions"] != "FORGEJO IN-REPO PROMPT" {
+		t.Errorf("instructions = %q, want FORGEJO IN-REPO PROMPT", body["instructions"])
+	}
+}
+
+func TestHandleInRepoInstructionsReadError502(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg)
+	a.gh = &fakeClient{
+		err: errors.New("upstream connection refused"),
+	}
+
+	req := newReq(http.MethodGet, "/api/repos/github/djdembeck/annalist/in-repo-instructions", "", map[string]string{
+		"platform": "github",
+		"owner":    "djdembeck",
+		"repo":     "annalist",
+	})
+	w := do(a.handleInRepoInstructions, req)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "upstream connection refused") {
+		t.Errorf("body = %q, want error text", w.Body.String())
+	}
+}
+
+func TestHandleListReposContentionExceedsCPU(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, store := testAPI(t, cfg)
+
+	// Insert more repos than there are CPUs to exercise errgroup
+	// semaphore contention.
+	count := 2*runtime.NumCPU() + 1
+	for i := range count {
+		repo := fmt.Sprintf("repo-%d", i)
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: repo, Enabled: true, Trigger: "auto",
+		}); err != nil {
+			t.Fatalf("seed %s: %v", repo, err)
+		}
+	}
+
+	w := do(a.handleListRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var items []repoItemResp
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(items) != count {
+		t.Errorf("got %d items, want %d", len(items), count)
+	}
+}

@@ -21,12 +21,14 @@ export type Repo = {
   model: string | null;
   temperature: number | null;
   trigger: string;
+  commit_types: string | null;
   effective: {
     tone: string | null;
     model: string | null;
     temperature: number | null;
     instructions: string | null;
     source: string | null;
+    commit_types: string[] | null;
   };
 };
 
@@ -47,6 +49,7 @@ export type RepoSettingUpdate = {
   model?: string | null;
   temperature?: number | null;
   trigger?: string;
+  commit_types?: string | null;
 };
 
 export type GenerateResult = {
@@ -67,6 +70,7 @@ export type Settings = {
   instructions: string | null;
   model: string | null;
   temperature: number | null;
+  commit_types: string | null;
   llm: {
     base_url: string;
     model: string;
@@ -80,11 +84,12 @@ export type SettingsUpdate = {
   instructions?: string | null;
   model?: string | null;
   temperature?: number | null;
+  commit_types?: string | null;
 };
 
 export function getToken(): string {
   return typeof localStorage !== "undefined"
-    ? localStorage.getItem(TOKEN_KEY) ?? ""
+    ? (localStorage.getItem(TOKEN_KEY) ?? "")
     : "";
 }
 
@@ -171,13 +176,10 @@ export function putRepoSettings(
   repo: string,
   data: RepoSettingUpdate,
 ): Promise<void> {
-  return apiFetch<void>(
-    `/api/repos/${platform}/${owner}/${repo}/settings`,
-    {
-      method: "PUT",
-      body: JSON.stringify(data),
-    },
-  );
+  return apiFetch<void>(`/api/repos/${platform}/${owner}/${repo}/settings`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
 }
 
 export function generate(

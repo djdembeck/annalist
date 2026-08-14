@@ -13,6 +13,7 @@ type Settings struct {
 	Instructions string
 	Model        string
 	Temperature  *float64
+	CommitTypes  string
 }
 
 // RepoSetting is a per-repo override of the global settings. Empty string /
@@ -27,6 +28,7 @@ type RepoSetting struct {
 	Instructions string
 	Model        string
 	Temperature  *float64
+	CommitTypes  string
 }
 
 // GeneratedNote records a previously generated release note for idempotency.
@@ -47,7 +49,8 @@ var migrations = []string{
 		tone TEXT,
 		instructions TEXT,
 		model TEXT,
-		temperature REAL
+		temperature REAL,
+		commit_types TEXT
 	)`,
 	`CREATE TABLE IF NOT EXISTS repo_settings (
 		platform TEXT NOT NULL,
@@ -59,6 +62,7 @@ var migrations = []string{
 		model TEXT,
 		temperature REAL,
 		trigger TEXT NOT NULL DEFAULT 'auto',
+		commit_types TEXT,
 		PRIMARY KEY (platform, owner, repo)
 	)`,
 	`CREATE TABLE IF NOT EXISTS generated_notes (
@@ -79,7 +83,46 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("running migration: %w", err)
 		}
 	}
+	// Backfill columns added after the table was first created.
+	// CREATE TABLE IF NOT EXISTS is a no-op on existing tables, so the column
+	// wouldn't appear for databases created before this migration.
+	for _, col := range []struct {
+		table, name, ddl string
+	}{
+		{"settings", "commit_types", "ALTER TABLE settings ADD COLUMN commit_types TEXT"},
+		{"repo_settings", "commit_types", "ALTER TABLE repo_settings ADD COLUMN commit_types TEXT"},
+	} {
+		if err := s.ensureColumn(col.table, col.name, col.ddl); err != nil {
+			return fmt.Errorf("ensureColumn(%s.%s): %w", col.table, col.name, err)
+		}
+	}
 	return nil
+}
+
+// ensureColumn adds a column to a table if it does not already exist.
+// Idempotent: safe to call on every startup.
+func (s *Store) ensureColumn(table, column, ddl string) error {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ddl)
+	return err
 }
 
 // strOrNil maps an empty string to NULL so absent values round-trip as
@@ -96,12 +139,12 @@ func strOrNil(s string) any {
 // temperature) with a nil error.
 func (s *Store) GetSettings() (Settings, error) {
 	var out Settings
-	var tone, instructions, model sql.NullString
+	var tone, instructions, model, commitTypes sql.NullString
 	var temp sql.NullFloat64
 
 	err := s.db.QueryRow(
-		`SELECT tone, instructions, model, temperature FROM settings WHERE id = 1`,
-	).Scan(&tone, &instructions, &model, &temp)
+		`SELECT tone, instructions, model, temperature, commit_types FROM settings WHERE id = 1`,
+	).Scan(&tone, &instructions, &model, &temp, &commitTypes)
 	if err == sql.ErrNoRows {
 		return out, nil
 	}
@@ -112,6 +155,7 @@ func (s *Store) GetSettings() (Settings, error) {
 	out.Tone = tone.String
 	out.Instructions = instructions.String
 	out.Model = model.String
+	out.CommitTypes = commitTypes.String
 	if temp.Valid {
 		v := temp.Float64
 		out.Temperature = &v
@@ -128,14 +172,15 @@ func (s *Store) UpsertSettings(settings Settings) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO settings (id, tone, instructions, model, temperature)
-		 VALUES (1, ?, ?, ?, ?)
+		`INSERT INTO settings (id, tone, instructions, model, temperature, commit_types)
+		 VALUES (1, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			tone = excluded.tone,
 			instructions = excluded.instructions,
 			model = excluded.model,
-			temperature = excluded.temperature`,
-		settings.Tone, settings.Instructions, settings.Model, temp,
+			temperature = excluded.temperature,
+			commit_types = excluded.commit_types`,
+		settings.Tone, settings.Instructions, settings.Model, temp, strOrNil(settings.CommitTypes),
 	)
 	return err
 }
@@ -143,7 +188,7 @@ func (s *Store) UpsertSettings(settings Settings) error {
 // ListRepoSettings returns every repo_settings row.
 func (s *Store) ListRepoSettings() ([]RepoSetting, error) {
 	rows, err := s.db.Query(
-		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger
+		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types
 		 FROM repo_settings`,
 	)
 	if err != nil {
@@ -166,7 +211,7 @@ func (s *Store) ListRepoSettings() ([]RepoSetting, error) {
 // row exists (downstream treats a missing row as all-inherit / enabled).
 func (s *Store) GetRepoSettings(platform, owner, repo string) (*RepoSetting, error) {
 	row := s.db.QueryRow(
-		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger
+		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types
 		 FROM repo_settings WHERE platform = ? AND owner = ? AND repo = ?`,
 		platform, owner, repo,
 	)
@@ -196,18 +241,19 @@ func (s *Store) UpsertRepoSettings(r RepoSetting) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO repo_settings (platform, owner, repo, enabled, tone, instructions, model, temperature, trigger)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO repo_settings (platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(platform, owner, repo) DO UPDATE SET
 			enabled = excluded.enabled,
 			tone = excluded.tone,
 			instructions = excluded.instructions,
 			model = excluded.model,
 			temperature = excluded.temperature,
-			trigger = excluded.trigger`,
+			trigger = excluded.trigger,
+			commit_types = excluded.commit_types`,
 		r.Platform, r.Owner, r.Repo, enabled,
 		strOrNil(r.Tone), strOrNil(r.Instructions), strOrNil(r.Model),
-		temp, r.Trigger,
+		temp, r.Trigger, strOrNil(r.CommitTypes),
 	)
 	return err
 }
@@ -248,10 +294,10 @@ type rowScanner interface {
 
 func scanRepoSetting(row rowScanner, r *RepoSetting) error {
 	var enabled int
-	var tone, instructions, model, trigger sql.NullString
+	var tone, instructions, model, trigger, commitTypes sql.NullString
 	var temp sql.NullFloat64
 
-	err := row.Scan(&r.Platform, &r.Owner, &r.Repo, &enabled, &tone, &instructions, &model, &temp, &trigger)
+	err := row.Scan(&r.Platform, &r.Owner, &r.Repo, &enabled, &tone, &instructions, &model, &temp, &trigger, &commitTypes)
 	if err != nil {
 		return err
 	}
@@ -261,6 +307,7 @@ func scanRepoSetting(row rowScanner, r *RepoSetting) error {
 	r.Instructions = instructions.String
 	r.Model = model.String
 	r.Trigger = trigger.String
+	r.CommitTypes = commitTypes.String
 	if trigger.String == "" {
 		r.Trigger = "auto"
 	}

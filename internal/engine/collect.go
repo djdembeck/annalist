@@ -153,16 +153,116 @@ func ResolvePrevTag(ctx context.Context, workdir, current string) string {
 	return bestTag
 }
 
+// ParseCommitTypes splits a comma-separated string of conventional commit types,
+// trimming whitespace and dropping empty entries. Returns nil if the input is
+// empty or contains only commas/whitespace.
+func ParseCommitTypes(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var result []string
+	for _, part := range strings.Split(s, ",") {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+// commitTypeRe matches conventional-commit subjects:
+// type(scope)!: description  or  type!: description  or  type: description
+var commitTypeRe = regexp.MustCompile(`^([A-Za-z0-9_-]+)(?:\(([^)]*)\))?(!)?: (.*)$`)
+
+// breakingChangeRe matches "BREAKING CHANGE:" or "BREAKING-CHANGE:" at start of line.
+var breakingChangeRe = regexp.MustCompile(`(?im)^BREAKING[ -]CHANGE:`)
+
+// FilterCommitLog takes raw NUL-delimited commit records (each prefixed with "- ")
+// and filters them by includeTypes. Breaking commits are always kept with their
+// body appended. Untyped commits are always kept. Typed commits are kept only if
+// their type is in includeTypes. If includeTypes is nil or empty, all commits are
+// kept (but breaking commits still get body appended).
+func FilterCommitLog(raw string, includeTypes []string) string {
+	if raw == "" {
+		return ""
+	}
+
+	records := strings.Split(raw, "\x00")
+	var kept []string
+
+	for _, rec := range records {
+		rec = strings.TrimSpace(rec)
+		if rec == "" {
+			continue
+		}
+
+		// Strip leading "- " prefix
+		subjectAndBody := rec
+		if strings.HasPrefix(rec, "- ") {
+			subjectAndBody = rec[2:]
+		}
+
+		// Split into subject (first line) and body (rest)
+		parts := strings.SplitN(subjectAndBody, "\n", 2)
+		subject := parts[0]
+		body := ""
+		if len(parts) > 1 {
+			body = strings.TrimSpace(parts[1])
+		}
+
+		// Parse conventional commit type
+		matches := commitTypeRe.FindStringSubmatch(subject)
+		hasType := matches != nil
+		breaking := false
+
+		if hasType {
+			// Group 3 is "!" shorthand
+			breaking = matches[3] == "!"
+			// Also check body for BREAKING CHANGE: trailer
+			if !breaking && body != "" {
+				breaking = breakingChangeRe.MatchString(body)
+			}
+		}
+
+		// Keep rules
+		if breaking {
+			// Breaking commits always kept with body
+			keptLine := "- " + subject
+			if body != "" {
+				keptLine += "\n\n" + body
+			}
+			kept = append(kept, keptLine)
+		} else if !hasType {
+			// Untyped commits always kept
+			kept = append(kept, "- "+subject)
+		} else if len(includeTypes) == 0 {
+			// No filter configured, keep all
+			kept = append(kept, "- "+subject)
+		} else {
+			// Check if type is in include set (case-insensitive)
+			commitType := strings.ToLower(matches[1])
+			for _, allowed := range includeTypes {
+				if commitType == strings.ToLower(allowed) {
+					kept = append(kept, "- "+subject)
+					break
+				}
+			}
+		}
+	}
+
+	return strings.Join(kept, "\n")
+}
+
 // CollectCommitLog reproduces prose-releaser's "Collect commit history" step
 // exactly. With fromTag == "" it uses `git log --pretty=format:"- %s" --reverse
 // HEAD`; otherwise `git log --pretty=format:"- %s" <from>..<to>`. Returns the
 // trimmed stdout ("" when empty or on git error).
-func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string) string {
+func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, includeTypes []string) string {
 	var args []string
 	if fromTag == "" {
-		args = []string{"log", `--pretty=format:- %s`, "--reverse", "HEAD"}
+		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--reverse", "HEAD"}
 	} else {
-		args = []string{"log", `--pretty=format:- %s`, fromTag + ".." + toTag}
+		args = []string{"log", `--pretty=format:- %s%n%b%x00`, fromTag + ".." + toTag}
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -171,5 +271,5 @@ func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string) strin
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return FilterCommitLog(string(out), includeTypes)
 }

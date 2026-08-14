@@ -18,6 +18,7 @@ type Resolved struct {
 	Instructions string
 	Model        string
 	Temperature  float64
+	CommitTypes  []string
 }
 
 // rulesBlock defines the default release-notes structure (prose lead +
@@ -28,6 +29,7 @@ const rulesBlock = `Rules:
 - Use a Markdown heading (## ...) for each category, followed by one "- " bullet per change
 - Mention the version number naturally in the opening prose section
 - Keep the tone and style consistent with the persona above
+- If any commit is a breaking change (its subject has ! after the type or scope, or its body contains a BREAKING CHANGE: line), list those changes first within their category, each bullet starting with **Breaking:**. Never omit a breaking change and never render it without the **Breaking:** prefix
 - Output ONLY the release notes text: the prose section and the categorized bullet sections. No preamble, no meta-commentary`
 
 // neutralPersona is the default voice used when the resolved tone is empty.

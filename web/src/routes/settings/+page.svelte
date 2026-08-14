@@ -1,10 +1,19 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { parseTemperature, resolveTone } from "$lib/repoUtils";
+  import {
+    COMMIT_TYPE_OPTIONS,
+    DEFAULT_COMMIT_TYPES,
+    formatCommitTypes,
+    getCommitTypeSelection,
+  } from "$lib/commitTypes";
   import { getSettings, putSettings, type Settings } from "$lib/api";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
-  import { handleAuthError, formatError } from "$lib/composables/useAuthErrorHandler";
+  import {
+    handleAuthError,
+    formatError,
+  } from "$lib/composables/useAuthErrorHandler";
 
   const PRESET_OPTIONS = ["chronicler", "engineer", "launch"];
 
@@ -19,22 +28,23 @@
   let model = $state("");
   let temperature = $state("");
   let temperatureError = $state("");
+  let selectedCommitTypes = $state<string[]>(DEFAULT_COMMIT_TYPES);
+  let customCommitTypes = $state("");
+  let commitTypesDirty = $state(false);
 
   let platformStatus = $derived(
     settings
-      ? (settings.github && settings.forgejo
-          ? "Both GitHub and Forgejo are configured."
-          : settings.github
-            ? "GitHub configured, Forgejo not configured."
-            : settings.forgejo
-              ? "Forgejo configured, GitHub not configured."
-              : "No platforms configured yet — add a platform below to start.")
-      : undefined
+      ? settings.github && settings.forgejo
+        ? "Both GitHub and Forgejo are configured."
+        : settings.github
+          ? "GitHub configured, Forgejo not configured."
+          : settings.forgejo
+            ? "Forgejo configured, GitHub not configured."
+            : "No platforms configured yet — add a platform below to start."
+      : undefined,
   );
   let headerLede = $derived(
-    settings
-      ? `${platformStatus} · Model ${settings.llm.model}`
-      : undefined
+    settings ? `${platformStatus} · Model ${settings.llm.model}` : undefined,
   );
 
   async function load(): Promise<void> {
@@ -51,13 +61,20 @@
       instructions = s.instructions ?? "";
       model = s.model ?? "";
       temperature = s.temperature === null ? "" : String(s.temperature);
+      const commitTypeSelection = getCommitTypeSelection(s.commit_types);
+      const hasSavedCommitTypes = Boolean(s.commit_types?.trim());
+      selectedCommitTypes = hasSavedCommitTypes
+        ? commitTypeSelection.selected
+        : [...DEFAULT_COMMIT_TYPES];
+      customCommitTypes = commitTypeSelection.custom.join(", ");
+      commitTypesDirty = false;
       temperatureError = "";
       error = "";
     } catch (e) {
       if (handleAuthError(e)) return;
       error = formatError(
         e,
-        "Could not load settings — the server may be unreachable. Check your connection and try refreshing."
+        "Could not load settings — the server may be unreachable. Check your connection and try refreshing.",
       );
     } finally {
       loading = false;
@@ -82,13 +99,20 @@
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
         temperature: tempResult.value,
+        commit_types: commitTypesDirty
+          ? formatCommitTypes(selectedCommitTypes, customCommitTypes)
+          : (settings?.commit_types ?? null),
       });
+      commitTypesDirty = false;
       saved = true;
       temperatureError = "";
       error = "";
     } catch (e) {
       if (handleAuthError(e)) return;
-      error = formatError(e, "Failed to save settings — check your connection and try again.");
+      error = formatError(
+        e,
+        "Failed to save settings — check your connection and try again.",
+      );
     } finally {
       saving = false;
     }
@@ -104,7 +128,11 @@
 </svelte:head>
 
 <div class="trace-wall">
-  <SectionHead label="Operations / global contract" title="Machine contract &amp; tone proof" lede={headerLede}>
+  <SectionHead
+    label="Operations / global contract"
+    title="Machine contract &amp; tone proof"
+    lede={headerLede}
+  >
     {#snippet actions()}
       <a href="/repos" class="btn btn-secondary">Repository inventory</a>
     {/snippet}
@@ -127,7 +155,12 @@
         class="panel settings-form"
         aria-label="Global release note defaults"
       >
-        <SectionHead label="Tone contract" title="Global defaults" compact headingLevel="h2">
+        <SectionHead
+          label="Tone contract"
+          title="Global defaults"
+          compact
+          headingLevel="h2"
+        >
           {#snippet actions()}
             <span class="status status--healthy"
               ><span class="signal-dot signal-dot--muted" aria-hidden="true"
@@ -191,6 +224,55 @@
                 >{/if}</label
             >
           </div>
+          <fieldset class="field-group" disabled={saving}>
+            <legend class="field-group__label">Commit types</legend>
+            <div class="commit-type-grid" aria-label="Global commit types">
+              {#each COMMIT_TYPE_OPTIONS as option (option.value)}
+                <label
+                  class="check-control commit-type-option"
+                  class:commit-type-option--selected={selectedCommitTypes.includes(
+                    option.value,
+                  )}
+                >
+                  <input
+                    class="check-input"
+                    type="checkbox"
+                    checked={selectedCommitTypes.includes(option.value)}
+                    onchange={(event) => {
+                      const checked = event.currentTarget.checked;
+                      selectedCommitTypes = checked
+                        ? [...selectedCommitTypes, option.value]
+                        : selectedCommitTypes.filter(
+                            (type) => type !== option.value,
+                          );
+                      commitTypesDirty = true;
+                    }}
+                  />
+                  <span>
+                    <strong>{option.value}</strong>
+                    <small>{option.description}</small>
+                  </span>
+                </label>
+              {/each}
+            </div>
+            <label class="field-group__custom-types">
+              <span class="field-group__hint">Additional types (optional)</span>
+              <input
+                bind:value={customCommitTypes}
+                oninput={() => (commitTypesDirty = true)}
+                placeholder="security,breaking"
+                class="field"
+              />
+            </label>
+            <span class="field-group__hint"
+              >{!commitTypesDirty && !settings?.commit_types?.trim()
+                ? "Default selection shown for new installs. Change a checkbox to save a filter."
+                : formatCommitTypes(selectedCommitTypes, customCommitTypes)
+                  ? "Selected types are included in notes."
+                  : "No filter saved — all commit types are included."} Breaking changes
+              are always included.</span
+            >
+          </fieldset>
           <div class="flex flex-wrap items-center gap-3">
             <button onclick={save} disabled={saving} class="btn btn-primary"
               >{saving ? "Saving…" : "Save contract"}</button
@@ -204,7 +286,12 @@
 
       <aside class="settings-proof">
         <section class="panel panel-soft" aria-label="Machine contract">
-          <SectionHead label="Machine contract" title="Connection state" compact headingLevel="h2">
+          <SectionHead
+            label="Machine contract"
+            title="Connection state"
+            compact
+            headingLevel="h2"
+          >
             {#snippet actions()}
               <span class="signal-dot signal-dot--healthy" aria-hidden="true"
               ></span>
@@ -268,7 +355,11 @@
                 : toneOption}
 Model: {model.trim() || settings.llm.model || "server default"}
 Temperature: {temperature !== "" ? temperature : "server default"}
-Instructions: {instructions.trim() || "No additional instructions."}</pre>
+Instructions: {instructions.trim() || "No additional instructions."}
+Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()
+              ? `${DEFAULT_COMMIT_TYPES.join(",")} (default, not saved)`
+              : formatCommitTypes(selectedCommitTypes, customCommitTypes) ||
+                "all commit types"}</pre>
           <p class="mt-3 text-xs text-ink-3">
             This proof reflects the values in the form. Repository-level
             settings can override the global contract.

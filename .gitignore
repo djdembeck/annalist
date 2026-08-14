@@ -11,5 +11,9 @@ web/build/
 web/node_modules/
 web/.svelte-kit/
 
+# Build artifacts
+.tmp/
+tmp/
+
 # Tool artifacts
 .playwright-cli/

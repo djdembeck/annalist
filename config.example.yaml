@@ -32,6 +32,10 @@ llm:
   max_tokens: 4096
   # Timeout for LLM HTTP calls, seconds. (env LLM_TIMEOUT_S, default 120)
   timeout_s: 120
+  # Conventional commit types included in release notes (comma-separated).
+  # Blank = keep all commit types. Breaking changes always included.
+  #                                        (env LLM_COMMIT_TYPES, no default)
+  commit_types: ""
 
 github:
   # GitHub App ID.                  (env GITHUB_APP_ID, no default)
