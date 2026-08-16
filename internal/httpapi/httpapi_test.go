@@ -705,6 +705,57 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 	if item3.CommitTypes != "" {
 		t.Errorf("commit_types after null = %q, want empty", item3.CommitTypes)
 	}
+
+	// mode round-trip: set deep → verify, clear → verify, invalid rejected
+	// without a partial write.
+	rMode := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"mode":"deep"}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	wMode := do(a.handlePutRepoSettings, rMode)
+	if wMode.Code != http.StatusOK {
+		t.Fatalf("mode PUT status = %d, want 200; body %s", wMode.Code, wMode.Body.String())
+	}
+	var itemMode repoItemResp
+	_ = json.Unmarshal(wMode.Body.Bytes(), &itemMode)
+	if itemMode.Mode != "deep" {
+		t.Errorf("response mode = %q, want deep", itemMode.Mode)
+	}
+	rowMode, err := store.GetRepoSettings("github", "djdembeck", "annalist")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if rowMode == nil || rowMode.Mode != "deep" {
+		t.Errorf("stored row = %+v, want mode deep", rowMode)
+	}
+
+	rMode2 := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"mode":null}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	wMode2 := do(a.handlePutRepoSettings, rMode2)
+	if wMode2.Code != http.StatusOK {
+		t.Fatalf("mode null PUT status = %d, want 200; body %s", wMode2.Code, wMode2.Body.String())
+	}
+	var itemMode2 repoItemResp
+	_ = json.Unmarshal(wMode2.Body.Bytes(), &itemMode2)
+	if itemMode2.Mode != "" {
+		t.Errorf("mode after null = %q, want empty", itemMode2.Mode)
+	}
+
+	rMode3 := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"mode":"bogus"}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	wMode3 := do(a.handlePutRepoSettings, rMode3)
+	if wMode3.Code != http.StatusBadRequest {
+		t.Fatalf("invalid mode PUT status = %d, want 400", wMode3.Code)
+	}
+	// No partial write: stored mode must be unchanged (still the cleared value).
+	rowMode3, err := store.GetRepoSettings("github", "djdembeck", "annalist")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if rowMode3 == nil || rowMode3.Mode != "" {
+		t.Errorf("stored row after bogus mode = %+v, want unchanged (mode empty)", rowMode3)
+	}
 }
 
 func TestHandlePutRepoSettingsInvalidPlatform(t *testing.T) {

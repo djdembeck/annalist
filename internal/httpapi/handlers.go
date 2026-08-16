@@ -38,9 +38,9 @@ func validPlatform(p string) bool {
 }
 
 // validMode reports whether m is an accepted generation mode: "" (inherit /
-// use the resolved default), "lite", or "deep".
+// use the resolved default), engine.ModeLite, or engine.ModeDeep.
 func validMode(m string) bool {
-	return m == "" || m == "lite" || m == "deep"
+	return m == "" || m == engine.ModeLite || m == engine.ModeDeep
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

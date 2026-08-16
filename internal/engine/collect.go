@@ -219,10 +219,11 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 		if hasType {
 			// Group 3 is "!" shorthand
 			breaking = matches[3] == "!"
-			// Also check body for BREAKING CHANGE: trailer
-			if !breaking && body != "" {
-				breaking = breakingChangeRe.MatchString(body)
-			}
+		}
+		// Also check body for BREAKING CHANGE: trailer, even on untyped
+		// subjects — untyped breaking commits must keep their body too.
+		if !breaking && body != "" {
+			breaking = breakingChangeRe.MatchString(body)
 		}
 
 		// Keep rules
@@ -254,10 +255,13 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 	return strings.Join(kept, "\n")
 }
 
-// CollectCommitLog reproduces prose-releaser's "Collect commit history" step
-// exactly. With fromTag == "" it uses `git log --pretty=format:"- %s" --reverse
-// HEAD`; otherwise `git log --pretty=format:"- %s" <from>..<to>`. Returns the
-// trimmed stdout ("" when empty or on git error).
+// CollectCommitLog collects the commit log between fromTag and toTag. With
+// fromTag == "" it uses `git log --pretty=format:- %s%n%b%x00 --reverse HEAD`;
+// otherwise `git log --pretty=format:- %s%n%b%x00 <from>..<to>`. The raw
+// output consists of NUL-delimited records: each record holds a commit subject
+// prefixed with "- " followed by the commit body. The records are then passed
+// through FilterCommitLog, which applies conventional-commit type filtering
+// and keeps breaking-change commits with their body. Returns "" on git error.
 func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, includeTypes []string) string {
 	var args []string
 	if fromTag == "" {
@@ -391,8 +395,28 @@ func runGit(ctx context.Context, workdir string, args ...string) ([]byte, error)
 func parseDiff(patch string) []diffUnit {
 	var units []diffUnit
 	orig := 0
-	for _, sec := range strings.Split(patch, "diff --git ")[1:] {
-		sec = "diff --git " + sec
+	// Section starts are "diff --git " only at line beginnings, so the
+	// literal string inside added-line content of a patch file cannot
+	// spawn a fake section.
+	starts := make([]int, 0, 8)
+	if strings.HasPrefix(patch, "diff --git ") {
+		starts = append(starts, 0)
+	}
+	from := 0
+	for {
+		idx := strings.Index(patch[from:], "\ndiff --git ")
+		if idx < 0 {
+			break
+		}
+		from += idx + 1
+		starts = append(starts, from)
+	}
+	for i, s := range starts {
+		e := len(patch)
+		if i+1 < len(starts) {
+			e = starts[i+1]
+		}
+		sec := patch[s:e]
 		filePath := diffFilePath(sec)
 		idx := strings.Index(sec, "\n@@")
 		if idx < 0 {
@@ -427,7 +451,7 @@ func parseDiff(patch string) []diffUnit {
 
 // diffFilePath extracts the file path from a section's `diff --git a/<old>
 // b/<new>` line, preferring the b/ (new) path and falling back to the a/
-// path for deletions (b//dev/null).
+// path for deletions (b/dev/null).
 func diffFilePath(section string) string {
 	line := section
 	if i := strings.IndexByte(line, '\n'); i >= 0 {
@@ -444,7 +468,7 @@ func diffFilePath(section string) string {
 	}
 	old := strings.TrimPrefix(rest[:i], "a/")
 	neu := rest[i+3:]
-	if neu == "/dev/null" {
+	if neu == "/dev/null" || neu == "dev/null" {
 		return old
 	}
 	return neu

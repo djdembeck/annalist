@@ -179,13 +179,13 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 		commitTypes = p.Cfg.LLM.CommitTypes
 	}
 
-	// Mode precedence: repo row → global row → default "lite".
+	// Mode precedence: repo row → global row → default lite.
 	mode := global.Mode
 	if row != nil && row.Mode != "" {
 		mode = row.Mode
 	}
 	if mode == "" {
-		mode = "lite"
+		mode = engine.ModeLite
 	}
 
 	resolved := engine.Resolved{
@@ -280,7 +280,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		notes = "No changes documented."
 	} else {
 		diff := ""
-		if resolved.Mode == "deep" {
+		if resolved.Mode == engine.ModeDeep {
 			diff = engine.CollectDiff(ctx, workdir, from, spec.ToTag, engine.DiffBudgetBytes)
 		}
 		notes, err = p.Engine.Generate(ctx, resolved, spec.ToTag, from, commitLog, diff)

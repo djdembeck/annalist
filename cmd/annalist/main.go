@@ -17,6 +17,7 @@ import (
 
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
+	"github.com/djdembeck/annalist/internal/engine"
 	"github.com/djdembeck/annalist/internal/httpapi"
 	"github.com/djdembeck/annalist/internal/llm"
 	"github.com/djdembeck/annalist/internal/pipeline"
@@ -135,7 +136,7 @@ func cmdGenerate(cfg *config.Config, args []string) {
 		fs.Usage()
 		os.Exit(1)
 	}
-	if *mode != "" && *mode != "lite" && *mode != "deep" {
+	if *mode != "" && *mode != engine.ModeLite && *mode != engine.ModeDeep {
 		fmt.Fprintf(os.Stderr, "unknown mode %q (want lite|deep)\n", *mode)
 		os.Exit(1)
 	}

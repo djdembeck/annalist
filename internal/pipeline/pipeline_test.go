@@ -16,6 +16,7 @@ import (
 
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
+	"github.com/djdembeck/annalist/internal/engine"
 	"github.com/djdembeck/annalist/internal/llm"
 )
 
@@ -396,6 +397,31 @@ func TestResolvePrecedence(t *testing.T) {
 		}
 	})
 
+	t.Run("commit types: fresh store falls back to config", func(t *testing.T) {
+		fresh, err := db.New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { fresh.Close() })
+		pip3 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model", CommitTypes: "fix,perf"}}, DB: fresh}
+		_, r, err := pip3.Resolve(context.Background(), "github", "o", "r-fresh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.CommitTypes) != 2 || r.CommitTypes[0] != "fix" || r.CommitTypes[1] != "perf" {
+			t.Errorf("commit types = %v, want [fix perf]", r.CommitTypes)
+		}
+		// Twin: config also empty → keep-all (nil).
+		pip4 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model"}}, DB: fresh}
+		_, r, err = pip4.Resolve(context.Background(), "github", "o", "r-fresh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.CommitTypes != nil {
+			t.Errorf("commit types = %v, want nil (keep-all)", r.CommitTypes)
+		}
+	})
+
 	t.Run("commit types: no global falls back to config", func(t *testing.T) {
 		pip2 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model", Temperature: 0.7, CommitTypes: "perf"}}, DB: store}
 		if err := store.UpsertSettings(db.Settings{
@@ -504,6 +530,45 @@ func TestGenerateNotesDeepMode(t *testing.T) {
 		u := stub.user()
 		if strings.Contains(u, "<diff>") {
 			t.Errorf("lite user message must not contain <diff>; got:\n%s", u)
+		}
+	})
+
+	t.Run("resolved mode deep from global settings sends the diff", func(t *testing.T) {
+		pip, stub, _, store := fixture(t, nil, nil)
+		if err := store.UpsertSettings(db.Settings{Mode: engine.ModeDeep}); err != nil {
+			t.Fatalf("UpsertSettings: %v", err)
+		}
+		if _, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-resolved-deep"), Options{}); err != nil {
+			t.Fatalf("GenerateNotes resolved deep: %v", err)
+		}
+		if stub.calls != 1 {
+			t.Fatalf("stub calls = %d, want 1", stub.calls)
+		}
+		u := stub.user()
+		if !strings.Contains(u, "<diff>") || !strings.Contains(u, "f.txt") {
+			t.Errorf("resolved-deep user message missing diff block or file path; got:\n%s", u)
+		}
+	})
+
+	t.Run("repo row lite overrides global deep (no diff block)", func(t *testing.T) {
+		pip, stub, _, store := fixture(t, nil, nil)
+		if err := store.UpsertSettings(db.Settings{Mode: engine.ModeDeep}); err != nil {
+			t.Fatalf("UpsertSettings: %v", err)
+		}
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Mode: engine.ModeLite,
+		}); err != nil {
+			t.Fatalf("UpsertRepoSettings: %v", err)
+		}
+		if _, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-resolved-lite"), Options{}); err != nil {
+			t.Fatalf("GenerateNotes repo-lite: %v", err)
+		}
+		if stub.calls != 1 {
+			t.Fatalf("stub calls = %d, want 1", stub.calls)
+		}
+		u := stub.user()
+		if strings.Contains(u, "<diff>") {
+			t.Errorf("repo-lite user message must not contain <diff>; got:\n%s", u)
 		}
 	})
 }
