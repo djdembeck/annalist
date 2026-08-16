@@ -178,6 +178,31 @@ var commitTypeRe = regexp.MustCompile(`^([A-Za-z0-9_-]+)(?:\(([^)]*)\))?(!)?: (.
 // breakingChangeRe matches "BREAKING CHANGE:" or "BREAKING-CHANGE:" at start of line.
 var breakingChangeRe = regexp.MustCompile(`(?im)^BREAKING[ -]CHANGE:`)
 
+// validGitRef reports whether s is safe to use as a git ref name (tag) in a
+// command-line range expression. It mirrors the rules that make a string
+// safe to pass to git as a single argv element without option-injection:
+// it must be non-empty, must not start with '-', and must contain no
+// characters git itself rejects in ref names (check-ref-format):
+// control chars, space, ~, ^, :, ?, *, [, backslash, and no '..' or '@{'
+// sequences, no leading/trailing '/', no '//', no trailing '.'.
+func validGitRef(s string) bool {
+	if s == "" || strings.HasPrefix(s, "-") {
+		return false
+	}
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune("~^:?*[\\ ", r) {
+			return false
+		}
+	}
+	if strings.Contains(s, "..") || strings.Contains(s, "@{") ||
+		strings.HasPrefix(s, "/") || strings.HasPrefix(s, ".") ||
+		strings.HasSuffix(s, "/") || strings.HasSuffix(s, ".") ||
+		strings.Contains(s, "//") {
+		return false
+	}
+	return true
+}
+
 // FilterCommitLog takes raw NUL-delimited commit records (each prefixed with "- ")
 // and filters them by includeTypes. Breaking commits are always kept with their
 // body appended. Untyped commits are always kept. Typed commits are kept only if
@@ -262,7 +287,16 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 // prefixed with "- " followed by the commit body. The records are then passed
 // through FilterCommitLog, which applies conventional-commit type filtering
 // and keeps breaking-change commits with their body. Returns "" on git error.
+// Invalid (non-ref-name) tags are rejected, causing the function to return ""
+// like a git failure, so tags are never spliced into git argv unsanitized.
+// An empty toTag is not expected (production callers always supply one); if
+// it occurs, git resolves the missing range endpoint to HEAD, so the
+// function returns the log output up to HEAD rather than "".
 func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, includeTypes []string) string {
+	if (toTag != "" && !validGitRef(toTag)) || (fromTag != "" && !validGitRef(fromTag)) {
+		return ""
+	}
+
 	var args []string
 	if fromTag == "" {
 		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--reverse", "HEAD"}
@@ -347,7 +381,16 @@ type diffUnit struct {
 // in the common linear case. When fromTag is empty (first release) the diff
 // is taken against the empty tree, which has no merge base with toTag, so a
 // plain two-commit range is used.
+// Invalid (non-ref-name) tags are rejected, causing the function to return ""
+// like a git failure, so tags are never spliced into git argv unsanitized.
+// An empty toTag is not expected (production callers always supply one); if
+// it occurs, git resolves the missing range endpoint to HEAD, so the
+// function returns the diff output up to HEAD rather than "".
 func CollectDiff(ctx context.Context, workdir, fromTag, toTag string, maxBytes int) string {
+	if (toTag != "" && !validGitRef(toTag)) || (fromTag != "" && !validGitRef(fromTag)) {
+		return ""
+	}
+
 	rangeSpec := fromTag + "..." + toTag
 	if fromTag == "" {
 		cmd := exec.CommandContext(ctx, "git", "hash-object", "-t", "tree", "/dev/null")

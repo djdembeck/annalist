@@ -78,6 +78,43 @@ func TestCmpInt(t *testing.T) {
 	}
 }
 
+func TestValidGitRef(t *testing.T) {
+	cases := []struct {
+		tag  string
+		want bool
+	}{
+		{tag: "v1.0.0", want: true},
+		{tag: "v0.9.0-beta.1", want: true},
+		{tag: "feature/x", want: true},
+		{tag: "", want: false},
+		{tag: "-v1.0.0", want: false},
+		{tag: "--output=evil", want: false},
+		{tag: "-q", want: false},
+		{tag: "a..b", want: false},
+		{tag: "HEAD@{1}", want: false},
+		{tag: "a b", want: false},
+		{tag: "a\\b", want: false},
+		{tag: "a?", want: false},
+		{tag: "a*", want: false},
+		{tag: "a:", want: false},
+		{tag: "a[b]", want: false},
+		{tag: "/abs", want: false},
+		{tag: ".hidden", want: false},
+		{tag: "trail/", want: false},
+		{tag: "trailing.", want: false},
+		{tag: "a//b", want: false},
+		{tag: "v1\x00.0", want: false},
+		{tag: "a~b", want: false},
+		{tag: "a^b", want: false},
+		{tag: "v1\x7f.0", want: false},
+	}
+	for _, tc := range cases {
+		if got := validGitRef(tc.tag); got != tc.want {
+			t.Errorf("validGitRef(%q) = %v, want %v", tc.tag, got, tc.want)
+		}
+	}
+}
+
 func TestRandomSuffix(t *testing.T) {
 	re := regexp.MustCompile(`^-[0-9a-f]{8}$`)
 	for i := 0; i < 20; i++ {
@@ -214,9 +251,17 @@ func TestCollectCommitLog(t *testing.T) {
 		t.Errorf("CollectCommitLog(all) = %q", got)
 	}
 	// Range v0.1.0..HEAD excludes the tagged commit itself and (unlike the
-	// --reverse HEAD path) lists newest-first.
+	// --reverse HEAD path) lists newest-first. HEAD is a rev name the
+	// validGitRef guard accepts (the fixture's only tag, v0.1.0, is the
+	// from-bound, so HEAD is load-bearing here).
 	if got := CollectCommitLog(ctx, dir, "v0.1.0", "HEAD", nil); got != "- fourth\n- third" {
 		t.Errorf("CollectCommitLog(range) = %q", got)
+	}
+	// Implicit HEAD: an empty toTag makes git resolve the missing range
+	// endpoint to HEAD, so the output must match the explicit v0.1.0..HEAD
+	// range above.
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "", nil); got != "- fourth\n- third" {
+		t.Errorf("CollectCommitLog(implicit HEAD) = %q", got)
 	}
 	// Equal bounds yield no commits.
 	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.1.0", nil); got != "" {
@@ -742,6 +787,110 @@ func TestCollectDiffGitFailure(t *testing.T) {
 	// No git repo here: git diff must fail and CollectDiff returns "".
 	if got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes); got != "" {
 		t.Errorf("expected empty diff on git failure, got:\n%s", got)
+	}
+}
+
+// fakeGitDir creates a temp dir containing a `git` shell script that records
+// any invocation by touching a marker file (path in $FAKE_GIT_MARKER) and
+// exits 128. Prepending the dir to PATH proves whether a git exec happened at
+// all: a bad tag that slips past the guard would leave the marker behind,
+// even though the function returns "" either way.
+func fakeGitDir(t *testing.T) (dir, marker string) {
+	t.Helper()
+	dir = t.TempDir()
+	marker = filepath.Join(dir, "executed")
+	script := "#!/bin/sh\ntouch \"$FAKE_GIT_MARKER\"\nexit 128\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_GIT_MARKER", marker)
+	return dir, marker
+}
+
+func TestCollectDiffRejectsBadTags(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	plan := []struct {
+		subject string
+		tag     string
+	}{
+		{subject: "one", tag: "v0.1.0"},
+		{subject: "two", tag: "v0.2.0"},
+	}
+	makeTaggedRepo(t, dir, plan)
+
+	// Option-injection attempts must be rejected before any git exec.
+	t.Run("badFromTag", func(t *testing.T) {
+		fakeDir, marker := fakeGitDir(t)
+		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if got := CollectDiff(ctx, dir, "--output=/tmp/evil", "v0.2.0", DiffBudgetBytes); got != "" {
+			t.Errorf("expected empty diff for bad fromTag, got:\n%s", got)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("git was executed for bad fromTag; guard must reject before exec")
+		}
+	})
+	t.Run("badToTag", func(t *testing.T) {
+		fakeDir, marker := fakeGitDir(t)
+		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if got := CollectDiff(ctx, dir, "v0.1.0", "-q", DiffBudgetBytes); got != "" {
+			t.Errorf("expected empty diff for bad toTag, got:\n%s", got)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("git was executed for bad toTag; guard must reject before exec")
+		}
+	})
+	// Control: valid tags still work (the 1-byte budget forces a truncation
+	// note, but the output must still be non-empty). Runs under the real PATH
+	// (t.Setenv restored it when the subtests above ended).
+	if got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", 1); got == "" {
+		t.Error("expected non-empty diff for valid tags")
+	}
+	// Control: implicit HEAD — an empty toTag makes git resolve the missing
+	// range endpoint to HEAD, so the diff covers the commit(s) after v0.1.0
+	// (here the "two" commit, which rewrites f.txt).
+	if got := CollectDiff(ctx, dir, "v0.1.0", "", DiffBudgetBytes); got == "" || !strings.Contains(got, "f.txt") {
+		t.Errorf("expected non-empty implicit-HEAD diff mentioning f.txt; got:\n%s", got)
+	}
+}
+
+func TestCollectCommitLogRejectsBadTags(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	plan := []struct {
+		subject string
+		tag     string
+	}{
+		{subject: "one", tag: "v0.1.0"},
+		{subject: "two", tag: "v0.2.0"},
+	}
+	makeTaggedRepo(t, dir, plan)
+
+	// Option-injection attempts must be rejected before any git exec.
+	t.Run("badFromTag", func(t *testing.T) {
+		fakeDir, marker := fakeGitDir(t)
+		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if got := CollectCommitLog(ctx, dir, "--output=/tmp/evil", "v0.2.0", nil); got != "" {
+			t.Errorf("expected empty log for bad fromTag, got:\n%s", got)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("git was executed for bad fromTag; guard must reject before exec")
+		}
+	})
+	t.Run("badToTag", func(t *testing.T) {
+		fakeDir, marker := fakeGitDir(t)
+		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if got := CollectCommitLog(ctx, dir, "v0.1.0", "--output=/tmp/evil", nil); got != "" {
+			t.Errorf("expected empty log for bad toTag, got:\n%s", got)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("git was executed for bad toTag; guard must reject before exec")
+		}
+	})
+	// Control: valid tags still work. Runs under the real PATH (t.Setenv
+	// restored it when the subtests above ended).
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.2.0", nil); got == "" {
+		t.Error("expected non-empty log for valid tags")
 	}
 }
 
