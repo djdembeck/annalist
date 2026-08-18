@@ -178,10 +178,10 @@ var commitTypeRe = regexp.MustCompile(`^([A-Za-z0-9_-]+)(?:\(([^)]*)\))?(!)?: (.
 var breakingChangeRe = regexp.MustCompile(`(?im)^BREAKING[ -]CHANGE:`)
 
 // FilterCommitLog takes raw NUL-delimited commit records (each prefixed with "- ")
-// and filters them by includeTypes. Breaking commits are always kept with their
-// body appended. Untyped commits are always kept. Typed commits are kept only if
-// their type is in includeTypes. If includeTypes is nil or empty, all commits are
-// kept (but breaking commits still get body appended).
+// and filters them by includeTypes. Kept commits carry their body (when present)
+// appended after the subject. Breaking commits are always kept. Untyped commits
+// are always kept. Typed commits are kept only if their type is in includeTypes.
+// If includeTypes is nil or empty, all commits are kept.
 func FilterCommitLog(raw string, includeTypes []string) string {
 	if raw == "" {
 		return ""
@@ -225,25 +225,25 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 		}
 
 		// Keep rules
+		keptLine := "- " + subject
+		if body != "" {
+			keptLine += "\n\n" + body
+		}
 		if breaking {
-			// Breaking commits always kept with body
-			keptLine := "- " + subject
-			if body != "" {
-				keptLine += "\n\n" + body
-			}
+			// Breaking commits always kept, with body
 			kept = append(kept, keptLine)
 		} else if !hasType {
 			// Untyped commits always kept
-			kept = append(kept, "- "+subject)
+			kept = append(kept, keptLine)
 		} else if len(includeTypes) == 0 {
 			// No filter configured, keep all
-			kept = append(kept, "- "+subject)
+			kept = append(kept, keptLine)
 		} else {
 			// Check if type is in include set (case-insensitive)
 			commitType := strings.ToLower(matches[1])
 			for _, allowed := range includeTypes {
 				if commitType == strings.ToLower(allowed) {
-					kept = append(kept, "- "+subject)
+					kept = append(kept, keptLine)
 					break
 				}
 			}
@@ -253,10 +253,10 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 	return strings.Join(kept, "\n")
 }
 
-// CollectCommitLog reproduces prose-releaser's "Collect commit history" step
-// exactly. With fromTag == "" it uses `git log --pretty=format:"- %s" --reverse
-// HEAD`; otherwise `git log --pretty=format:"- %s" <from>..<to>`. Returns the
-// trimmed stdout ("" when empty or on git error).
+// CollectCommitLog collects the commit history between fromTag and toTag (or up
+// to HEAD when fromTag is empty), fetching each commit's subject and body via
+// git log --pretty=format:"- %s%n%b%x00", then filters the records by
+// includeTypes. Returns the trimmed result ("" when empty or on git error).
 func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, includeTypes []string) string {
 	var args []string
 	if fromTag == "" {
