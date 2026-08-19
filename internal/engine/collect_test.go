@@ -328,6 +328,24 @@ func TestFilterCommitLog(t *testing.T) {
 			want:  "- docs: update readme\n\nBREAKING CHANGE: api removed",
 		},
 		{
+			name:  "typed non-breaking body kept",
+			raw:   "- feat: add login\n\nAdds OAuth login with refresh token rotation.\x00- chore: tidy\x00",
+			types: []string{"feat"},
+			want:  "- feat: add login\n\nAdds OAuth login with refresh token rotation.",
+		},
+		{
+			name:  "typed non-breaking body kept no filter",
+			raw:   "- fix: patch bug\n\nFixes the crash on empty input.\x00",
+			types: nil,
+			want:  "- fix: patch bug\n\nFixes the crash on empty input.",
+		},
+		{
+			name:  "untyped body kept",
+			raw:   "- Merge pull request #1\n\nImports the new dashboard.\x00- feat: add login\x00",
+			types: []string{"feat"},
+			want:  "- Merge pull request #1\n\nImports the new dashboard.\n- feat: add login",
+		},
+		{
 			name:  "untyped kept",
 			raw:   "- Merge pull request #1\x00- feat: add login\x00",
 			types: []string{"feat"},
@@ -891,6 +909,28 @@ func TestCollectCommitLogRejectsBadTags(t *testing.T) {
 	// restored it when the subtests above ended).
 	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.2.0", nil); got == "" {
 		t.Error("expected non-empty log for valid tags")
+	}
+}
+
+func TestCollectCommitLogBodies(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	gitTa(t, dir, "init", "-q")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "feat: baseline")
+	gitTa(t, dir, "tag", "v1.0.0")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "feat: add import queue", "-m", "Imports queue behind an explicit worker pool so large libraries do not block the UI thread.")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "fix: correct chapter offset drift", "-m", "Offsets now come from container timestamps instead of the codec header.")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "chore: bump deps")
+
+	// Bodies of kept typed non-breaking commits survive filtering.
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"feat", "fix"})
+	want := "- fix: correct chapter offset drift\n\nOffsets now come from container timestamps instead of the codec header.\n- feat: add import queue\n\nImports queue behind an explicit worker pool so large libraries do not block the UI thread."
+	if got != want {
+		t.Errorf("CollectCommitLog(bodies) = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "chore: bump deps") {
+		t.Errorf("chore should be filtered; got %q", got)
 	}
 }
 
