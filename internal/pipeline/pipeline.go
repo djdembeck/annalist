@@ -44,6 +44,8 @@ type Spec struct {
 type Options struct {
 	Force   bool // bypass idempotency and the don't-clobber guard
 	Publish bool // write the notes into the release body
+	// Mode overrides the resolved mode for this invocation only; empty = use resolved.
+	Mode string
 }
 
 // Release is the small platform-agnostic view of a release.
@@ -177,12 +179,22 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 		commitTypes = p.Cfg.LLM.CommitTypes
 	}
 
+	// Mode precedence: repo row → global row → default lite.
+	mode := global.Mode
+	if row != nil && row.Mode != "" {
+		mode = row.Mode
+	}
+	if mode == "" {
+		mode = engine.ModeLite
+	}
+
 	resolved := engine.Resolved{
 		Tone:         tone,
 		Instructions: instructions,
 		Model:        model,
 		Temperature:  p.Cfg.LLM.Temperature,
 		CommitTypes:  engine.ParseCommitTypes(commitTypes),
+		Mode:         mode,
 	}
 	if temperature != nil {
 		resolved.Temperature = *temperature
@@ -249,6 +261,9 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	if err != nil {
 		return "", err
 	}
+	if opts.Mode != "" {
+		resolved.Mode = opts.Mode
+	}
 	commitLog := engine.CollectCommitLog(ctx, workdir, from, spec.ToTag, resolved.CommitTypes)
 
 	// In-repo instructions file has the highest precedence.
@@ -264,7 +279,11 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	if strings.TrimSpace(commitLog) == "" {
 		notes = "No changes documented."
 	} else {
-		notes, err = p.Engine.Generate(ctx, resolved, spec.ToTag, from, commitLog)
+		diff := ""
+		if resolved.Mode == engine.ModeDeep {
+			diff = engine.CollectDiff(ctx, workdir, from, spec.ToTag, engine.DiffBudgetBytes)
+		}
+		notes, err = p.Engine.Generate(ctx, resolved, spec.ToTag, from, commitLog, diff)
 		if err != nil {
 			return "", err
 		}

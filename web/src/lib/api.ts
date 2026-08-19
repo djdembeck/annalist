@@ -22,6 +22,7 @@ export type Repo = {
   temperature: number | null;
   trigger: string;
   commit_types: string | null;
+  mode: string | null;
   effective: {
     tone: string | null;
     model: string | null;
@@ -29,6 +30,7 @@ export type Repo = {
     instructions: string | null;
     source: string | null;
     commit_types: string[] | null;
+    mode: string | null;
   };
 };
 
@@ -50,6 +52,7 @@ export type RepoSettingUpdate = {
   temperature?: number | null;
   trigger?: string;
   commit_types?: string | null;
+  mode?: string | null;
 };
 
 export type GenerateResult = {
@@ -71,6 +74,7 @@ export type Settings = {
   model: string | null;
   temperature: number | null;
   commit_types: string | null;
+  mode: string | null;
   llm: {
     base_url: string;
     model: string;
@@ -85,6 +89,7 @@ export type SettingsUpdate = {
   model?: string | null;
   temperature?: number | null;
   commit_types?: string | null;
+  mode?: string | null;
 };
 
 export function getToken(): string {

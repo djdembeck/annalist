@@ -12,7 +12,7 @@ A changelog records what changed in a release, one concern per entry. It is not 
 - Date or version-tag each release.
 - The changelog replaces the raw git log as the canonical record of what changed.
 
-**Additional fidelity guidance (sourced from [LiteLLM's RELEASE_NOTES_GENERATIONS_INSTRUCTIONS](https://github.com/BerriAI/litellm/blob/main/RELEASE_NOTES_GENERATION_INSTRUCTIONS)):**
+**Additional fidelity guidance (sourced from [LiteLLM's RELEASE_NOTES_GENERATION_INSTRUCTIONS](https://github.com/BerriAI/litellm/blob/main/cookbook/misc/RELEASE_NOTES_GENERATION_INSTRUCTIONS.md)):**
 
 - Categorize each change before writing it.
 - Preserve the factual content of every commit; tone and phrasing are presentation layers, not filters on the facts.
@@ -31,29 +31,34 @@ The root cause is that models are trained to be helpful summaries, not faithful 
 
 ## 3. The fidelity contract
 
-Copy-paste this block into any custom release-notes prompt. It constrains the model to a faithful, verifiable output.
+Copy-paste this block into any custom release-notes prompt. It is byte-for-byte
+identical to the `fidelityBlock` constant in `internal/engine/personas.go`, which
+every built-in persona emits verbatim; the shared rules block restates the same
+rules. It constrains
+the model to a faithful, verifiable output.
 
 ```
-## Fidelity rules
-
-- Every commit in the log becomes exactly one bullet. No more, no fewer.
-- Never merge two commits into one bullet, even if they touch the same file or area.
-- Never omit a commit, even if it appears minor, internal, or routine.
-- Never invent a change, behavior, or feature not described in the commit log.
-- The persona or voice you adopt changes only the wording of each bullet, never the set of facts.
-- Always preserve the specific nouns, component names, configuration keys, and behaviors named in each commit.
-- If a commit message is unclear, restate it faithfully in plain language — do not embellish.
+## Fidelity
+Report every commit in the log exactly once. Write one bullet per commit. Never merge two distinct changes into one bullet. Never omit a commit. Never invent a change, component, or behavior not present in the log. Keep the specific nouns and behaviors of each change intact. Your tone may alter phrasing, but never which facts appear or how many changes are reported.
 ```
 
-This contract works regardless of whether annalist provides only `<commit_log>` or later also `<diff>` context. It is diff-agnostic.
+**Optional addendum** — not part of the shipped `fidelityBlock`. If your commit
+messages are terse, append this line below the block to keep phrasing honest
+without expanding the fact set:
+
+```
+If a commit message is unclear, restate it faithfully in plain language — do not embellish.
+```
+
+This contract is diff-agnostic: it applies whether the prompt carries only `<commit_log>` or also a `<diff>` block.
 
 ## 4. The three built-in voices
 
 ### chronicler
 
-**Purpose:** Write for end-users and project stakeholders who want a readable narrative of the release.
+**Purpose:** Write for readers who want each release as a narrative chapter — the careful writer who records a project's history as it unfolds.
 
-**Personality:** Warm, story-driven, confident. Uses phrases like "we added" and "this means you can." Leads with the release's theme.
+**Personality:** Warm, story-driven, plain-spoken. Frames the release as the next entry in an ongoing story; opens with a prose paragraph that sets the scene — what drove the release and how it advances the project; each bullet reads like a journal entry, not a log line. Avoids breathless hype or vague summaries.
 
 **Fidelity:** Bound by the fidelity contract above. The narrative voice applies to phrasing only — every commit still becomes one bullet, and no change is merged, omitted, or invented.
 
@@ -61,15 +66,15 @@ This contract works regardless of whether annalist provides only `<commit_log>` 
 
 **Purpose:** Write for maintainers, contributors, and technical readers who need precise, unembellished records.
 
-**Personality:** Direct, terse, component-focused. Uses imperative or past-tense technical language. No preamble or theme paragraph.
+**Personality:** Direct, terse, component-focused. Leads with a short, direct prose statement of what changed and any caveats. Names components, modules, and behaviors; uses exact technical terms; keeps sentences short and factual. No marketing language, no cheerleading.
 
 **Fidelity:** Bound by the fidelity contract. The technical voice changes nothing about fact coverage — only that the phrasing is dry and specific.
 
 ### launch
 
-**Purpose:** Write for public-facing release announcements, blog posts, or changelogs visible to non-technical audiences.
+**Purpose:** Write release notes for end users and stakeholders who care about what the change means for them.
 
-**Personality:** Enthusiastic, product-forward, concise. Highlights user value. Uses active voice and short sentences.
+**Personality:** Enthusiastic, product-forward, concise. Leads every sentence with the reader's benefit; opens with an energetic prose paragraph highlighting the most user-visible improvement; each bullet starts with what the reader gains, not what the code did. Uses crisp, active voice and short sentences — excited but grounded in specifics, never vague.
 
 **Fidelity:** Bound by the fidelity contract. Enthusiasm applies to tone, not to content. No commit is skipped, merged, or invented.
 

@@ -21,13 +21,22 @@ confident, and concise"].
 
 ### Fidelity rules — non-negotiable
 
-- **Every commit in the log becomes exactly one bullet.** No more, no fewer.
-- **Never merge** two commits into one bullet, even if they touch the same file or feature area.
-- **Never omit** a commit, even if it appears minor, internal, or routine.
-- **Never invent** a change, behavior, or feature not described in the commit log.
-- **The persona's tone changes only the wording** of each bullet, never the set of facts.
-- **Always preserve** the specific nouns, component names, configuration keys, and behaviors named in each commit.
-- If a commit message is unclear, restate it faithfully in plain language — do not embellish.
+The block below is the `fidelityBlock` constant from `internal/engine/personas.go`,
+which every built-in voice emits verbatim; the shared rules block restates the
+same rules:
+
+```
+## Fidelity
+Report every commit in the log exactly once. Write one bullet per commit. Never merge two distinct changes into one bullet. Never omit a commit. Never invent a change, component, or behavior not present in the log. Keep the specific nouns and behaviors of each change intact. Your tone may alter phrasing, but never which facts appear or how many changes are reported.
+```
+
+**Optional addendum** — not part of the shipped constant. For terse commit
+messages, append this line to keep phrasing honest without expanding the fact
+set:
+
+```
+If a commit message is unclear, restate it faithfully in plain language — do not embellish.
+```
 
 ### Tone guidance
 
@@ -59,4 +68,4 @@ minor, internal, or routine. Every commit stays, phrased faithfully.
 - `## Fixes` — bullet list, only when there are user-relevant fixes.
 - `## Notes` — operational notes, breaking changes, config changes.
 
-Keep bullets short and concrete. Commit hashes and author names are not needed.
+Keep bullets short and concrete.
