@@ -16,6 +16,7 @@ import (
 
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
+	"github.com/djdembeck/annalist/internal/engine"
 	"github.com/djdembeck/annalist/internal/llm"
 )
 
@@ -401,6 +402,31 @@ func TestResolvePrecedence(t *testing.T) {
 		}
 	})
 
+	t.Run("commit types: fresh store falls back to config", func(t *testing.T) {
+		fresh, err := db.New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { fresh.Close() })
+		pip3 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model", CommitTypes: "fix,perf"}}, DB: fresh}
+		_, _, r, err := pip3.Resolve(context.Background(), "github", "o", "r-fresh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.CommitTypes) != 2 || r.CommitTypes[0] != "fix" || r.CommitTypes[1] != "perf" {
+			t.Errorf("commit types = %v, want [fix perf]", r.CommitTypes)
+		}
+		// Twin: config also empty → keep-all (nil).
+		pip4 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model"}}, DB: fresh}
+		_, _, r, err = pip4.Resolve(context.Background(), "github", "o", "r-fresh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.CommitTypes != nil {
+			t.Errorf("commit types = %v, want nil (keep-all)", r.CommitTypes)
+		}
+	})
+
 	t.Run("commit types: no global falls back to config", func(t *testing.T) {
 		pip2 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model", Temperature: 0.7, CommitTypes: "perf"}}, DB: store}
 		if err := store.UpsertSettings(db.Settings{
@@ -439,6 +465,134 @@ func TestResolvePrecedence(t *testing.T) {
 		}
 		if eff.BaseURL != "https://saved" || eff.APIKey != "saved-key" {
 			t.Errorf("effective endpoint = (%q, %q), want (https://saved, saved-key)", eff.BaseURL, eff.APIKey)
+		}
+	})
+}
+
+// TestResolveModePrecedence covers the mode resolution chain:
+// repo row → global row → default "lite".
+func TestResolveModePrecedence(t *testing.T) {
+	_, _, _, store := fixture(t, nil, nil)
+	pip := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model", Temperature: 0.7}}, DB: store}
+
+	t.Run("global mode applies with no repo row", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{Mode: "deep"}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Mode != "deep" {
+			t.Errorf("mode = %q, want deep", r.Mode)
+		}
+	})
+
+	t.Run("repo row beats global", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{Mode: "lite"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r", Enabled: true, Mode: "deep",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Mode != "deep" {
+			t.Errorf("mode = %q, want deep (row wins)", r.Mode)
+		}
+	})
+
+	t.Run("both empty defaults to lite", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{Mode: ""}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, r, err := pip.Resolve(context.Background(), "forgejo", "o", "r-empty")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Mode != "lite" {
+			t.Errorf("mode = %q, want lite", r.Mode)
+		}
+	})
+}
+
+// TestGenerateNotesDeepMode verifies the full GenerateNotes flow: deep mode
+// sends the diff to the LLM, the default (lite) does not.
+func TestGenerateNotesDeepMode(t *testing.T) {
+	t.Run("deep mode includes the diff in the prompt", func(t *testing.T) {
+		pip, stub, _, _ := fixture(t, nil, nil)
+		notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-deep"), Options{Mode: "deep"})
+		if err != nil {
+			t.Fatalf("GenerateNotes deep: %v", err)
+		}
+		if notes != "FLOWING PROSE" {
+			t.Errorf("notes = %q, want FLOWING PROSE", notes)
+		}
+		if stub.calls != 1 {
+			t.Fatalf("stub calls = %d, want 1", stub.calls)
+		}
+		u := stub.user()
+		for _, want := range []string{"<diff>", "f.txt", "</diff>"} {
+			if !strings.Contains(u, want) {
+				t.Errorf("deep user message missing %q; got:\n%s", want, u)
+			}
+		}
+	})
+
+	t.Run("default mode stays lite (no diff block)", func(t *testing.T) {
+		pip, stub, _, _ := fixture(t, nil, nil)
+		if _, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-default"), Options{}); err != nil {
+			t.Fatalf("GenerateNotes default: %v", err)
+		}
+		if stub.calls != 1 {
+			t.Fatalf("stub calls = %d, want 1", stub.calls)
+		}
+		u := stub.user()
+		if strings.Contains(u, "<diff>") {
+			t.Errorf("lite user message must not contain <diff>; got:\n%s", u)
+		}
+	})
+
+	t.Run("resolved mode deep from global settings sends the diff", func(t *testing.T) {
+		pip, stub, _, store := fixture(t, nil, nil)
+		if err := store.UpsertSettings(db.Settings{Mode: engine.ModeDeep}); err != nil {
+			t.Fatalf("UpsertSettings: %v", err)
+		}
+		if _, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-resolved-deep"), Options{}); err != nil {
+			t.Fatalf("GenerateNotes resolved deep: %v", err)
+		}
+		if stub.calls != 1 {
+			t.Fatalf("stub calls = %d, want 1", stub.calls)
+		}
+		u := stub.user()
+		if !strings.Contains(u, "<diff>") || !strings.Contains(u, "f.txt") {
+			t.Errorf("resolved-deep user message missing diff block or file path; got:\n%s", u)
+		}
+	})
+
+	t.Run("repo row lite overrides global deep (no diff block)", func(t *testing.T) {
+		pip, stub, _, store := fixture(t, nil, nil)
+		if err := store.UpsertSettings(db.Settings{Mode: engine.ModeDeep}); err != nil {
+			t.Fatalf("UpsertSettings: %v", err)
+		}
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true, Mode: engine.ModeLite,
+		}); err != nil {
+			t.Fatalf("UpsertRepoSettings: %v", err)
+		}
+		if _, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-resolved-lite"), Options{}); err != nil {
+			t.Fatalf("GenerateNotes repo-lite: %v", err)
+		}
+		if stub.calls != 1 {
+			t.Fatalf("stub calls = %d, want 1", stub.calls)
+		}
+		u := stub.user()
+		if strings.Contains(u, "<diff>") {
+			t.Errorf("repo-lite user message must not contain <diff>; got:\n%s", u)
 		}
 	})
 }

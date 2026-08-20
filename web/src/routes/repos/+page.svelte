@@ -7,7 +7,6 @@
     SAVE_MSG_TIMEOUT,
   } from "$lib/repoUtils";
   import {
-    COMMIT_TYPE_OPTIONS,
     DEFAULT_COMMIT_TYPES,
     formatCommitTypes,
     getCommitTypeSelection,
@@ -20,6 +19,7 @@
     getModels,
     type Repo,
   } from "$lib/api";
+  import CommitTypeSelector from "$lib/components/CommitTypeSelector.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
@@ -36,6 +36,7 @@
     customTone: string;
     instructions: string;
     model: string;
+    mode: string;
     temperature: string;
     trigger: string;
     inheritCommitTypes: boolean;
@@ -171,6 +172,8 @@
       customTone: isPreset ? "" : tone,
       instructions: inRepoInstructions[key] ?? r.instructions ?? "",
       model: r.model ?? "",
+      mode:
+        r.mode === "deep" ? "deep" : r.mode === "lite" ? "lite" : "inherit",
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
       inheritCommitTypes: !r.commit_types,
@@ -219,6 +222,7 @@
         tone,
         instructions: d.instructions.trim() ? d.instructions : null,
         model: d.model.trim() ? d.model : null,
+        mode: d.mode === "inherit" ? null : d.mode,
         temperature: tempResult.value,
         trigger: d.trigger,
         commit_types: d.inheritCommitTypes
@@ -524,6 +528,18 @@
                     >Auto runs on release webhooks; manual disables webhooks.</span
                   ></label
                 >
+                <label class="field-group"
+                  ><span class="field-group__label">Mode</span><select
+                    bind:value={d.mode}
+                    class="field"
+                    ><option value="inherit">Inherit (global)</option
+                    ><option value="lite">lite — commit log only</option
+                    ><option value="deep">deep — commit log + diff</option
+                  ></select><span class="field-group__hint"
+                    >deep also sends the code diff to the model for this
+                    repository.</span
+                  ></label
+                >
                 <fieldset class="field-group md:col-span-2">
                   <legend class="field-group__label">Commit types</legend>
                   <label class="check-control">
@@ -545,62 +561,22 @@
                     />
                     <span>Inherit global selection</span>
                   </label>
-                  {#if !d.inheritCommitTypes}
-                    <div
-                      class="commit-type-grid"
-                      aria-label="Repository commit types"
-                    >
-                      {#each COMMIT_TYPE_OPTIONS as option (option.value)}
-                        <label
-                          class="check-control commit-type-option"
-                          class:commit-type-option--selected={d.selectedCommitTypes.includes(
-                            option.value,
-                          )}
-                        >
-                          <input
-                            class="check-input"
-                            type="checkbox"
-                            checked={d.selectedCommitTypes.includes(
-                              option.value,
-                            )}
-                            onchange={(event) => {
-                              const checked = event.currentTarget.checked;
-                              d.selectedCommitTypes = checked
-                                ? [...d.selectedCommitTypes, option.value]
-                                : d.selectedCommitTypes.filter(
-                                    (type) => type !== option.value,
-                                  );
-                            }}
-                          />
-                          <span>
-                            <strong>{option.value}</strong>
-                            <small>{option.description}</small>
-                          </span>
-                        </label>
-                      {/each}
-                    </div>
-                    <label class="field-group__custom-types">
-                      <span class="field-group__hint"
-                        >Additional types (optional)</span
-                      >
-                      <input
-                        bind:value={d.customCommitTypes}
-                        placeholder="security,breaking"
-                        class="field"
-                      />
-                    </label>
-                  {/if}
-                  <span class="field-group__hint"
-                    >{d.inheritCommitTypes
-                      ? "Uses the global selection. Turn off inheritance to choose repository-specific types."
-                      : formatCommitTypes(
+                  <CommitTypeSelector
+                    bind:selected={d.selectedCommitTypes}
+                    bind:custom={d.customCommitTypes}
+                    showOptions={!d.inheritCommitTypes}
+                    hint={
+                      d.inheritCommitTypes
+                        ? "Uses the global selection. Turn off inheritance to choose repository-specific types."
+                        : formatCommitTypes(
                             d.selectedCommitTypes,
                             d.customCommitTypes,
                           )
-                        ? "Selected types are included in notes."
-                        : "No filter saved — all commit types are included."} Breaking
-                    changes are always included.</span
-                  >
+                          ? "Selected types are included in notes."
+                          : "No filter saved — all commit types are included."
+                    }
+                    ariaLabel="Repository commit types"
+                  />
                 </fieldset>
               </div>
               <p class="mt-4 text-xs text-ink-3">
@@ -632,6 +608,7 @@
                     ? r.effective.commit_types.join(", ")
                     : "inherit"}</span
                 >
+                · mode <span class="text-ink">{r.effective.mode ?? "inherit"}</span>
               </p>
               {#if inRepoInstructions[key] || r.effective.instructions}
                 <details class="mt-4">

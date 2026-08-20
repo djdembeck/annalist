@@ -1,0 +1,5 @@
+[test]
+# Component tests need a DOM + Svelte 5 client compilation; the preload
+# provides jsdom globals and a Bun.plugin loader for `.svelte` files.
+# Vitest (`bunx vitest run`) gets the equivalent from vite.config.ts.
+preload = ["./test-setup.ts"]

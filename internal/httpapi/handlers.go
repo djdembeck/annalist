@@ -38,6 +38,12 @@ func validPlatform(p string) bool {
 	return p == "github" || p == "forgejo"
 }
 
+// validMode reports whether m is an accepted generation mode: "" (inherit /
+// use the resolved default), engine.ModeLite, or engine.ModeDeep.
+func validMode(m string) bool {
+	return m == "" || m == engine.ModeLite || m == engine.ModeDeep
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -79,6 +85,7 @@ type effective struct {
 	Instructions string   `json:"instructions"`
 	Source       string   `json:"source"`
 	CommitTypes  []string `json:"commit_types"`
+	Mode         string   `json:"mode"`
 }
 
 // repoItemResp is the JSON shape for a repo in /api/repos and the settings PUT.
@@ -93,6 +100,7 @@ type repoItemResp struct {
 	Temperature  *float64  `json:"temperature"`
 	Trigger      string    `json:"trigger"`
 	CommitTypes  string    `json:"commit_types"`
+	Mode         string    `json:"mode"`
 	Effective    effective `json:"effective"`
 }
 
@@ -120,6 +128,7 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 		Temperature:  row.Temperature,
 		Trigger:      row.Trigger,
 		CommitTypes:  row.CommitTypes,
+		Mode:         row.Mode,
 		Effective: effective{
 			Tone:         resolved.Tone,
 			Model:        resolved.Model,
@@ -127,6 +136,7 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 			Instructions: resolved.Instructions,
 			Source:       source,
 			CommitTypes:  resolved.CommitTypes,
+			Mode:         resolved.Mode,
 		},
 	}, nil
 }
@@ -407,6 +417,24 @@ func (a *api) handlePutRepoSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// mode: present non-null sets (must be lite|deep), explicit null clears to inherit.
+	if raw, ok := m["mode"]; ok {
+		if string(raw) == "null" {
+			setting.Mode = ""
+		} else {
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			if !validMode(v) {
+				writeErr(w, http.StatusBadRequest, "invalid mode")
+				return
+			}
+			setting.Mode = v
+		}
+	}
+
 	// enabled / trigger: applied only when present and non-null.
 	if raw, ok := m["enabled"]; ok && string(raw) != "null" {
 		var v bool
@@ -453,6 +481,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		FromTag *string `json:"from_tag"`
 		Force   bool    `json:"force"`
 		Publish *bool   `json:"publish"`
+		Mode    string  `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		badJSON(w, err)
@@ -460,6 +489,10 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.ToTag) == "" {
 		writeErr(w, http.StatusBadRequest, "to_tag is required")
+		return
+	}
+	if !validMode(req.Mode) {
+		writeErr(w, http.StatusBadRequest, "invalid mode")
 		return
 	}
 
@@ -481,7 +514,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		ToTag:     req.ToTag,
 		FromTag:   fromTag,
 		ReleaseID: releaseID,
-	}, pipeline.Options{Force: req.Force, Publish: publish})
+	}, pipeline.Options{Force: req.Force, Publish: publish, Mode: req.Mode})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -566,6 +599,7 @@ func (a *api) settingsResp(s db.Settings) map[string]any {
 		"model":        s.Model,
 		"temperature":  s.Temperature,
 		"commit_types": s.CommitTypes,
+		"mode":         s.Mode,
 		"llm": map[string]any{
 			"base_url": baseURL,
 			"api_key":  apiKeyPlaceholder,
@@ -653,6 +687,24 @@ func (a *api) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.CommitTypes = strings.Join(engine.ParseCommitTypes(v), ",")
+		}
+	}
+
+	// mode: present non-null sets (must be lite|deep), explicit null clears.
+	if raw, ok := m["mode"]; ok {
+		if string(raw) == "null" {
+			s.Mode = ""
+		} else {
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			if !validMode(v) {
+				writeErr(w, http.StatusBadRequest, "invalid mode")
+				return
+			}
+			s.Mode = v
 		}
 	}
 

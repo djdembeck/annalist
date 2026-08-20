@@ -18,6 +18,9 @@ type Settings struct {
 	// empty means "inherit from env/config".
 	BaseURL string
 	APIKey  string
+	// Mode is "lite" or "deep". Empty means "inherit" on a repo row, "lite"
+	// default on the global row (resolved downstream).
+	Mode string
 }
 
 // RepoSetting is a per-repo override of the global settings. Empty string /
@@ -33,6 +36,9 @@ type RepoSetting struct {
 	Model        string
 	Temperature  *float64
 	CommitTypes  string
+	// Mode is "lite" or "deep". Empty means "inherit" on a repo row, "lite"
+	// default on the global row (resolved downstream).
+	Mode string
 }
 
 // GeneratedNote records a previously generated release note for idempotency.
@@ -56,7 +62,8 @@ var migrations = []string{
 		temperature REAL,
 		commit_types TEXT,
 		base_url TEXT,
-		api_key TEXT
+		api_key TEXT,
+		mode TEXT
 	)`,
 	`CREATE TABLE IF NOT EXISTS repo_settings (
 		platform TEXT NOT NULL,
@@ -69,6 +76,7 @@ var migrations = []string{
 		temperature REAL,
 		trigger TEXT NOT NULL DEFAULT 'auto',
 		commit_types TEXT,
+		mode TEXT,
 		PRIMARY KEY (platform, owner, repo)
 	)`,
 	`CREATE TABLE IF NOT EXISTS generated_notes (
@@ -99,6 +107,8 @@ func (s *Store) migrate() error {
 		{"repo_settings", "commit_types", "ALTER TABLE repo_settings ADD COLUMN commit_types TEXT"},
 		{"settings", "base_url", "ALTER TABLE settings ADD COLUMN base_url TEXT"},
 		{"settings", "api_key", "ALTER TABLE settings ADD COLUMN api_key TEXT"},
+		{"settings", "mode", "ALTER TABLE settings ADD COLUMN mode TEXT"},
+		{"repo_settings", "mode", "ALTER TABLE repo_settings ADD COLUMN mode TEXT"},
 	} {
 		if err := s.ensureColumn(col.table, col.name, col.ddl); err != nil {
 			return fmt.Errorf("ensureColumn(%s.%s): %w", col.table, col.name, err)
@@ -147,13 +157,13 @@ func strOrNil(s string) any {
 // temperature) with a nil error.
 func (s *Store) GetSettings() (Settings, error) {
 	var out Settings
-	var tone, instructions, model, commitTypes, baseURL, apiKey sql.NullString
+	var tone, instructions, model, commitTypes, baseURL, apiKey, mode sql.NullString
 	var temp sql.NullFloat64
 
 	err := s.db.QueryRow(
-		`SELECT tone, instructions, model, temperature, commit_types, base_url, api_key
+		`SELECT tone, instructions, model, temperature, commit_types, base_url, api_key, mode
 		 FROM settings WHERE id = 1`,
-	).Scan(&tone, &instructions, &model, &temp, &commitTypes, &baseURL, &apiKey)
+	).Scan(&tone, &instructions, &model, &temp, &commitTypes, &baseURL, &apiKey, &mode)
 	if err == sql.ErrNoRows {
 		return out, nil
 	}
@@ -167,6 +177,7 @@ func (s *Store) GetSettings() (Settings, error) {
 	out.CommitTypes = commitTypes.String
 	out.BaseURL = baseURL.String
 	out.APIKey = apiKey.String
+	out.Mode = mode.String
 	if temp.Valid {
 		v := temp.Float64
 		out.Temperature = &v
@@ -183,8 +194,8 @@ func (s *Store) UpsertSettings(settings Settings) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO settings (id, tone, instructions, model, temperature, commit_types, base_url, api_key)
-		 VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO settings (id, tone, instructions, model, temperature, commit_types, base_url, api_key, mode)
+		 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			tone = excluded.tone,
 			instructions = excluded.instructions,
@@ -192,9 +203,10 @@ func (s *Store) UpsertSettings(settings Settings) error {
 			temperature = excluded.temperature,
 			commit_types = excluded.commit_types,
 			base_url = excluded.base_url,
-			api_key = excluded.api_key`,
+			api_key = excluded.api_key,
+			mode = excluded.mode`,
 		settings.Tone, settings.Instructions, settings.Model, temp, strOrNil(settings.CommitTypes),
-		strOrNil(settings.BaseURL), strOrNil(settings.APIKey),
+		strOrNil(settings.BaseURL), strOrNil(settings.APIKey), strOrNil(settings.Mode),
 	)
 	return err
 }
@@ -202,7 +214,7 @@ func (s *Store) UpsertSettings(settings Settings) error {
 // ListRepoSettings returns every repo_settings row.
 func (s *Store) ListRepoSettings() ([]RepoSetting, error) {
 	rows, err := s.db.Query(
-		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types
+		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types, mode
 		 FROM repo_settings`,
 	)
 	if err != nil {
@@ -225,7 +237,7 @@ func (s *Store) ListRepoSettings() ([]RepoSetting, error) {
 // row exists (downstream treats a missing row as all-inherit / enabled).
 func (s *Store) GetRepoSettings(platform, owner, repo string) (*RepoSetting, error) {
 	row := s.db.QueryRow(
-		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types
+		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types, mode
 		 FROM repo_settings WHERE platform = ? AND owner = ? AND repo = ?`,
 		platform, owner, repo,
 	)
@@ -255,8 +267,8 @@ func (s *Store) UpsertRepoSettings(r RepoSetting) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO repo_settings (platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO repo_settings (platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types, mode)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(platform, owner, repo) DO UPDATE SET
 			enabled = excluded.enabled,
 			tone = excluded.tone,
@@ -264,10 +276,11 @@ func (s *Store) UpsertRepoSettings(r RepoSetting) error {
 			model = excluded.model,
 			temperature = excluded.temperature,
 			trigger = excluded.trigger,
-			commit_types = excluded.commit_types`,
+			commit_types = excluded.commit_types,
+			mode = excluded.mode`,
 		r.Platform, r.Owner, r.Repo, enabled,
 		strOrNil(r.Tone), strOrNil(r.Instructions), strOrNil(r.Model),
-		temp, r.Trigger, strOrNil(r.CommitTypes),
+		temp, r.Trigger, strOrNil(r.CommitTypes), strOrNil(r.Mode),
 	)
 	return err
 }
@@ -308,10 +321,10 @@ type rowScanner interface {
 
 func scanRepoSetting(row rowScanner, r *RepoSetting) error {
 	var enabled int
-	var tone, instructions, model, trigger, commitTypes sql.NullString
+	var tone, instructions, model, trigger, commitTypes, mode sql.NullString
 	var temp sql.NullFloat64
 
-	err := row.Scan(&r.Platform, &r.Owner, &r.Repo, &enabled, &tone, &instructions, &model, &temp, &trigger, &commitTypes)
+	err := row.Scan(&r.Platform, &r.Owner, &r.Repo, &enabled, &tone, &instructions, &model, &temp, &trigger, &commitTypes, &mode)
 	if err != nil {
 		return err
 	}
@@ -322,6 +335,7 @@ func scanRepoSetting(row rowScanner, r *RepoSetting) error {
 	r.Model = model.String
 	r.Trigger = trigger.String
 	r.CommitTypes = commitTypes.String
+	r.Mode = mode.String
 	if trigger.String == "" {
 		r.Trigger = "auto"
 	}

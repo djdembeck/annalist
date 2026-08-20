@@ -1,9 +1,12 @@
 package db
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -144,6 +147,28 @@ func TestSettingsCRUD(t *testing.T) {
 			t.Errorf("cleared endpoint = (%q, %q), want empty", got.BaseURL, got.APIKey)
 		}
 	})
+
+	// Mode round-trips as a plain string ("" on the global row).
+	if err := s.UpsertSettings(Settings{Mode: "deep"}); err != nil {
+		t.Fatalf("UpsertSettings deep mode: %v", err)
+	}
+	got, err = s.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings mode: %v", err)
+	}
+	if got.Mode != "deep" {
+		t.Errorf("mode = %q, want deep", got.Mode)
+	}
+	if err := s.UpsertSettings(Settings{Mode: ""}); err != nil {
+		t.Fatalf("UpsertSettings empty mode: %v", err)
+	}
+	got, err = s.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings empty mode: %v", err)
+	}
+	if got.Mode != "" {
+		t.Errorf("mode = %q, want empty", got.Mode)
+	}
 }
 
 func TestRepoSettingsCRUD(t *testing.T) {
@@ -248,6 +273,122 @@ func TestRepoSettingsCRUD(t *testing.T) {
 	}
 	if got.Trigger != "manual" {
 		t.Errorf("trigger should persist across update, got %q", got.Trigger)
+	}
+
+	// Mode: explicit "deep" round-trips; empty (NULL) reads back as "" (inherit).
+	if err := s.UpsertRepoSettings(RepoSetting{
+		Platform: "forgejo", Owner: "o", Repo: "r2", Enabled: true, Mode: "deep",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got2, err = s.GetRepoSettings("forgejo", "o", "r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2 == nil || got2.Mode != "deep" {
+		t.Errorf("mode = %+v, want deep", got2)
+	}
+	if err := s.UpsertRepoSettings(RepoSetting{
+		Platform: "forgejo", Owner: "o", Repo: "r2", Enabled: true, Mode: "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got2, err = s.GetRepoSettings("forgejo", "o", "r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2 == nil || got2.Mode != "" {
+		t.Errorf("mode = %+v, want empty (inherit)", got2)
+	}
+}
+
+// TestOpenLegacySchemaVerifies ensureColumn backfills commit_types/mode on a
+// database created before those columns existed: seeded rows survive the
+// migration with empty values, and reopening is idempotent.
+func TestOpenLegacySchema(t *testing.T) {
+	dataDir := t.TempDir()
+
+	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := `
+		CREATE TABLE IF NOT EXISTS settings (
+			id INTEGER PRIMARY KEY CHECK(id = 1),
+			tone TEXT,
+			instructions TEXT,
+			model TEXT,
+			temperature REAL
+		);
+		CREATE TABLE IF NOT EXISTS repo_settings (
+			platform TEXT NOT NULL,
+			owner TEXT NOT NULL,
+			repo TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			tone TEXT,
+			instructions TEXT,
+			model TEXT,
+			temperature REAL,
+			trigger TEXT NOT NULL DEFAULT 'auto',
+			PRIMARY KEY (platform, owner, repo)
+		);`
+	if _, err := conn.Exec(legacy); err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`INSERT INTO settings (id, tone, model) VALUES (1, 'seed-tone', 'seed-model')`); err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`INSERT INTO repo_settings (platform, owner, repo, enabled, tone) VALUES ('github', 'o', 'r', 1, 'seed-repo-tone')`); err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// First open: migration must add the missing columns without losing data.
+	s, err := New(dataDir)
+	if err != nil {
+		t.Fatalf("New on legacy db: %v", err)
+	}
+	got, err := s.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if got.Tone != "seed-tone" || got.Model != "seed-model" {
+		t.Errorf("seeded settings lost: %+v", got)
+	}
+	if got.CommitTypes != "" || got.Mode != "" {
+		t.Errorf("backfilled columns should be empty, got commit_types=%q mode=%q", got.CommitTypes, got.Mode)
+	}
+	row, err := s.GetRepoSettings("github", "o", "r")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if row == nil {
+		t.Fatal("expected seeded repo row, got nil")
+	}
+	if row.Tone != "seed-repo-tone" || row.CommitTypes != "" || row.Mode != "" {
+		t.Errorf("seeded repo row mismatch: %+v", row)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Reopen: ensureColumn must be idempotent on an already-migrated db.
+	s2, err := New(dataDir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s2.Close()
+	got, err = s2.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings after reopen: %v", err)
+	}
+	if got.Tone != "seed-tone" || got.Model != "seed-model" || got.CommitTypes != "" || got.Mode != "" {
+		t.Errorf("settings after reopen: %+v", got)
 	}
 }
 

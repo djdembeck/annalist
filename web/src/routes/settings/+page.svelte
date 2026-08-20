@@ -2,7 +2,6 @@
   import { onMount } from "svelte";
   import { parseTemperature, resolveTone } from "$lib/repoUtils";
   import {
-    COMMIT_TYPE_OPTIONS,
     DEFAULT_COMMIT_TYPES,
     formatCommitTypes,
     getCommitTypeSelection,
@@ -14,6 +13,7 @@
     type Settings,
     type SettingsUpdate,
   } from "$lib/api";
+  import CommitTypeSelector from "$lib/components/CommitTypeSelector.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
   import {
@@ -37,6 +37,7 @@
   let apiKeyTouched = $state(false);
   let models = $state<string[]>([]);
   let modelsError = $state("");
+  let mode = $state("lite");
   let temperature = $state("");
   let temperatureError = $state("");
   let selectedCommitTypes = $state<string[]>(DEFAULT_COMMIT_TYPES);
@@ -76,6 +77,7 @@
       baseUrl = s.llm.base_url ?? "";
       apiKey = "";
       apiKeyTouched = false;
+      mode = s.mode === "deep" ? "deep" : "lite";
       temperature = s.temperature === null ? "" : String(s.temperature);
       const commitTypeSelection = getCommitTypeSelection(s.commit_types);
       const hasSavedCommitTypes = Boolean(s.commit_types?.trim());
@@ -130,6 +132,7 @@
         tone,
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
+        mode,
         temperature: tempResult.value,
         commit_types: commitTypesDirty
           ? formatCommitTypes(selectedCommitTypes, customCommitTypes)
@@ -341,54 +344,31 @@
                 >{/if}</label
             >
           </div>
+          <label class="field-group"
+            ><span class="field-group__label">Mode</span
+            ><select bind:value={mode} class="field"
+              ><option value="lite">lite — commit log only</option
+              ><option value="deep">deep — commit log + diff</option></select
+            ><span class="field-group__hint"
+              >deep inspects the code diff between tags; it costs more per
+              release.</span
+            ></label
+          >
           <fieldset class="field-group" disabled={saving}>
             <legend class="field-group__label">Commit types</legend>
-            <div class="commit-type-grid" aria-label="Global commit types">
-              {#each COMMIT_TYPE_OPTIONS as option (option.value)}
-                <label
-                  class="check-control commit-type-option"
-                  class:commit-type-option--selected={selectedCommitTypes.includes(
-                    option.value,
-                  )}
-                >
-                  <input
-                    class="check-input"
-                    type="checkbox"
-                    checked={selectedCommitTypes.includes(option.value)}
-                    onchange={(event) => {
-                      const checked = event.currentTarget.checked;
-                      selectedCommitTypes = checked
-                        ? [...selectedCommitTypes, option.value]
-                        : selectedCommitTypes.filter(
-                            (type) => type !== option.value,
-                          );
-                      commitTypesDirty = true;
-                    }}
-                  />
-                  <span>
-                    <strong>{option.value}</strong>
-                    <small>{option.description}</small>
-                  </span>
-                </label>
-              {/each}
-            </div>
-            <label class="field-group__custom-types">
-              <span class="field-group__hint">Additional types (optional)</span>
-              <input
-                bind:value={customCommitTypes}
-                oninput={() => (commitTypesDirty = true)}
-                placeholder="security,breaking"
-                class="field"
-              />
-            </label>
-            <span class="field-group__hint"
-              >{!commitTypesDirty && !settings?.commit_types?.trim()
-                ? "Default selection shown for new installs. Change a checkbox to save a filter."
-                : formatCommitTypes(selectedCommitTypes, customCommitTypes)
-                  ? "Selected types are included in notes."
-                  : "No filter saved — all commit types are included."} Breaking changes
-              are always included.</span
-            >
+            <CommitTypeSelector
+              bind:selected={selectedCommitTypes}
+              bind:custom={customCommitTypes}
+              hint={
+                !commitTypesDirty && !settings?.commit_types?.trim()
+                  ? "Default selection shown for new installs. Change a checkbox to save a filter."
+                  : formatCommitTypes(selectedCommitTypes, customCommitTypes)
+                    ? "Selected types are included in notes."
+                    : "No filter saved — all commit types are included."
+              }
+              ariaLabel="Global commit types"
+              onDirty={() => (commitTypesDirty = true)}
+            />
           </fieldset>
           <div class="flex flex-wrap items-center gap-3">
             <button onclick={save} disabled={saving} class="btn btn-primary"
@@ -467,6 +447,7 @@
                 ? "neutral"
                 : toneOption}
 Model: {model.trim() || "server default"}
+Mode: {mode}
 Temperature: {temperature !== "" ? temperature : "server default"}
 Instructions: {instructions.trim() || "No additional instructions."}
 Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()

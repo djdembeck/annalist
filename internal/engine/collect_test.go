@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,6 +78,43 @@ func TestCmpInt(t *testing.T) {
 	}
 }
 
+func TestValidGitRef(t *testing.T) {
+	cases := []struct {
+		tag  string
+		want bool
+	}{
+		{tag: "v1.0.0", want: true},
+		{tag: "v0.9.0-beta.1", want: true},
+		{tag: "feature/x", want: true},
+		{tag: "", want: false},
+		{tag: "-v1.0.0", want: false},
+		{tag: "--output=evil", want: false},
+		{tag: "-q", want: false},
+		{tag: "a..b", want: false},
+		{tag: "HEAD@{1}", want: false},
+		{tag: "a b", want: false},
+		{tag: "a\\b", want: false},
+		{tag: "a?", want: false},
+		{tag: "a*", want: false},
+		{tag: "a:", want: false},
+		{tag: "a[b]", want: false},
+		{tag: "/abs", want: false},
+		{tag: ".hidden", want: false},
+		{tag: "trail/", want: false},
+		{tag: "trailing.", want: false},
+		{tag: "a//b", want: false},
+		{tag: "v1\x00.0", want: false},
+		{tag: "a~b", want: false},
+		{tag: "a^b", want: false},
+		{tag: "v1\x7f.0", want: false},
+	}
+	for _, tc := range cases {
+		if got := validGitRef(tc.tag); got != tc.want {
+			t.Errorf("validGitRef(%q) = %v, want %v", tc.tag, got, tc.want)
+		}
+	}
+}
+
 func TestRandomSuffix(t *testing.T) {
 	re := regexp.MustCompile(`^-[0-9a-f]{8}$`)
 	for i := 0; i < 20; i++ {
@@ -87,20 +125,38 @@ func TestRandomSuffix(t *testing.T) {
 	}
 }
 
+// gitTaEnv returns the deterministic git environment for throwaway repos.
+func gitTaEnv(dir string) []string {
+	return append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.invalid",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.invalid",
+		"GIT_CEILING_DIRECTORIES="+dir,
+		"PRE_COMMIT_ALLOW_NO_CONFIG=1")
+}
+
 // gitTa shells out to git with a deterministic identity. Used to build
 // throwaway repos. (Sibling pipeline_test.go already defines gitNoAsk.)
 func gitTa(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.invalid",
-		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.invalid",
-		"GIT_CEILING_DIRECTORIES="+dir,
-		"PRE_COMMIT_ALLOW_NO_CONFIG=1")
+	cmd.Env = gitTaEnv(dir)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
+}
+
+// gitTaOut is like gitTa but returns trimmed stdout.
+func gitTaOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = gitTaEnv(dir)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // sha256Hex returns the first 16 hex chars of sha256(s), matching cloneDir.
@@ -195,9 +251,17 @@ func TestCollectCommitLog(t *testing.T) {
 		t.Errorf("CollectCommitLog(all) = %q", got)
 	}
 	// Range v0.1.0..HEAD excludes the tagged commit itself and (unlike the
-	// --reverse HEAD path) lists newest-first.
+	// --reverse HEAD path) lists newest-first. HEAD is a rev name the
+	// validGitRef guard accepts (the fixture's only tag, v0.1.0, is the
+	// from-bound, so HEAD is load-bearing here).
 	if got := CollectCommitLog(ctx, dir, "v0.1.0", "HEAD", nil); got != "- fourth\n- third" {
 		t.Errorf("CollectCommitLog(range) = %q", got)
+	}
+	// Implicit HEAD: an empty toTag makes git resolve the missing range
+	// endpoint to HEAD, so the output must match the explicit v0.1.0..HEAD
+	// range above.
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "", nil); got != "- fourth\n- third" {
+		t.Errorf("CollectCommitLog(implicit HEAD) = %q", got)
 	}
 	// Equal bounds yield no commits.
 	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.1.0", nil); got != "" {
@@ -323,12 +387,180 @@ func TestFilterCommitLog(t *testing.T) {
 			types: []string{"fix", "feat"},
 			want:  "- feat: add login",
 		},
+		{
+			name:  "hyphen BREAKING-CHANGE variant kept with body",
+			raw:   "- chore: cleanup\n\nBREAKING-CHANGE: removed flag\x00",
+			types: []string{"feat"},
+			want:  "- chore: cleanup\n\nBREAKING-CHANGE: removed flag",
+		},
+		{
+			name:  "untyped breaking with body plus matching type",
+			raw:   "- Removed old flag\n\nBREAKING CHANGE: old flag gone\x00- feat: x\x00",
+			types: []string{"feat"},
+			want:  "- Removed old flag\n\nBREAKING CHANGE: old flag gone\n- feat: x",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := FilterCommitLog(tc.raw, tc.types)
 			if got != tc.want {
 				t.Errorf("FilterCommitLog() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSelectHunks(t *testing.T) {
+	// Each unit costs header + hunk = 25 + 15 = 40 bytes on first emit
+	// per file; a second hunk of the same file costs only its 15 bytes.
+	a := diffUnit{class: "source", filePath: "a.go", fileHeader: "diff --git a/a.go b/a.go\n", hunkText: strings.Repeat("a", 15), origIndex: 0}
+	b := diffUnit{class: "source", filePath: "b.go", fileHeader: "diff --git a/b.go b/b.go\n", hunkText: strings.Repeat("b", 15), origIndex: 1}
+	d := diffUnit{class: "docs", filePath: "x.md", fileHeader: "diff --git a/x.md b/x.md\n", hunkText: strings.Repeat("x", 15), origIndex: 2}
+
+	// Case A: budget 90 fits both source hunks (80) but not the docs hunk.
+	out, skipped := selectHunks([]diffUnit{a, b, d}, 90)
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1", skipped)
+	}
+	if !strings.Contains(out, "a.go") || !strings.Contains(out, strings.Repeat("a", 15)) {
+		t.Errorf("output missing a.go hunk; got:\n%s", out)
+	}
+	if !strings.Contains(out, "b.go") || !strings.Contains(out, strings.Repeat("b", 15)) {
+		t.Errorf("output missing b.go hunk; got:\n%s", out)
+	}
+	if strings.Contains(out, "x.md") || strings.Contains(out, strings.Repeat("x", 15)) {
+		t.Errorf("output must exclude docs hunk; got:\n%s", out)
+	}
+	// Within the source class, file path orders a.go before b.go.
+	if i, j := strings.Index(out, strings.Repeat("a", 15)), strings.Index(out, strings.Repeat("b", 15)); i > j {
+		t.Errorf("a.go hunk must precede b.go hunk; got:\n%s", out)
+	}
+
+	// Case B: one source hunk and two docs hunks share a budget that fits
+	// the source hunk plus exactly one docs hunk (40 + 40 = 80). Input is
+	// deliberately unsorted; output order must be (class priority, file
+	// path, origIndex), so the source hunk leads and x.md beats y.md.
+	src := diffUnit{class: "source", filePath: "c.go", fileHeader: "diff --git a/c.go b/c.go\n", hunkText: strings.Repeat("s", 15), origIndex: 2}
+	dx := diffUnit{class: "docs", filePath: "x.md", fileHeader: "diff --git a/x.md b/x.md\n", hunkText: strings.Repeat("x", 15), origIndex: 0}
+	dy := diffUnit{class: "docs", filePath: "y.md", fileHeader: "diff --git a/y.md b/y.md\n", hunkText: strings.Repeat("y", 15), origIndex: 1}
+	out2, skipped2 := selectHunks([]diffUnit{dy, src, dx}, 80)
+	if skipped2 != 1 {
+		t.Errorf("skipped = %d, want 1", skipped2)
+	}
+	want2 := "diff --git a/c.go b/c.go\n" + strings.Repeat("s", 15) +
+		"diff --git a/x.md b/x.md\n" + strings.Repeat("x", 15)
+	if out2 != want2 {
+		t.Errorf("output = %q, want %q", out2, want2)
+	}
+
+	// Case C: class priority must beat lexicographic path order. The docs
+	// path "a.md" precedes the source path "z.go", so a class-blind
+	// comparator (path, then index) would pick a.md under a budget that
+	// fits only one unit; the real comparator must pick z.go.
+	docA := diffUnit{class: "docs", filePath: "a.md", fileHeader: "diff --git a/a.md b/a.md\n", hunkText: strings.Repeat("A", 15), origIndex: 0}
+	srcZ := diffUnit{class: "source", filePath: "z.go", fileHeader: "diff --git a/z.go b/z.go\n", hunkText: strings.Repeat("Z", 15), origIndex: 1}
+	out4, skipped4 := selectHunks([]diffUnit{docA, srcZ}, 40)
+	if skipped4 != 1 {
+		t.Errorf("class vs path: skipped = %d, want 1", skipped4)
+	}
+	want4 := "diff --git a/z.go b/z.go\n" + strings.Repeat("Z", 15)
+	if out4 != want4 {
+		t.Errorf("class vs path: output = %q, want %q (source must beat docs even though a.md < z.go)", out4, want4)
+	}
+
+	// Header is charged only once per file: two 35-byte hunks with a 10-byte
+	// header cost 45 + 35 = 80 (not 45 + 45 = 90), so a 80-byte budget fits
+	// both.
+	h := diffUnit{class: "source", filePath: "m.go", fileHeader: "H012345678", hunkText: strings.Repeat("m", 35), origIndex: 0}
+	h2 := diffUnit{class: "source", filePath: "m.go", fileHeader: "H012345678", hunkText: strings.Repeat("n", 35), origIndex: 1}
+	out3, skipped3 := selectHunks([]diffUnit{h, h2}, 80)
+	if skipped3 != 0 || strings.Count(out3, "diff --git") != 0 ||
+		!strings.Contains(out3, strings.Repeat("m", 35)) || !strings.Contains(out3, strings.Repeat("n", 35)) {
+		t.Errorf("same-file hunks: skipped = %d, out = %q (want both hunks, one header)", skipped3, out3)
+	}
+}
+
+func TestParseDiffBinary(t *testing.T) {
+	patch := "diff --git a/img.png b/img.png\n" +
+		"Binary files a/img.png and b/img.png differ\n" +
+		"diff --git a/main.go b/main.go\n" +
+		"--- a/main.go\n" +
+		"+++ b/main.go\n" +
+		"@@ -1 +1,2 @@\n" +
+		"-old\n" +
+		"+new\n" +
+		"+extra\n"
+	units := parseDiff(patch)
+	if len(units) != 1 {
+		t.Fatalf("len(units) = %d, want 1 (binary section must contribute nothing)", len(units))
+	}
+	u := units[0]
+	if u.filePath != "main.go" || u.class != "source" {
+		t.Errorf("unit = (%q, %q), want (main.go, source)", u.filePath, u.class)
+	}
+	if !strings.Contains(u.hunkText, "-old") || !strings.Contains(u.hunkText, "+extra") {
+		t.Errorf("hunk text missing content; got:\n%s", u.hunkText)
+	}
+	if strings.Contains(u.fileHeader, "Binary files") {
+		t.Errorf("binary marker leaked into header; got:\n%s", u.fileHeader)
+	}
+
+	// A literal "diff --git " line INSIDE hunk content (e.g. a committed
+	// patch file) must not split the patch into a phantom section. Only the
+	// line-anchored section start counts, and the literal must survive in
+	// the hunk text.
+	embedded := "+diff --git a/fake.txt b/fake.txt\n"
+	patch2 := "diff --git a/notes.patch b/notes.patch\n" +
+		"--- a/notes.patch\n" +
+		"+++ b/notes.patch\n" +
+		"@@ -0,0 +1,2 @@\n" +
+		"++- commit a\n" +
+		embedded +
+		"diff --git a/real.go b/real.go\n" +
+		"--- a/real.go\n" +
+		"+++ b/real.go\n" +
+		"@@ -1 +1 @@\n" +
+		"-old\n" +
+		"+new\n"
+	units2 := parseDiff(patch2)
+	if len(units2) != 2 {
+		t.Fatalf("len(units) = %d, want 2 (no phantom section from embedded literal)", len(units2))
+	}
+	if units2[0].filePath != "notes.patch" {
+		t.Errorf("first unit = %q, want notes.patch", units2[0].filePath)
+	}
+	if !strings.Contains(units2[0].hunkText, embedded) {
+		t.Errorf("embedded literal must stay in hunk content; got:\n%s", units2[0].hunkText)
+	}
+	if strings.Contains(units2[0].hunkText, "real.go") {
+		t.Errorf("next section leaked into first hunk; got:\n%s", units2[0].hunkText)
+	}
+	if units2[1].filePath != "real.go" {
+		t.Errorf("second unit = %q, want real.go", units2[1].filePath)
+	}
+}
+
+func TestDiffFilePath(t *testing.T) {
+	cases := []struct {
+		name    string
+		section string
+		want    string
+	}{
+		{
+			name:    "rename prefers b path",
+			section: "diff --git a/old.txt b/new.txt\n--- a/old.txt\n+++ b/new.txt\n@@ -1 +1 @@\n-x\n+y\n",
+			want:    "new.txt",
+		},
+		{
+			name:    "deletion falls back to a path",
+			section: "diff --git a/old.txt b/dev/null\n--- a/old.txt\n+++ /dev/null\n@@ -1 +0 @@\n-x\n",
+			want:    "old.txt",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := diffFilePath(tc.section); got != tc.want {
+				t.Errorf("diffFilePath() = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -355,6 +587,328 @@ func TestCollectCommitLogBreakingChange(t *testing.T) {
 	}
 	if strings.Contains(got, "chore: tidy") {
 		t.Errorf("chore should be filtered; got %q", got)
+	}
+}
+
+func TestClassifyFile(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"src/main.go", "source"},
+		{"pkg/util/foo.py", "source"},
+		{"readme.md", "docs"},
+		{"docs/guide.md", "docs"},
+		{"doc/notes.md", "docs"},
+		{"CHANGELOG.md", "docs"},
+		{"src/test/thing.go", "test"},
+		{"tests/suite/test_x.go", "test"},
+		{"js/__tests__/comp.test.ts", "test"},
+		{"test_foo.py", "test"},
+		{"foo_test.go", "test"},
+		{"bar_test.py", "test"},
+		{"comp.test.ts", "test"},
+		{"comp.spec.js", "test"},
+		{"package.json", "config"},
+		{"go.mod", "config"},
+		{"go.sum", "config"},
+		{".github/workflows/ci.yml", "config"},
+		{".forgejo/actions/build.yml", "config"},
+		{"infra/main.tf", "config"},
+		{"terraform/prod.tf", "config"},
+		{"k8s/deploy.yaml", "config"},
+		{"config/app.txt", "source"}, // extension outside the config set falls through
+	}
+	for _, tc := range cases {
+		if got := ClassifyFile(tc.path); got != tc.want {
+			t.Errorf("ClassifyFile(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestCollectDiff(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	plan := []struct {
+		subject string
+		tag     string
+	}{
+		{subject: "one", tag: "v0.1.0"},
+		{subject: "two", tag: "v0.2.0"},
+	}
+	makeTaggedRepo(t, dir, plan)
+
+	got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	if got == "" {
+		t.Fatal("expected non-empty diff")
+	}
+	if !strings.Contains(got, "f.txt") {
+		t.Errorf("diff missing f.txt; got:\n%s", got)
+	}
+	// The --stat summary is always included.
+	if !strings.Contains(got, "1 file changed") {
+		t.Errorf("diff missing --stat summary; got:\n%s", got)
+	}
+	// The patch hunk is present when the budget is generous.
+	if !strings.Contains(got, "@@") {
+		t.Errorf("diff missing hunks; got:\n%s", got)
+	}
+}
+
+func TestCollectDiffThreeDotNonLinear(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	// Non-linear history where merge-base(v0.1.0, v0.2.0) != v0.1.0:
+	//   P (base)
+	//    ├── rel:    A (file-a.txt), tagged v0.1.0
+	//    └── hotfix: C (file-c.txt), tagged v0.2.0
+	// v0.2.0 does NOT contain v0.1.0 as an ancestor, so the merge-base is P,
+	// the parent of A. The three-dot diff (v0.1.0...v0.2.0 = P..C) shows only
+	// file-c.txt added; the two-dot diff (v0.2.0 vs v0.1.0 = A..C) also shows
+	// file-a.txt as deleted (it exists at A but not at C). On linear history
+	// the two ranges are byte-identical, so the two-dot mutation is only
+	// caught when the merge base differs from the from-tag.
+	gitTa(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: base")
+	p := gitTaOut(t, dir, "rev-parse", "HEAD")
+
+	gitTa(t, dir, "checkout", "-q", "-b", "rel")
+	if err := os.WriteFile(filepath.Join(dir, "file-a.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "feat: add file a")
+	gitTa(t, dir, "tag", "v0.1.0")
+	a := gitTaOut(t, dir, "rev-parse", "HEAD")
+
+	gitTa(t, dir, "checkout", "-q", "-b", "hotfix", p)
+	if err := os.WriteFile(filepath.Join(dir, "file-c.txt"), []byte("c\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: add file c")
+	gitTa(t, dir, "tag", "v0.2.0")
+
+	// Guard the premise: merge-base must be strictly below v0.1.0.
+	if mb := gitTaOut(t, dir, "merge-base", "v0.1.0", "v0.2.0"); mb == a {
+		t.Fatal("fixture broken: merge-base(v0.1.0, v0.2.0) must not equal v0.1.0")
+	}
+
+	// The two range shapes really differ on this history — pin that so the
+	// test fails loudly if git behavior or the fixture ever changes.
+	three := gitTaOut(t, dir, "diff", "--patch", "-U3", "v0.1.0...v0.2.0")
+	two := gitTaOut(t, dir, "diff", "--patch", "-U3", "v0.1.0..v0.2.0")
+	if three == two {
+		t.Fatalf("fixture broken: three-dot and two-dot diffs are identical; test cannot discriminate")
+	}
+	if !strings.Contains(three, "file-c.txt") || strings.Contains(three, "file-a.txt") {
+		t.Fatalf("fixture broken: expected three-dot diff to contain only file-c.txt; got:\n%s", three)
+	}
+
+	diff := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	if !strings.Contains(diff, "file-c.txt") || !strings.Contains(diff, "+c") {
+		t.Errorf("three-dot diff missing file-c.txt; got:\n%s", diff)
+	}
+	if strings.Contains(diff, "file-a.txt") {
+		t.Errorf("three-dot diff must not show file-a.txt (merge base is below v0.1.0); got:\n%s", diff)
+	}
+}
+
+func TestCollectDiffBudget(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	// Two large, distinguishable files so a tight budget must skip some hunks.
+	gitTa(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "first")
+	gitTa(t, dir, "tag", "v0.1.0")
+
+	var bigA, bigB strings.Builder
+	for i := range 40 {
+		fmt.Fprintf(&bigA, "line %d of a\n", i)
+		fmt.Fprintf(&bigB, "line %d of b\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte(bigA.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.md"), []byte(bigB.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "second")
+	gitTa(t, dir, "tag", "v0.2.0")
+
+	full := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	if !strings.Contains(full, "a.go") || !strings.Contains(full, "b.md") {
+		t.Fatalf("full diff missing files; got:\n%s", full)
+	}
+	if strings.Contains(full, "[diff truncated") {
+		t.Errorf("unbudgeted diff should not truncate; got:\n%s", full)
+	}
+
+	// A 1-byte budget can emit at most one tiny hunk header's worth; most
+	// hunks must be skipped and the truncation note emitted.
+	tiny := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", 1)
+	if !strings.Contains(tiny, "[diff truncated") {
+		t.Errorf("tight budget should note truncation; got:\n%s", tiny)
+	}
+	// The --stat summary is always present, regardless of budget.
+	if !strings.Contains(tiny, "2 files changed") {
+		t.Errorf("stat summary must be present under budget; got:\n%s", tiny)
+	}
+	// With a 1-byte budget no hunk body can fit, so no @@ content is emitted.
+	if strings.Contains(tiny, "@@") {
+		t.Errorf("1-byte budget should skip all hunks; got:\n%s", tiny)
+	}
+}
+
+func TestCollectDiffFirstRelease(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	plan := []struct {
+		subject string
+		tag     string
+	}{
+		{subject: "one", tag: ""},
+		{subject: "two", tag: "v0.2.0"},
+	}
+	makeTaggedRepo(t, dir, plan)
+
+	// fromTag == "" diffs against the empty tree: the whole history up to v0.2.0.
+	got := CollectDiff(ctx, dir, "", "v0.2.0", DiffBudgetBytes)
+	if got == "" {
+		t.Fatal("expected non-empty first-release diff")
+	}
+	if !strings.Contains(got, "f.txt") {
+		t.Errorf("first-release diff missing f.txt; got:\n%s", got)
+	}
+	// The fixture commits a single file with a single line, so the stat
+	// summary is exactly "1 file changed, 1 insertion(+)" / "f.txt | 1 +".
+	if !strings.Contains(got, "1 file changed") || !strings.Contains(got, "f.txt | 1 +") {
+		t.Errorf("first-release stat summary wrong; got:\n%s", got)
+	}
+	if !strings.Contains(got, "two") {
+		t.Errorf("first-release diff should contain the final file content; got:\n%s", got)
+	}
+}
+
+func TestCollectDiffGitFailure(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	// No git repo here: git diff must fail and CollectDiff returns "".
+	if got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes); got != "" {
+		t.Errorf("expected empty diff on git failure, got:\n%s", got)
+	}
+}
+
+// fakeGitDir creates a temp dir containing a `git` shell script that records
+// any invocation by touching a marker file (path in $FAKE_GIT_MARKER) and
+// exits 128. Prepending the dir to PATH proves whether a git exec happened at
+// all: a bad tag that slips past the guard would leave the marker behind,
+// even though the function returns "" either way.
+func fakeGitDir(t *testing.T) (dir, marker string) {
+	t.Helper()
+	dir = t.TempDir()
+	marker = filepath.Join(dir, "executed")
+	script := "#!/bin/sh\ntouch \"$FAKE_GIT_MARKER\"\nexit 128\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_GIT_MARKER", marker)
+	return dir, marker
+}
+
+func TestCollectDiffRejectsBadTags(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	plan := []struct {
+		subject string
+		tag     string
+	}{
+		{subject: "one", tag: "v0.1.0"},
+		{subject: "two", tag: "v0.2.0"},
+	}
+	makeTaggedRepo(t, dir, plan)
+
+	// Option-injection attempts must be rejected before any git exec.
+	t.Run("badFromTag", func(t *testing.T) {
+		fakeDir, marker := fakeGitDir(t)
+		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if got := CollectDiff(ctx, dir, "--output=/tmp/evil", "v0.2.0", DiffBudgetBytes); got != "" {
+			t.Errorf("expected empty diff for bad fromTag, got:\n%s", got)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("git was executed for bad fromTag; guard must reject before exec")
+		}
+	})
+	t.Run("badToTag", func(t *testing.T) {
+		fakeDir, marker := fakeGitDir(t)
+		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if got := CollectDiff(ctx, dir, "v0.1.0", "-q", DiffBudgetBytes); got != "" {
+			t.Errorf("expected empty diff for bad toTag, got:\n%s", got)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("git was executed for bad toTag; guard must reject before exec")
+		}
+	})
+	// Control: valid tags still work (the 1-byte budget forces a truncation
+	// note, but the output must still be non-empty). Runs under the real PATH
+	// (t.Setenv restored it when the subtests above ended).
+	if got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", 1); got == "" {
+		t.Error("expected non-empty diff for valid tags")
+	}
+	// Control: implicit HEAD — an empty toTag makes git resolve the missing
+	// range endpoint to HEAD, so the diff covers the commit(s) after v0.1.0
+	// (here the "two" commit, which rewrites f.txt).
+	if got := CollectDiff(ctx, dir, "v0.1.0", "", DiffBudgetBytes); got == "" || !strings.Contains(got, "f.txt") {
+		t.Errorf("expected non-empty implicit-HEAD diff mentioning f.txt; got:\n%s", got)
+	}
+}
+
+func TestCollectCommitLogRejectsBadTags(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	plan := []struct {
+		subject string
+		tag     string
+	}{
+		{subject: "one", tag: "v0.1.0"},
+		{subject: "two", tag: "v0.2.0"},
+	}
+	makeTaggedRepo(t, dir, plan)
+
+	// Option-injection attempts must be rejected before any git exec.
+	t.Run("badFromTag", func(t *testing.T) {
+		fakeDir, marker := fakeGitDir(t)
+		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if got := CollectCommitLog(ctx, dir, "--output=/tmp/evil", "v0.2.0", nil); got != "" {
+			t.Errorf("expected empty log for bad fromTag, got:\n%s", got)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("git was executed for bad fromTag; guard must reject before exec")
+		}
+	})
+	t.Run("badToTag", func(t *testing.T) {
+		fakeDir, marker := fakeGitDir(t)
+		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if got := CollectCommitLog(ctx, dir, "v0.1.0", "--output=/tmp/evil", nil); got != "" {
+			t.Errorf("expected empty log for bad toTag, got:\n%s", got)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("git was executed for bad toTag; guard must reject before exec")
+		}
+	})
+	// Control: valid tags still work. Runs under the real PATH (t.Setenv
+	// restored it when the subtests above ended).
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.2.0", nil); got == "" {
+		t.Error("expected non-empty log for valid tags")
 	}
 }
 

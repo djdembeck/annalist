@@ -17,6 +17,7 @@ import (
 
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
+	"github.com/djdembeck/annalist/internal/engine"
 	"github.com/djdembeck/annalist/internal/httpapi"
 	"github.com/djdembeck/annalist/internal/llm"
 	"github.com/djdembeck/annalist/internal/pipeline"
@@ -124,14 +125,19 @@ func cmdGenerate(cfg *config.Config, args []string) {
 	toTag := fs.String("to-tag", "", "tag to generate notes for")
 	fromTag := fs.String("from-tag", "", "previous tag (optional; auto-resolved if empty)")
 	publish := fs.Bool("publish", false, "publish the generated notes to the release body")
+	mode := fs.String("mode", "", "generation mode: lite (default) or deep (commit log + diff)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: annalist generate --platform <github|forgejo> --owner <owner> --repo <repo> --to-tag <tag> [--from-tag <tag>] [--publish]")
+		fmt.Fprintln(os.Stderr, "usage: annalist generate --platform <github|forgejo> --owner <owner> --repo <repo> --to-tag <tag> [--from-tag <tag>] [--mode <lite|deep>] [--publish]")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
 
 	if *platform == "" || *owner == "" || *repo == "" || *toTag == "" {
 		fs.Usage()
+		os.Exit(1)
+	}
+	if *mode != "" && *mode != engine.ModeLite && *mode != engine.ModeDeep {
+		fmt.Fprintf(os.Stderr, "unknown mode %q (want lite|deep)\n", *mode)
 		os.Exit(1)
 	}
 	if cfg.LLM.BaseURL == "" {
@@ -175,7 +181,7 @@ func cmdGenerate(cfg *config.Config, args []string) {
 		ToTag:     *toTag,
 		FromTag:   *fromTag,
 		ReleaseID: releaseID,
-	}, pipeline.Options{Force: true, Publish: *publish})
+	}, pipeline.Options{Force: true, Publish: *publish, Mode: *mode})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "generating notes: %v\n", err)
 		os.Exit(1)
