@@ -35,7 +35,6 @@ type OwnerRepo struct {
 type Effective struct {
 	BaseURL string
 	APIKey  string
-	Model   string
 }
 
 // Spec identifies a single release for which to generate notes.
@@ -183,7 +182,6 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 	eff := Effective{
 		BaseURL: p.Cfg.LLM.BaseURL,
 		APIKey:  p.Cfg.LLM.APIKey,
-		Model:   model,
 	}
 	if global.BaseURL != "" {
 		eff.BaseURL = global.BaseURL
@@ -244,6 +242,22 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		}
 	}
 
+	// Resolve the effective settings before cloning or dialing: a saved base
+	// URL that predates the settings guard (or an env value) would otherwise
+	// be dialed with the bearer key. An empty effective URL means
+	// unconfigured: llm.Chat then falls back to the client's configured base
+	// URL, and a fully unconfigured endpoint fails at request time with a
+	// host-less-URL error from http.Client.Do (not at validation).
+	_, eff, resolved, err := p.Resolve(ctx, spec.Platform, spec.Owner, spec.Repo)
+	if err != nil {
+		return "", err
+	}
+	if eff.BaseURL != "" {
+		if err := llm.ValidateBaseURL(eff.BaseURL); err != nil {
+			return "", fmt.Errorf("pipeline: llm base url not allowed: %v", err)
+		}
+	}
+
 	platform, err := p.platformFor(spec.Platform)
 	if err != nil {
 		return "", err
@@ -268,10 +282,6 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	// tags here prevents option-injection into the git log invocation below.
 	if strings.HasPrefix(from, "-") || strings.HasPrefix(spec.ToTag, "-") {
 		return "", fmt.Errorf("pipeline: invalid tag %q", spec.ToTag)
-	}
-	_, eff, resolved, err := p.Resolve(ctx, spec.Platform, spec.Owner, spec.Repo)
-	if err != nil {
-		return "", err
 	}
 	commitLog := engine.CollectCommitLog(ctx, workdir, from, spec.ToTag, resolved.CommitTypes)
 

@@ -301,9 +301,6 @@ func TestResolvePrecedence(t *testing.T) {
 		if eff.BaseURL != "" || eff.APIKey != "" {
 			t.Errorf("effective endpoint = (%q, %q), want empty (no cfg base url)", eff.BaseURL, eff.APIKey)
 		}
-		if eff.Model != "global-model" {
-			t.Errorf("effective model = %q, want global-model", eff.Model)
-		}
 	})
 
 	t.Run("row overrides tone/model/temperature, inherits instructions", func(t *testing.T) {
@@ -548,6 +545,31 @@ func TestGenerateNotesEmptyLog(t *testing.T) {
 	}
 	if stub.calls != 0 {
 		t.Errorf("LLM called %d times for empty log, want 0", stub.calls)
+	}
+}
+
+// TestGenerateNotesDisallowedBaseURL verifies the SSRF guard on the
+// generation path: a saved base URL that the settings PUT guard would never
+// have allowed (a CGNAT metadata address) must be rejected before anything
+// is dialed. The check runs before clone and before the LLM call, so a
+// sentinel clone error proves the clone was never attempted.
+func TestGenerateNotesDisallowedBaseURL(t *testing.T) {
+	pip, stub, f, store := fixture(t, nil, nil)
+	if err := store.UpsertSettings(db.Settings{BaseURL: "https://100.100.100.200", APIKey: "k"}); err != nil {
+		t.Fatal(err)
+	}
+	// Sentinel: if the guard did not fail fast, the clone would surface this.
+	f.cloneErr = errors.New("clone attempted")
+
+	_, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-ssrf"), Options{})
+	if err == nil || !strings.Contains(err.Error(), "pipeline: llm base url not allowed") {
+		t.Fatalf("err = %v, want 'pipeline: llm base url not allowed'", err)
+	}
+	if strings.Contains(err.Error(), "clone attempted") {
+		t.Errorf("guard did not fail before clone: %v", err)
+	}
+	if stub.calls != 0 {
+		t.Errorf("LLM called %d times, want 0 (generation aborted before dial)", stub.calls)
 	}
 }
 

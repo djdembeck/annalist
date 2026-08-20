@@ -17,6 +17,7 @@ import (
 
 	"github.com/djdembeck/annalist/internal/db"
 	"github.com/djdembeck/annalist/internal/engine"
+	"github.com/djdembeck/annalist/internal/llm"
 	"github.com/djdembeck/annalist/internal/pipeline"
 	"github.com/djdembeck/annalist/internal/version"
 )
@@ -671,6 +672,10 @@ func (a *api) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusBadRequest, "llm_base_url must not be empty")
 				return
 			}
+			if err := llm.ValidateBaseURL(v); err != nil {
+				writeErr(w, http.StatusBadRequest, "llm_base_url not allowed: "+err.Error())
+				return
+			}
 			s.BaseURL = v
 		}
 	}
@@ -709,6 +714,11 @@ func (a *api) handleGetModels(w http.ResponseWriter, r *http.Request) {
 	baseURL, apiKey := a.effectiveLLM(s)
 	if baseURL == "" || a.llm == nil {
 		writeErr(w, http.StatusServiceUnavailable, "llm base url not configured")
+		return
+	}
+	// Defense in depth: a saved value may predate the settings PUT guard.
+	if err := llm.ValidateBaseURL(baseURL); err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "llm base url not allowed")
 		return
 	}
 	ids, err := a.llm.ListModels(r.Context(), baseURL, apiKey)

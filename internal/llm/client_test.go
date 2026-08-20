@@ -278,3 +278,41 @@ func TestChatPerRequestOverride(t *testing.T) {
 		t.Errorf("Authorization = %q, want Bearer req-key", auth)
 	}
 }
+
+// TestChatAuthorizationHeader verifies Chat only sets the Authorization header
+// when the resolved API key is non-empty, so unauthenticated endpoints get no
+// empty "Bearer " token (matching ListModels).
+func TestChatAuthorizationHeader(t *testing.T) {
+	t.Run("empty key omits header", func(t *testing.T) {
+		srv, getReq, _ := llmTestServer(t, 200, `{"choices":[{"message":{"content":"ok"}}]}`)
+		c := New(config.LLMConfig{BaseURL: srv.URL})
+
+		// No key at client or request level: the guard must skip the header.
+		if _, err := c.Chat(context.Background(), ChatRequest{User: "u"}); err != nil {
+			t.Fatalf("Chat: %v", err)
+		}
+		r := getReq()
+		if r == nil {
+			t.Fatal("server recorded no request")
+		}
+		if _, present := r.Header["Authorization"]; present {
+			t.Errorf("Authorization header present = %q, want absent", r.Header.Get("Authorization"))
+		}
+	})
+
+	t.Run("non-empty key sets bearer", func(t *testing.T) {
+		srv, getReq, _ := llmTestServer(t, 200, `{"choices":[{"message":{"content":"ok"}}]}`)
+		c := New(config.LLMConfig{BaseURL: srv.URL})
+
+		if _, err := c.Chat(context.Background(), ChatRequest{User: "u", APIKey: "per-req"}); err != nil {
+			t.Fatalf("Chat: %v", err)
+		}
+		r := getReq()
+		if r == nil {
+			t.Fatal("server recorded no request")
+		}
+		if auth := r.Header.Get("Authorization"); auth != "Bearer per-req" {
+			t.Errorf("Authorization = %q, want Bearer per-req", auth)
+		}
+	})
+}

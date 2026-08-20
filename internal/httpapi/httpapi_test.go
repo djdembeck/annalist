@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +46,7 @@ func (f *fakePip) Resolve(ctx context.Context, platform, owner, repo string) (bo
 	if f.resolveErr != nil {
 		return false, pipeline.Effective{}, engine.Resolved{}, f.resolveErr
 	}
-	eff := pipeline.Effective{BaseURL: "http://llm", Model: "m0"}
+	eff := pipeline.Effective{BaseURL: "http://llm"}
 	return true, eff, f.eff, nil
 }
 
@@ -1157,11 +1158,11 @@ func TestHandleListReposContentionExceedsCPU(t *testing.T) {
 // modelsStub serves /v1/models and records the last request's path and
 // Authorization header.
 type modelsStub struct {
-	srv      *httptest.Server
-	body     string
-	status   int
-	path     string
-	auth     string
+	srv    *httptest.Server
+	body   string
+	status int
+	path   string
+	auth   string
 }
 
 func newModelsStub(t *testing.T, status int, body string) *modelsStub {
@@ -1240,6 +1241,50 @@ func TestHandleGetModelsUpstreamError(t *testing.T) {
 	}
 }
 
+// A base URL saved before the settings PUT guard existed must not be
+// proxied to: the models endpoint re-validates the effective URL and refuses
+// it with 503, never touching the network.
+func TestHandleGetModelsDisallowedSavedBaseURL(t *testing.T) {
+	cfg := &config.Config{
+		Admin: config.AdminConfig{Token: "secret"},
+	}
+	a, _, store := testAPI(t, cfg, llm.New(cfg.LLM))
+	// The disallowed URL lives in the store, like a value persisted before
+	// the guard existed — this is the defense-in-depth path the endpoint
+	// must cover.
+	if err := store.UpsertSettings(db.Settings{BaseURL: "https://169.254.169.254", APIKey: "k"}); err != nil {
+		t.Fatal(err)
+	}
+	w := do(a.handleGetModels, newReq(http.MethodGet, "/api/models", "", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["error"] != "llm base url not allowed" {
+		t.Errorf("error = %q, want 'llm base url not allowed'", body["error"])
+	}
+}
+
+// Same defense-in-depth check, but with the disallowed URL coming from the
+// env/config fallback (no saved value) rather than the store.
+func TestHandleGetModelsDisallowedConfiguredBaseURL(t *testing.T) {
+	cfg := &config.Config{
+		Admin: config.AdminConfig{Token: "secret"},
+		LLM:   config.LLMConfig{BaseURL: "https://169.254.169.254", APIKey: "k"},
+	}
+	a, _, _ := testAPI(t, cfg, llm.New(cfg.LLM))
+	w := do(a.handleGetModels, newReq(http.MethodGet, "/api/models", "", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["error"] != "llm base url not allowed" {
+		t.Errorf("error = %q, want 'llm base url not allowed'", body["error"])
+	}
+}
+
 func TestHandleGetModelsPrefersSavedURL(t *testing.T) {
 	stub := newModelsStub(t, 200, `{"object":"list","data":[{"id":"model-x"}]}`)
 	cfg := &config.Config{
@@ -1266,7 +1311,7 @@ func TestHandlePutSettingsLLMBlock(t *testing.T) {
 	a, _, store := testAPI(t, &config.Config{}, nil)
 
 	r := newReq(http.MethodPut, "/api/settings",
-		`{"llm_base_url":"https://new.example/v1","llm_api_key":"secret-key"}`, nil)
+		`{"llm_base_url":"http://127.0.0.1:8080","llm_api_key":"secret-key"}`, nil)
 	w := do(a.handlePutSettings, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
@@ -1276,7 +1321,7 @@ func TestHandlePutSettingsLLMBlock(t *testing.T) {
 		t.Fatalf("bad json: %v", err)
 	}
 	llm := body["llm"].(map[string]any)
-	if llm["base_url"] != "https://new.example/v1" {
+	if llm["base_url"] != "http://127.0.0.1:8080" {
 		t.Errorf("llm base_url = %v", llm["base_url"])
 	}
 	if llm["has_key"] != true {
@@ -1289,8 +1334,8 @@ func TestHandlePutSettingsLLMBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.BaseURL != "https://new.example/v1" || s.APIKey != "secret-key" {
-		t.Errorf("stored = (%q, %q), want (https://new.example/v1, secret-key)", s.BaseURL, s.APIKey)
+	if s.BaseURL != "http://127.0.0.1:8080" || s.APIKey != "secret-key" {
+		t.Errorf("stored = (%q, %q), want (http://127.0.0.1:8080, secret-key)", s.BaseURL, s.APIKey)
 	}
 
 	// Explicit null clears the stored key (never the base URL).
@@ -1303,7 +1348,7 @@ func TestHandlePutSettingsLLMBlock(t *testing.T) {
 	if s.APIKey != "" {
 		t.Errorf("APIKey after null = %q, want empty", s.APIKey)
 	}
-	if s.BaseURL != "https://new.example/v1" {
+	if s.BaseURL != "http://127.0.0.1:8080" {
 		t.Errorf("BaseURL after key clear = %q, want unchanged", s.BaseURL)
 	}
 
@@ -1312,5 +1357,26 @@ func TestHandlePutSettingsLLMBlock(t *testing.T) {
 	w3 := do(a.handlePutSettings, r3)
 	if w3.Code != http.StatusBadRequest {
 		t.Fatalf("blank base_url status = %d, want 400; body %s", w3.Code, w3.Body.String())
+	}
+	s, _ = store.GetSettings()
+	if s.BaseURL != "http://127.0.0.1:8080" {
+		t.Errorf("BaseURL after blank reject = %q, want unchanged", s.BaseURL)
+	}
+
+	// The SSRF guard rejects disallowed values before persisting: a
+	// link-local (cloud-metadata) IP, a path-bearing base URL (a trailing
+	// /v1 alone is legal and normalized away), and a plain-http
+	// non-loopback host. All literal-IP/scheme/path cases, so no DNS lookup
+	// is needed.
+	for _, url := range []string{"https://169.254.169.254", "http://127.0.0.1:8080/v1/chat", "http://openai.com"} {
+		rn := newReq(http.MethodPut, "/api/settings", `{"llm_base_url":`+strconv.Quote(url)+`}`, nil)
+		wn := do(a.handlePutSettings, rn)
+		if wn.Code != http.StatusBadRequest {
+			t.Errorf("base_url %q status = %d, want 400; body %s", url, wn.Code, wn.Body.String())
+		}
+		s, _ = store.GetSettings()
+		if s.BaseURL != "http://127.0.0.1:8080" {
+			t.Errorf("BaseURL after rejecting %q = %q, want unchanged", url, s.BaseURL)
+		}
 	}
 }

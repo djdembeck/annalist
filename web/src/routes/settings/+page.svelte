@@ -138,6 +138,13 @@
       // Only send llm_base_url when the effective value changed (null = revert
       // to env). Only send llm_api_key when the field was touched (null = clear
       // the stored key; a blanked, untouched key is omitted so it's kept).
+      // Note the asymmetry: the base URL field is initialized from the same
+      // *effective* value (env/config when nothing is saved) that the server
+      // returns, so both comparison operands are the same value — an untouched
+      // field always matches and no llm_base_url is sent; a set is only sent
+      // when the field is actually edited (blank → null = revert to env).
+      // The API key is never echoed back, so it needs the apiKeyTouched flag
+      // to know whether the field was edited at all.
       if (baseUrl.trim() !== (settings?.llm.base_url ?? "")) {
         payload.llm_base_url = baseUrl.trim() === "" ? null : baseUrl.trim();
       }
@@ -223,10 +230,11 @@
           <label class="field-group"
             ><span class="field-group__label">Base URL</span><input
               bind:value={baseUrl}
-              placeholder="https://llm.example.com (trailing /v1 optional)"
+              placeholder="https://llm.example.com (host only, no path)"
               class="field" /><span class="field-group__hint"
-              >OpenAI-compatible endpoint. Overrides the LLM_BASE_URL env value
-              while set; clear the field to fall back to env.</span
+              >OpenAI-compatible endpoint (scheme://host[:port]). Overrides the
+              LLM_BASE_URL env value while set; clear the field to fall back
+              to env.</span
             ></label
           >
           <label class="field-group"

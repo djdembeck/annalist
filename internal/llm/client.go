@@ -105,7 +105,9 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 		return "", fmt.Errorf("llm: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	if apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
