@@ -77,7 +77,8 @@ export type Settings = {
   mode: string | null;
   llm: {
     base_url: string;
-    model: string;
+    api_key: string;
+    has_key: boolean;
   };
   github: boolean;
   forgejo: boolean;
@@ -89,6 +90,8 @@ export type SettingsUpdate = {
   model?: string | null;
   temperature?: number | null;
   commit_types?: string | null;
+  llm_base_url?: string | null;
+  llm_api_key?: string | null;
   mode?: string | null;
 };
 
@@ -211,4 +214,8 @@ export function putSettings(data: SettingsUpdate): Promise<Settings> {
     method: "PUT",
     body: JSON.stringify(data),
   });
+}
+
+export function getModels(): Promise<string[]> {
+  return apiFetch<string[]>("/api/models");
 }

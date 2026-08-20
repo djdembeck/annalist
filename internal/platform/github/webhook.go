@@ -89,7 +89,7 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 			ReleaseID: "github:" + fmt.Sprintf("%d", pl.Release.ID),
 		}
 
-		enabled, _, err := p.Resolve(context.Background(), spec.Platform, spec.Owner, spec.Repo)
+		enabled, _, _, err := p.Resolve(context.Background(), spec.Platform, spec.Owner, spec.Repo)
 		if err != nil {
 			http.Error(w, "github: resolve settings: "+err.Error(), http.StatusInternalServerError)
 			return

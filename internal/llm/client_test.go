@@ -205,3 +205,114 @@ func TestChatEmptyBaseURL(t *testing.T) {
 		t.Fatal("Chat succeeded with empty BaseURL, want error")
 	}
 }
+
+// TestListModelsSuccess verifies the happy path: ids are returned in server
+// order and the request carries the Bearer key at /v1/models.
+func TestListModelsSuccess(t *testing.T) {
+	srv, getReq, _ := llmTestServer(t, 200, `{"object":"list","data":[{"id":"a-model"},{"id":"b-model"}]}`)
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "ignored"})
+
+	ids, err := c.ListModels(context.Background(), srv.URL+"/v1", "key")
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(ids) != 2 || ids[0] != "a-model" || ids[1] != "b-model" {
+		t.Errorf("ids = %v, want [a-model b-model]", ids)
+	}
+	r := getReq()
+	if r == nil {
+		t.Fatal("server recorded no request")
+	}
+	if r.URL.Path != "/v1/models" {
+		t.Errorf("path = %q, want /v1/models", r.URL.Path)
+	}
+	if auth := r.Header.Get("Authorization"); auth != "Bearer key" {
+		t.Errorf("Authorization = %q, want Bearer key", auth)
+	}
+}
+
+// TestListModelsNon2xx verifies a non-2xx response surfaces the status and
+// body in the error.
+func TestListModelsNon2xx(t *testing.T) {
+	srv, _, _ := llmTestServer(t, 401, `{"error":"bad key"}`)
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	if _, err := c.ListModels(context.Background(), srv.URL, "k"); err == nil {
+		t.Fatal("ListModels succeeded on 401, want error")
+	} else if !strings.Contains(err.Error(), "401 Unauthorized") {
+		t.Errorf("error = %q, want it to contain the 401 status", err.Error())
+	}
+}
+
+// TestListModelsEmptyBaseURL verifies the guard fires before any HTTP call.
+func TestListModelsEmptyBaseURL(t *testing.T) {
+	c := New(config.LLMConfig{APIKey: "k"})
+	if _, err := c.ListModels(context.Background(), "", ""); err == nil {
+		t.Fatal("ListModels succeeded with empty base URL, want error")
+	} else if !strings.Contains(err.Error(), "base url not configured") {
+		t.Errorf("error = %q, want 'base url not configured'", err.Error())
+	}
+}
+
+// TestChatPerRequestOverride verifies Chat uses the per-request BaseURL and
+// APIKey over the client's configured values.
+func TestChatPerRequestOverride(t *testing.T) {
+	srv, getReq, _ := llmTestServer(t, 200, `{"choices":[{"message":{"content":"ok"}}]}`)
+	c := New(config.LLMConfig{BaseURL: "https://ignored.example", APIKey: "client-key"})
+
+	if _, err := c.Chat(context.Background(), ChatRequest{
+		Model: "m", User: "u", BaseURL: srv.URL + "/v1", APIKey: "req-key",
+	}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	r := getReq()
+	if r == nil {
+		t.Fatal("server recorded no request; the per-request BaseURL was not used (request never reached the test server)")
+	}
+	if r.Host != srv.Listener.Addr().String() {
+		t.Errorf("request hit host %q, want %q", r.Host, srv.Listener.Addr().String())
+	}
+	if r.URL.Path != "/v1/chat/completions" {
+		t.Errorf("path = %q, want /v1/chat/completions", r.URL.Path)
+	}
+	if auth := r.Header.Get("Authorization"); auth != "Bearer req-key" {
+		t.Errorf("Authorization = %q, want Bearer req-key", auth)
+	}
+}
+
+// TestChatAuthorizationHeader verifies Chat only sets the Authorization header
+// when the resolved API key is non-empty, so unauthenticated endpoints get no
+// empty "Bearer " token (matching ListModels).
+func TestChatAuthorizationHeader(t *testing.T) {
+	t.Run("empty key omits header", func(t *testing.T) {
+		srv, getReq, _ := llmTestServer(t, 200, `{"choices":[{"message":{"content":"ok"}}]}`)
+		c := New(config.LLMConfig{BaseURL: srv.URL})
+
+		// No key at client or request level: the guard must skip the header.
+		if _, err := c.Chat(context.Background(), ChatRequest{User: "u"}); err != nil {
+			t.Fatalf("Chat: %v", err)
+		}
+		r := getReq()
+		if r == nil {
+			t.Fatal("server recorded no request")
+		}
+		if _, present := r.Header["Authorization"]; present {
+			t.Errorf("Authorization header present = %q, want absent", r.Header.Get("Authorization"))
+		}
+	})
+
+	t.Run("non-empty key sets bearer", func(t *testing.T) {
+		srv, getReq, _ := llmTestServer(t, 200, `{"choices":[{"message":{"content":"ok"}}]}`)
+		c := New(config.LLMConfig{BaseURL: srv.URL})
+
+		if _, err := c.Chat(context.Background(), ChatRequest{User: "u", APIKey: "per-req"}); err != nil {
+			t.Fatalf("Chat: %v", err)
+		}
+		r := getReq()
+		if r == nil {
+			t.Fatal("server recorded no request")
+		}
+		if auth := r.Header.Get("Authorization"); auth != "Bearer per-req" {
+			t.Errorf("Authorization = %q, want Bearer per-req", auth)
+		}
+	})
+}

@@ -16,6 +16,7 @@
     putRepoSettings,
     generate,
     getInRepoInstructions,
+    getModels,
     type Repo,
   } from "$lib/api";
   import CommitTypeSelector from "$lib/components/CommitTypeSelector.svelte";
@@ -46,6 +47,8 @@
   let repos = $state<Repo[]>([]);
   let loadState = $state<"idle" | "loading" | "success" | "error">("idle");
   let loadError = $state("");
+  let models = $state<string[]>([]);
+  let modelsError = $state("");
   let pending = $state<
     Record<
       string,
@@ -120,6 +123,22 @@
       });
   }
 
+  // Model list for the per-repo dropdowns. A failure must NOT fail or block
+  // the repo list; it only surfaces a retry banner and leaves the previous
+  // list in place.
+  async function loadModels(): Promise<void> {
+    modelsError = "";
+    try {
+      models = await getModels();
+    } catch (e) {
+      if (handleAuthError(e)) return;
+      modelsError = formatError(
+        e,
+        "Could not load the model list — the repositories below fall back to the previous list.",
+      );
+    }
+  }
+
   async function refresh(): Promise<void> {
     loadError = "";
     loadState = "loading";
@@ -130,6 +149,9 @@
       for (const r of repos) {
         loadInRepoInstructions(r);
       }
+      // Refresh the model list too (non-blocking; a failure only surfaces a
+      // retry banner, never the repo list).
+      void loadModels();
     } catch (e) {
       if (handleAuthError(e)) return;
       loadState = "error";
@@ -313,6 +335,15 @@
       href="/repos/add"
     />
   {:else}
+    {#if modelsError}
+      <ErrorBanner
+        label="Model list unavailable"
+        message={modelsError}
+        actionLabel="Retry"
+        onAction={loadModels}
+        variant="warning"
+      />
+    {/if}
     <section
       class="console-grid repo-inventory"
       aria-label="Connected repository inventory"
@@ -456,7 +487,16 @@
                     >Model <span class="field-group__hint"
                       >(blank = inherit)</span
                     ></span
-                  ><input bind:value={d.model} class="field" /></label
+                  ><select bind:value={d.model} class="field"
+                    ><option value="">Inherit (system default)</option
+                    >{#each models as m (m)}<option value={m}>{m}</option
+                      >{/each}{#if d.model && !models.includes(d.model)}<option
+                        value={d.model}>{d.model} (not in /models list)</option
+                      >{/if}</select
+                  ><span class="field-group__hint"
+                    >Empty inherits the global contract, then the server
+                    default.</span
+                  ></label
                 >
                 <label class="field-group"
                   ><span class="field-group__label"

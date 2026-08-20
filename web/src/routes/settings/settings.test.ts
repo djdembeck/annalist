@@ -23,7 +23,7 @@ const settingsFixture: Settings = {
   temperature: null,
   commit_types: null,
   mode: "lite",
-  llm: { base_url: "https://api.example.com", model: "test-model" },
+  llm: { base_url: "https://api.example.com", api_key: "", has_key: false },
   github: false,
   forgejo: false,
 };
@@ -69,6 +69,9 @@ function mockSettings(overrides: Partial<Settings> = {}): void {
       });
       saveInFlight = false;
       return jsonResponse(settings);
+    }
+    if (method === "GET" && url.endsWith("/api/models")) {
+      return jsonResponse([]);
     }
     return jsonResponse(s);
   });

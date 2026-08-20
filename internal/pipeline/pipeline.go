@@ -30,6 +30,13 @@ type OwnerRepo struct {
 	PushedAt     time.Time
 }
 
+// Effective is the runtime-resolved LLM endpoint: saved DB settings win
+// over env/config. An empty BaseURL/APIKey means "use the env/config value".
+type Effective struct {
+	BaseURL string
+	APIKey  string
+}
+
 // Spec identifies a single release for which to generate notes.
 type Spec struct {
 	Platform  string
@@ -132,16 +139,18 @@ func (p *Pipeline) platformFor(platform string) (Platform, error) {
 // Resolve computes the effective settings for a repo. Per-repo row values
 // override the global settings, which fall back to the configured LLM
 // defaults. The in-repo instructions file is resolved separately inside
-// GenerateNotes (highest precedence).
-func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (bool, engine.Resolved, error) {
+// GenerateNotes (highest precedence). The Effective return carries the
+// runtime-resolved LLM endpoint (saved DB base URL / API key win over
+// env/config) for the caller to pass through to generation.
+func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (bool, Effective, engine.Resolved, error) {
 	global, err := p.DB.GetSettings()
 	if err != nil {
-		return false, engine.Resolved{}, fmt.Errorf("pipeline: global settings: %w", err)
+		return false, Effective{}, engine.Resolved{}, fmt.Errorf("pipeline: global settings: %w", err)
 	}
 
 	row, err := p.DB.GetRepoSettings(platform, owner, repo)
 	if err != nil {
-		return false, engine.Resolved{}, fmt.Errorf("pipeline: repo settings: %w", err)
+		return false, Effective{}, engine.Resolved{}, fmt.Errorf("pipeline: repo settings: %w", err)
 	}
 
 	enabled := true
@@ -168,6 +177,19 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 
 	if model == "" {
 		model = p.Cfg.LLM.Model
+	}
+
+	// Effective endpoint: env/config is the floor; a non-empty saved DB value
+	// (base URL / API key) overrides it.
+	eff := Effective{
+		BaseURL: p.Cfg.LLM.BaseURL,
+		APIKey:  p.Cfg.LLM.APIKey,
+	}
+	if global.BaseURL != "" {
+		eff.BaseURL = global.BaseURL
+	}
+	if global.APIKey != "" {
+		eff.APIKey = global.APIKey
 	}
 
 	// Resolve commit types with same precedence: repo → global → config.
@@ -200,7 +222,7 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 		resolved.Temperature = *temperature
 	}
 
-	return enabled, resolved, nil
+	return enabled, eff, resolved, nil
 }
 
 // GenerateNotes produces release notes for spec. Notes are returned even when
@@ -232,6 +254,22 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		}
 	}
 
+	// Resolve the effective settings before cloning or dialing: a saved base
+	// URL that predates the settings guard (or an env value) would otherwise
+	// be dialed with the bearer key. An empty effective URL means
+	// unconfigured: llm.Chat then falls back to the client's configured base
+	// URL, and a fully unconfigured endpoint fails at request time with a
+	// host-less-URL error from http.Client.Do (not at validation).
+	_, eff, resolved, err := p.Resolve(ctx, spec.Platform, spec.Owner, spec.Repo)
+	if err != nil {
+		return "", err
+	}
+	if eff.BaseURL != "" {
+		if err := llm.ValidateBaseURL(eff.BaseURL); err != nil {
+			return "", fmt.Errorf("pipeline: llm base url not allowed: %v", err)
+		}
+	}
+
 	platform, err := p.platformFor(spec.Platform)
 	if err != nil {
 		return "", err
@@ -257,10 +295,6 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	if strings.HasPrefix(from, "-") || strings.HasPrefix(spec.ToTag, "-") {
 		return "", fmt.Errorf("pipeline: invalid tag %q", spec.ToTag)
 	}
-	_, resolved, err := p.Resolve(ctx, spec.Platform, spec.Owner, spec.Repo)
-	if err != nil {
-		return "", err
-	}
 	if opts.Mode != "" {
 		resolved.Mode = opts.Mode
 	}
@@ -283,7 +317,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		if resolved.Mode == engine.ModeDeep {
 			diff = engine.CollectDiff(ctx, workdir, from, spec.ToTag, engine.DiffBudgetBytes)
 		}
-		notes, err = p.Engine.Generate(ctx, resolved, spec.ToTag, from, commitLog, diff)
+		notes, err = p.Engine.Generate(ctx, resolved, eff.BaseURL, eff.APIKey, spec.ToTag, from, commitLog, diff)
 		if err != nil {
 			return "", err
 		}

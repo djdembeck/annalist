@@ -71,12 +71,13 @@ func (e *Engine) BuildSystemPrompt(r Resolved) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// Generate produces release notes for toTag given the commit log. In deep
-// mode (r.Mode == ModeDeep with a non-empty diff) the diff is appended to the
-// user message as an untrusted <diff> block; otherwise the prompt is
-// unchanged. Errors from the LLM propagate unchanged; there is no fallback
-// text.
-func (e *Engine) Generate(ctx context.Context, r Resolved, toTag, fromTag, commitLog, diff string) (string, error) {
+// Generate produces release notes for toTag given the commit log. baseURL and
+// apiKey, when non-empty, override the LLM client's configured endpoint for
+// this call (the pipeline resolves the effective endpoint). In deep mode
+// (r.Mode == ModeDeep with a non-empty diff) the diff is appended to the user
+// message as an untrusted <diff> block; otherwise the prompt is unchanged.
+// Errors from the LLM propagate unchanged; there is no fallback text.
+func (e *Engine) Generate(ctx context.Context, r Resolved, baseURL, apiKey, toTag, fromTag, commitLog, diff string) (string, error) {
 	prompt := e.BuildSystemPrompt(r)
 
 	userMsg := "Generate release notes for version " + toTag + "."
@@ -97,5 +98,7 @@ func (e *Engine) Generate(ctx context.Context, r Resolved, toTag, fromTag, commi
 		// release ranges may exceed this limit and truncate. Consider computing
 		// MaxTokens based on commit count.
 		MaxTokens: 4096,
+		BaseURL:   baseURL,
+		APIKey:    apiKey,
 	})
 }

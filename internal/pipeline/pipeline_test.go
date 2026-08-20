@@ -286,7 +286,7 @@ func TestResolvePrecedence(t *testing.T) {
 	}
 
 	t.Run("no row falls back to global", func(t *testing.T) {
-		enabled, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		enabled, eff, r, err := pip.Resolve(context.Background(), "github", "o", "r")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -297,6 +297,11 @@ func TestResolvePrecedence(t *testing.T) {
 			r.Model != "global-model" || r.Temperature != t0 {
 			t.Errorf("resolved = %+v", r)
 		}
+		// The fixture config has no LLM BaseURL/APIKey, so the effective
+		// endpoint is empty (nothing to inherit).
+		if eff.BaseURL != "" || eff.APIKey != "" {
+			t.Errorf("effective endpoint = (%q, %q), want empty (no cfg base url)", eff.BaseURL, eff.APIKey)
+		}
 	})
 
 	t.Run("row overrides tone/model/temperature, inherits instructions", func(t *testing.T) {
@@ -306,7 +311,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -325,7 +330,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "forgejo", "o", "r2")
+		_, _, r, err := pip.Resolve(context.Background(), "forgejo", "o", "r2")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -341,7 +346,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		enabled, _, err := pip.Resolve(context.Background(), "github", "o", "r")
+		enabled, _, _, err := pip.Resolve(context.Background(), "github", "o", "r")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -356,7 +361,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -372,7 +377,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -388,7 +393,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -404,7 +409,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}
 		t.Cleanup(func() { fresh.Close() })
 		pip3 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model", CommitTypes: "fix,perf"}}, DB: fresh}
-		_, r, err := pip3.Resolve(context.Background(), "github", "o", "r-fresh")
+		_, _, r, err := pip3.Resolve(context.Background(), "github", "o", "r-fresh")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -413,7 +418,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}
 		// Twin: config also empty → keep-all (nil).
 		pip4 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model"}}, DB: fresh}
-		_, r, err = pip4.Resolve(context.Background(), "github", "o", "r-fresh")
+		_, _, r, err = pip4.Resolve(context.Background(), "github", "o", "r-fresh")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -435,12 +440,31 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip2.Resolve(context.Background(), "github", "o", "r-new")
+		_, _, r, err := pip2.Resolve(context.Background(), "github", "o", "r-new")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(r.CommitTypes) != 1 || r.CommitTypes[0] != "perf" {
 			t.Errorf("commit types = %v, want [perf]", r.CommitTypes)
+		}
+	})
+
+	t.Run("saved db endpoint overrides config", func(t *testing.T) {
+		// A fresh pipeline whose config LLM has no BaseURL/APIKey.
+		pip3 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model"}}, DB: store}
+		// Reset the global row, then set a saved endpoint.
+		if err := store.UpsertSettings(db.Settings{Tone: "", CommitTypes: ""}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertSettings(db.Settings{BaseURL: "https://saved", APIKey: "saved-key"}); err != nil {
+			t.Fatal(err)
+		}
+		_, eff, _, err := pip3.Resolve(context.Background(), "github", "o", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if eff.BaseURL != "https://saved" || eff.APIKey != "saved-key" {
+			t.Errorf("effective endpoint = (%q, %q), want (https://saved, saved-key)", eff.BaseURL, eff.APIKey)
 		}
 	})
 }
@@ -455,7 +479,7 @@ func TestResolveModePrecedence(t *testing.T) {
 		if err := store.UpsertSettings(db.Settings{Mode: "deep"}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -473,7 +497,7 @@ func TestResolveModePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -486,7 +510,7 @@ func TestResolveModePrecedence(t *testing.T) {
 		if err := store.UpsertSettings(db.Settings{Mode: ""}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "forgejo", "o", "r-empty")
+		_, _, r, err := pip.Resolve(context.Background(), "forgejo", "o", "r-empty")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -675,6 +699,31 @@ func TestGenerateNotesEmptyLog(t *testing.T) {
 	}
 	if stub.calls != 0 {
 		t.Errorf("LLM called %d times for empty log, want 0", stub.calls)
+	}
+}
+
+// TestGenerateNotesDisallowedBaseURL verifies the base-URL format guard on
+// the generation path: a saved base URL that the settings PUT guard would
+// never have allowed (a path beyond the trailing /v1 form) must be rejected
+// before anything is dialed. The check runs before clone and before the LLM
+// call, so a sentinel clone error proves the clone was never attempted.
+func TestGenerateNotesDisallowedBaseURL(t *testing.T) {
+	pip, stub, f, store := fixture(t, nil, nil)
+	if err := store.UpsertSettings(db.Settings{BaseURL: "https://100.100.100.200/v1/chat", APIKey: "k"}); err != nil {
+		t.Fatal(err)
+	}
+	// Sentinel: if the guard did not fail fast, the clone would surface this.
+	f.cloneErr = errors.New("clone attempted")
+
+	_, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-bad-url"), Options{})
+	if err == nil || !strings.Contains(err.Error(), "pipeline: llm base url not allowed") {
+		t.Fatalf("err = %v, want 'pipeline: llm base url not allowed'", err)
+	}
+	if strings.Contains(err.Error(), "clone attempted") {
+		t.Errorf("guard did not fail before clone: %v", err)
+	}
+	if stub.calls != 0 {
+		t.Errorf("LLM called %d times, want 0 (generation aborted before dial)", stub.calls)
 	}
 }
 

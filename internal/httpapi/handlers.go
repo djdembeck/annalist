@@ -17,6 +17,7 @@ import (
 
 	"github.com/djdembeck/annalist/internal/db"
 	"github.com/djdembeck/annalist/internal/engine"
+	"github.com/djdembeck/annalist/internal/llm"
 	"github.com/djdembeck/annalist/internal/pipeline"
 	"github.com/djdembeck/annalist/internal/version"
 )
@@ -106,7 +107,7 @@ type repoItemResp struct {
 // repoItem builds the response for a repo_settings row, computing the
 // effective (inherited) values via the pipeline's Resolve.
 func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, error) {
-	_, eff, err := a.pip.Resolve(ctx, row.Platform, row.Owner, row.Repo)
+	_, _, resolved, err := a.pip.Resolve(ctx, row.Platform, row.Owner, row.Repo)
 	if err != nil {
 		return repoItemResp{}, err
 	}
@@ -129,13 +130,13 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 		CommitTypes:  row.CommitTypes,
 		Mode:         row.Mode,
 		Effective: effective{
-			Tone:         eff.Tone,
-			Model:        eff.Model,
-			Temperature:  eff.Temperature,
-			Instructions: eff.Instructions,
+			Tone:         resolved.Tone,
+			Model:        resolved.Model,
+			Temperature:  resolved.Temperature,
+			Instructions: resolved.Instructions,
 			Source:       source,
-			CommitTypes:  eff.CommitTypes,
-			Mode:         eff.Mode,
+			CommitTypes:  resolved.CommitTypes,
+			Mode:         resolved.Mode,
 		},
 	}, nil
 }
@@ -570,8 +571,28 @@ func (a *api) handleInRepoInstructions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"instructions": content})
 }
 
+// effectiveLLM returns the endpoint to use: saved settings override env/config.
+func (a *api) effectiveLLM(s db.Settings) (baseURL, apiKey string) {
+	baseURL, apiKey = a.cfg.LLM.BaseURL, a.cfg.LLM.APIKey
+	if s.BaseURL != "" {
+		baseURL = s.BaseURL
+	}
+	if s.APIKey != "" {
+		apiKey = s.APIKey
+	}
+	return baseURL, apiKey
+}
+
 // settingsResp is the global-settings response, including the LLM/platform block.
+// The llm block reports the effective base URL (saved overrides env) and a masked
+// api key indicator; the plaintext key is never returned.
 func (a *api) settingsResp(s db.Settings) map[string]any {
+	baseURL, _ := a.effectiveLLM(s)
+	hasKey := s.APIKey != "" || a.cfg.LLM.APIKey != ""
+	apiKeyPlaceholder := ""
+	if hasKey {
+		apiKeyPlaceholder = "••••••••"
+	}
 	return map[string]any{
 		"tone":         s.Tone,
 		"instructions": s.Instructions,
@@ -579,9 +600,10 @@ func (a *api) settingsResp(s db.Settings) map[string]any {
 		"temperature":  s.Temperature,
 		"commit_types": s.CommitTypes,
 		"mode":         s.Mode,
-		"llm": map[string]string{
-			"base_url": a.cfg.LLM.BaseURL,
-			"model":    a.cfg.LLM.Model,
+		"llm": map[string]any{
+			"base_url": baseURL,
+			"api_key":  apiKeyPlaceholder,
+			"has_key":  hasKey,
 		},
 		"github":  a.cfg.GitHubEnabled(),
 		"forgejo": a.cfg.ForgejoEnabled(),
@@ -686,9 +708,78 @@ func (a *api) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// llm_base_url: present non-null sets, explicit null clears (revert to env).
+	// A cleared value must not round-trip as empty, or the endpoint would
+	// silently break generation; an explicit null is the only "revert to env".
+	if raw, ok := m["llm_base_url"]; ok {
+		if string(raw) == "null" {
+			s.BaseURL = ""
+		} else {
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			if v = strings.TrimSpace(v); v == "" {
+				writeErr(w, http.StatusBadRequest, "llm_base_url must not be empty")
+				return
+			}
+			if err := llm.ValidateBaseURL(v); err != nil {
+				writeErr(w, http.StatusBadRequest, "llm_base_url not allowed: "+err.Error())
+				return
+			}
+			s.BaseURL = v
+		}
+	}
+
+	// llm_api_key: present non-null sets, explicit null clears. No trim and no
+	// non-empty requirement — an endpoint without auth is valid.
+	if raw, ok := m["llm_api_key"]; ok {
+		if string(raw) == "null" {
+			s.APIKey = ""
+		} else {
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			s.APIKey = v
+		}
+	}
+
 	if err := a.store.UpsertSettings(s); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, a.settingsResp(s))
+}
+
+// handleGetModels proxies the LLM endpoint's /v1/models so the UI can offer a
+// model dropdown. The effective endpoint (saved DB overrides env) is used, and
+// the key is sent only when configured.
+func (a *api) handleGetModels(w http.ResponseWriter, r *http.Request) {
+	s, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	baseURL, apiKey := a.effectiveLLM(s)
+	if baseURL == "" || a.llm == nil {
+		writeErr(w, http.StatusServiceUnavailable, "llm base url not configured")
+		return
+	}
+	// Defense in depth: a saved value may predate the settings PUT guard.
+	if err := llm.ValidateBaseURL(baseURL); err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "llm base url not allowed")
+		return
+	}
+	ids, err := a.llm.ListModels(r.Context(), baseURL, apiKey)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	writeJSON(w, http.StatusOK, ids)
 }
