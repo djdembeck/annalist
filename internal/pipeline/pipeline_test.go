@@ -702,20 +702,20 @@ func TestGenerateNotesEmptyLog(t *testing.T) {
 	}
 }
 
-// TestGenerateNotesDisallowedBaseURL verifies the SSRF guard on the
-// generation path: a saved base URL that the settings PUT guard would never
-// have allowed (a CGNAT metadata address) must be rejected before anything
-// is dialed. The check runs before clone and before the LLM call, so a
-// sentinel clone error proves the clone was never attempted.
+// TestGenerateNotesDisallowedBaseURL verifies the base-URL format guard on
+// the generation path: a saved base URL that the settings PUT guard would
+// never have allowed (a path beyond the trailing /v1 form) must be rejected
+// before anything is dialed. The check runs before clone and before the LLM
+// call, so a sentinel clone error proves the clone was never attempted.
 func TestGenerateNotesDisallowedBaseURL(t *testing.T) {
 	pip, stub, f, store := fixture(t, nil, nil)
-	if err := store.UpsertSettings(db.Settings{BaseURL: "https://100.100.100.200", APIKey: "k"}); err != nil {
+	if err := store.UpsertSettings(db.Settings{BaseURL: "https://100.100.100.200/v1/chat", APIKey: "k"}); err != nil {
 		t.Fatal(err)
 	}
 	// Sentinel: if the guard did not fail fast, the clone would surface this.
 	f.cloneErr = errors.New("clone attempted")
 
-	_, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-ssrf"), Options{})
+	_, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-bad-url"), Options{})
 	if err == nil || !strings.Contains(err.Error(), "pipeline: llm base url not allowed") {
 		t.Fatalf("err = %v, want 'pipeline: llm base url not allowed'", err)
 	}

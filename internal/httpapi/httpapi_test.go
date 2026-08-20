@@ -1435,10 +1435,10 @@ func TestHandleGetModelsDisallowedSavedBaseURL(t *testing.T) {
 		Admin: config.AdminConfig{Token: "secret"},
 	}
 	a, _, store := testAPI(t, cfg, llm.New(cfg.LLM))
-	// The disallowed URL lives in the store, like a value persisted before
-	// the guard existed — this is the defense-in-depth path the endpoint
-	// must cover.
-	if err := store.UpsertSettings(db.Settings{BaseURL: "https://169.254.169.254", APIKey: "k"}); err != nil {
+	// A malformed URL (a path beyond the trailing /v1 form) lives in the
+	// store, like a value persisted before the guard existed — this is the
+	// defense-in-depth path the endpoint must cover.
+	if err := store.UpsertSettings(db.Settings{BaseURL: "https://example.com/v1/chat", APIKey: "k"}); err != nil {
 		t.Fatal(err)
 	}
 	w := do(a.handleGetModels, newReq(http.MethodGet, "/api/models", "", nil))
@@ -1457,7 +1457,7 @@ func TestHandleGetModelsDisallowedSavedBaseURL(t *testing.T) {
 func TestHandleGetModelsDisallowedConfiguredBaseURL(t *testing.T) {
 	cfg := &config.Config{
 		Admin: config.AdminConfig{Token: "secret"},
-		LLM:   config.LLMConfig{BaseURL: "https://169.254.169.254", APIKey: "k"},
+		LLM:   config.LLMConfig{BaseURL: "https://example.com/v1/chat", APIKey: "k"},
 	}
 	a, _, _ := testAPI(t, cfg, llm.New(cfg.LLM))
 	w := do(a.handleGetModels, newReq(http.MethodGet, "/api/models", "", nil))
@@ -1549,12 +1549,11 @@ func TestHandlePutSettingsLLMBlock(t *testing.T) {
 		t.Errorf("BaseURL after blank reject = %q, want unchanged", s.BaseURL)
 	}
 
-	// The SSRF guard rejects disallowed values before persisting: a
-	// link-local (cloud-metadata) IP, a path-bearing base URL (a trailing
-	// /v1 alone is legal and normalized away), and a plain-http
-	// non-loopback host. All literal-IP/scheme/path cases, so no DNS lookup
-	// is needed.
-	for _, url := range []string{"https://169.254.169.254", "http://127.0.0.1:8080/v1/chat", "http://openai.com"} {
+	// The format guard rejects malformed values before persisting: a
+	// path-bearing base URL (a trailing /v1 alone is legal and normalized
+	// away), a query string, and a non-http(s) scheme. All format cases, so
+	// no DNS lookup is needed.
+	for _, url := range []string{"http://127.0.0.1:8080/v1/chat", "https://example.com?x=1", "ftp://example.com"} {
 		rn := newReq(http.MethodPut, "/api/settings", `{"llm_base_url":`+strconv.Quote(url)+`}`, nil)
 		wn := do(a.handlePutSettings, rn)
 		if wn.Code != http.StatusBadRequest {
