@@ -99,7 +99,7 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 			return
 		}
 
-		enabled, _, err := p.Resolve(context.Background(), "forgejo", owner, repo)
+		enabled, _, _, err := p.Resolve(context.Background(), "forgejo", owner, repo)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("resolve: %v", err), http.StatusInternalServerError)
 			return

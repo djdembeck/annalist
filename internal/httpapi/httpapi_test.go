@@ -17,6 +17,7 @@ import (
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
 	"github.com/djdembeck/annalist/internal/engine"
+	"github.com/djdembeck/annalist/internal/llm"
 	"github.com/djdembeck/annalist/internal/pipeline"
 	"github.com/djdembeck/annalist/internal/version"
 )
@@ -40,11 +41,12 @@ func newFakePip() *fakePip {
 	}
 }
 
-func (f *fakePip) Resolve(ctx context.Context, platform, owner, repo string) (bool, engine.Resolved, error) {
+func (f *fakePip) Resolve(ctx context.Context, platform, owner, repo string) (bool, pipeline.Effective, engine.Resolved, error) {
 	if f.resolveErr != nil {
-		return false, engine.Resolved{}, f.resolveErr
+		return false, pipeline.Effective{}, engine.Resolved{}, f.resolveErr
 	}
-	return true, f.eff, nil
+	eff := pipeline.Effective{BaseURL: "http://llm", Model: "m0"}
+	return true, eff, f.eff, nil
 }
 
 func (f *fakePip) GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pipeline.Options) (string, error) {
@@ -85,8 +87,9 @@ func (f *fakeClient) ReadRepoFile(ctx context.Context, owner, repo, path string)
 	return "", fmt.Errorf("%w: %s", pipeline.ErrNotFound, path)
 }
 
-// testAPI builds an api with a real temp-db store and a fake pip.
-func testAPI(t *testing.T, cfg *config.Config) (*api, *fakePip, *db.Store) {
+// testAPI builds an api with a real temp-db store and a fake pip. llmClient
+// may be nil for tests that do not exercise /api/models.
+func testAPI(t *testing.T, cfg *config.Config, llmClient *llm.Client) (*api, *fakePip, *db.Store) {
 	t.Helper()
 	store, err := db.New(t.TempDir())
 	if err != nil {
@@ -94,7 +97,7 @@ func testAPI(t *testing.T, cfg *config.Config) (*api, *fakePip, *db.Store) {
 	}
 	t.Cleanup(func() { store.Close() })
 	pip := newFakePip()
-	return &api{cfg: cfg, store: store, pip: pip}, pip, store
+	return &api{cfg: cfg, store: store, llm: llmClient, pip: pip}, pip, store
 }
 
 // newReq builds a request, optionally injecting chi URL params.
@@ -191,7 +194,7 @@ func TestDecodePresenceMap(t *testing.T) {
 }
 
 func TestHandleHealth(t *testing.T) {
-	a, _, _ := testAPI(t, &config.Config{})
+	a, _, _ := testAPI(t, &config.Config{}, nil)
 	w := do(a.handleHealth, httptest.NewRequest(http.MethodGet, "http://test/api/health", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
@@ -224,35 +227,35 @@ func TestAdminAuth(t *testing.T) {
 	}
 
 	t.Run("token not configured", func(t *testing.T) {
-		a, _, _ := testAPI(t, &config.Config{})
+		a, _, _ := testAPI(t, &config.Config{}, nil)
 		if got := run(t, a, "Bearer anything"); got != http.StatusUnauthorized {
 			t.Errorf("status = %d, want 401", got)
 		}
 	})
 
 	t.Run("missing header", func(t *testing.T) {
-		a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}})
+		a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}}, nil)
 		if got := run(t, a, ""); got != http.StatusUnauthorized {
 			t.Errorf("status = %d, want 401", got)
 		}
 	})
 
 	t.Run("missing bearer prefix", func(t *testing.T) {
-		a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}})
+		a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}}, nil)
 		if got := run(t, a, "secret"); got != http.StatusUnauthorized {
 			t.Errorf("status = %d, want 401", got)
 		}
 	})
 
 	t.Run("wrong token", func(t *testing.T) {
-		a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}})
+		a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}}, nil)
 		if got := run(t, a, "Bearer wrong"); got != http.StatusUnauthorized {
 			t.Errorf("status = %d, want 401", got)
 		}
 	})
 
 	t.Run("correct token", func(t *testing.T) {
-		a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}})
+		a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}}, nil)
 		if got := run(t, a, "Bearer secret"); got != http.StatusOK {
 			t.Errorf("status = %d, want 200", got)
 		}
@@ -286,7 +289,7 @@ func TestHandleStatus(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a, _, _ := testAPI(t, tc.cfg)
+			a, _, _ := testAPI(t, tc.cfg, nil)
 			w := do(a.handleStatus, httptest.NewRequest(http.MethodGet, "http://test/api/status", nil))
 			if w.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200", w.Code)
@@ -310,7 +313,7 @@ func TestHandleStatus(t *testing.T) {
 
 func TestHandleListReposManagedOnly(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, _, store := testAPI(t, cfg)
+	a, _, store := testAPI(t, cfg, nil)
 	// The gh client reports two repos, but only annalist is managed.
 	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{
 		{Owner: "djdembeck", Repo: "annalist"},
@@ -352,7 +355,7 @@ func TestHandleListReposManagedOnly(t *testing.T) {
 }
 
 func TestHandleListReposResolveError(t *testing.T) {
-	a, pip, store := testAPI(t, &config.Config{})
+	a, pip, store := testAPI(t, &config.Config{}, nil)
 	pip.resolveErr = errors.New("boom")
 	if err := store.UpsertRepoSettings(db.RepoSetting{
 		Platform: "github", Owner: "o", Repo: "r", Enabled: true, Trigger: "auto",
@@ -367,7 +370,7 @@ func TestHandleListReposResolveError(t *testing.T) {
 
 func TestHandleListReposMultipleReposParallel(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, pip, store := testAPI(t, cfg)
+	a, pip, store := testAPI(t, cfg, nil)
 	pip.eff.Tone = "t0"
 	pip.eff.Instructions = "resolved-instructions"
 	pip.eff.Model = "m0"
@@ -445,7 +448,7 @@ func TestHandleListReposMultipleReposParallel(t *testing.T) {
 
 func TestHandleListAvailableRepos(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}, Forgejo: config.ForgejoConfig{Token: "t"}}
-	a, _, store := testAPI(t, cfg)
+	a, _, store := testAPI(t, cfg, nil)
 	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{
 		{Owner: "djdembeck", Repo: "annalist", OwnNamespace: true, UpdatedAt: time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC), PushedAt: time.Date(2024, 3, 2, 10, 0, 0, 0, time.UTC)},
 		{Owner: "someone", Repo: "other", Fork: true, OwnNamespace: false, UpdatedAt: time.Date(2023, 5, 15, 20, 30, 0, 0, time.UTC), PushedAt: time.Date(2023, 5, 16, 20, 30, 0, 0, time.UTC)},
@@ -541,7 +544,7 @@ func TestHandleListAvailableRepos(t *testing.T) {
 
 func TestHandleListAvailableReposError(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, _, _ := testAPI(t, cfg)
+	a, _, _ := testAPI(t, cfg, nil)
 	a.gh = &fakeClient{err: context.DeadlineExceeded}
 	w := do(a.handleListAvailableRepos, httptest.NewRequest(http.MethodGet, "http://test/api/repos/available", nil))
 	if w.Code != http.StatusInternalServerError {
@@ -554,7 +557,7 @@ func TestHandleListAvailableReposError(t *testing.T) {
 
 func TestHandleListAvailableReposDisabledPlatformSkipped(t *testing.T) {
 	// Only GitHub is enabled; Forgejo's client must never be consulted.
-	a, _, _ := testAPI(t, &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}})
+	a, _, _ := testAPI(t, &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}, nil)
 	a.gh = &fakeClient{repos: []pipeline.OwnerRepo{{Owner: "o", Repo: "r"}}}
 	a.fj = &fakeClient{repos: []pipeline.OwnerRepo{{Owner: "should", Repo: "not-appear"}}}
 
@@ -573,7 +576,7 @@ func TestHandleListAvailableReposDisabledPlatformSkipped(t *testing.T) {
 
 func TestHandleAddRepo(t *testing.T) {
 	cfg := &config.Config{Admin: config.AdminConfig{Token: "secret"}}
-	a, _, store := testAPI(t, cfg)
+	a, _, store := testAPI(t, cfg, nil)
 
 	r := newReq(http.MethodPost, "/api/repos", `{"platform":"github","owner":"djdembeck","repo":"annalist"}`, nil)
 	w := do(a.handleAddRepo, r)
@@ -611,7 +614,7 @@ func TestHandleAddRepo(t *testing.T) {
 }
 
 func TestHandleAddRepoInvalidPlatform(t *testing.T) {
-	a, _, _ := testAPI(t, &config.Config{})
+	a, _, _ := testAPI(t, &config.Config{}, nil)
 	r := newReq(http.MethodPost, "/api/repos", `{"platform":"gitlab","owner":"o","repo":"r"}`, nil)
 	w := do(a.handleAddRepo, r)
 	if w.Code != http.StatusBadRequest {
@@ -620,7 +623,7 @@ func TestHandleAddRepoInvalidPlatform(t *testing.T) {
 }
 
 func TestHandleAddRepoMissingOwnerOrRepo(t *testing.T) {
-	a, _, _ := testAPI(t, &config.Config{})
+	a, _, _ := testAPI(t, &config.Config{}, nil)
 	r := newReq(http.MethodPost, "/api/repos", `{"platform":"github","owner":"","repo":"r"}`, nil)
 	w := do(a.handleAddRepo, r)
 	if w.Code != http.StatusBadRequest {
@@ -629,7 +632,7 @@ func TestHandleAddRepoMissingOwnerOrRepo(t *testing.T) {
 }
 
 func TestHandleAddRepoBadJSON(t *testing.T) {
-	a, _, _ := testAPI(t, &config.Config{})
+	a, _, _ := testAPI(t, &config.Config{}, nil)
 	r := newReq(http.MethodPost, "/api/repos", `not json`, nil)
 	w := do(a.handleAddRepo, r)
 	if w.Code != http.StatusBadRequest {
@@ -639,7 +642,7 @@ func TestHandleAddRepoBadJSON(t *testing.T) {
 
 func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 	cfg := &config.Config{Admin: config.AdminConfig{Token: "secret"}}
-	a, pip, store := testAPI(t, cfg)
+	a, pip, store := testAPI(t, cfg, nil)
 	_ = pip
 
 	r := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
@@ -708,7 +711,7 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 }
 
 func TestHandlePutRepoSettingsInvalidPlatform(t *testing.T) {
-	a, _, _ := testAPI(t, &config.Config{})
+	a, _, _ := testAPI(t, &config.Config{}, nil)
 	r := newReq(http.MethodPut, "/api/repos/gitlab/o/r/settings", `{}`,
 		map[string]string{"platform": "gitlab", "owner": "o", "repo": "r"})
 	w := do(a.handlePutRepoSettings, r)
@@ -718,7 +721,7 @@ func TestHandlePutRepoSettingsInvalidPlatform(t *testing.T) {
 }
 
 func TestHandlePutRepoSettingsBadJSON(t *testing.T) {
-	a, _, _ := testAPI(t, &config.Config{})
+	a, _, _ := testAPI(t, &config.Config{}, nil)
 	r := newReq(http.MethodPut, "/api/repos/github/o/r/settings", `not json`,
 		map[string]string{"platform": "github", "owner": "o", "repo": "r"})
 	w := do(a.handlePutRepoSettings, r)
@@ -728,7 +731,7 @@ func TestHandlePutRepoSettingsBadJSON(t *testing.T) {
 }
 
 func TestHandleGetSettingsDefaults(t *testing.T) {
-	a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}, LLM: config.LLMConfig{BaseURL: "http://llm", Model: "m99"}})
+	a, _, _ := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}, LLM: config.LLMConfig{BaseURL: "http://llm", Model: "m99"}}, nil)
 	w := do(a.handleGetSettings, httptest.NewRequest(http.MethodGet, "http://test/api/settings", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
@@ -741,13 +744,22 @@ func TestHandleGetSettingsDefaults(t *testing.T) {
 		t.Fatal("expected llm block")
 	}
 	llm := body["llm"].(map[string]any)
-	if llm["base_url"] != "http://llm" || llm["model"] != "m99" {
-		t.Errorf("llm block = %v", llm)
+	if llm["base_url"] != "http://llm" {
+		t.Errorf("llm base_url = %v, want http://llm", llm["base_url"])
+	}
+	if llm["has_key"] != false {
+		t.Errorf("llm has_key = %v, want false (no key configured)", llm["has_key"])
+	}
+	if llm["api_key"] != "" {
+		t.Errorf("llm api_key = %v, want empty", llm["api_key"])
+	}
+	if _, ok := llm["model"]; ok {
+		t.Errorf("llm block should not carry a model field anymore: %v", llm)
 	}
 }
 
 func TestHandlePutSettingsRoundTrip(t *testing.T) {
-	a, _, store := testAPI(t, &config.Config{})
+	a, _, store := testAPI(t, &config.Config{}, nil)
 	r := newReq(http.MethodPut, "/api/settings",
 		`{"tone":"cheerful","temperature":0.9,"model":null}`,
 		nil)
@@ -803,7 +815,7 @@ func TestHandlePutSettingsRoundTrip(t *testing.T) {
 }
 
 func TestHandlePutSettingsBadJSON(t *testing.T) {
-	a, _, _ := testAPI(t, &config.Config{})
+	a, _, _ := testAPI(t, &config.Config{}, nil)
 	r := newReq(http.MethodPut, "/api/settings", `{`, nil)
 	w := do(a.handlePutSettings, r)
 	if w.Code != http.StatusBadRequest {
@@ -812,7 +824,7 @@ func TestHandlePutSettingsBadJSON(t *testing.T) {
 }
 
 func TestHandleGenerate(t *testing.T) {
-	a, pip, _ := testAPI(t, &config.Config{})
+	a, pip, _ := testAPI(t, &config.Config{}, nil)
 
 	t.Run("success", func(t *testing.T) {
 		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","from_tag":"v0.9.0","force":true,"publish":true}`,
@@ -979,7 +991,7 @@ func TestSpaThroughRouter(t *testing.T) {
 
 func TestHandleInRepoInstructionsPresent(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, _, _ := testAPI(t, cfg)
+	a, _, _ := testAPI(t, cfg, nil)
 	a.gh = &fakeClient{
 		fileContents: map[string]string{
 			".github/release-notes-instructions.md": "IN-REPO PROMPT",
@@ -1006,7 +1018,7 @@ func TestHandleInRepoInstructionsPresent(t *testing.T) {
 
 func TestHandleInRepoInstructionsMissing(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, _, _ := testAPI(t, cfg)
+	a, _, _ := testAPI(t, cfg, nil)
 	a.gh = &fakeClient{
 		fileContents: map[string]string{}, // empty — file not found
 	}
@@ -1035,7 +1047,7 @@ var _ pipService = (*pipeline.Pipeline)(nil)
 
 func TestHandleInRepoInstructionsNilGitHubClient(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, _, _ := testAPI(t, cfg)
+	a, _, _ := testAPI(t, cfg, nil)
 	a.gh = nil // explicitly nil
 
 	req := newReq(http.MethodGet, "/api/repos/github/djdembeck/annalist/in-repo-instructions", "", map[string]string{
@@ -1051,7 +1063,7 @@ func TestHandleInRepoInstructionsNilGitHubClient(t *testing.T) {
 
 func TestHandleInRepoInstructionsNilForgejoClient(t *testing.T) {
 	cfg := &config.Config{Forgejo: config.ForgejoConfig{Token: "t"}}
-	a, _, _ := testAPI(t, cfg)
+	a, _, _ := testAPI(t, cfg, nil)
 	a.fj = nil // explicitly nil
 
 	req := newReq(http.MethodGet, "/api/repos/forgejo/fjuser/repo/in-repo-instructions", "", map[string]string{
@@ -1067,7 +1079,7 @@ func TestHandleInRepoInstructionsNilForgejoClient(t *testing.T) {
 
 func TestHandleInRepoInstructionsForgejoClient(t *testing.T) {
 	cfg := &config.Config{Forgejo: config.ForgejoConfig{Token: "t"}}
-	a, _, _ := testAPI(t, cfg)
+	a, _, _ := testAPI(t, cfg, nil)
 	a.fj = &fakeClient{
 		fileContents: map[string]string{
 			".forgejo/release-notes.md": "FORGEJO IN-REPO PROMPT",
@@ -1094,7 +1106,7 @@ func TestHandleInRepoInstructionsForgejoClient(t *testing.T) {
 
 func TestHandleInRepoInstructionsReadError502(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, _, _ := testAPI(t, cfg)
+	a, _, _ := testAPI(t, cfg, nil)
 	a.gh = &fakeClient{
 		err: errors.New("upstream connection refused"),
 	}
@@ -1115,7 +1127,7 @@ func TestHandleInRepoInstructionsReadError502(t *testing.T) {
 
 func TestHandleListReposContentionExceedsCPU(t *testing.T) {
 	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
-	a, _, store := testAPI(t, cfg)
+	a, _, store := testAPI(t, cfg, nil)
 
 	// Insert more repos than there are CPUs to exercise errgroup
 	// semaphore contention.
@@ -1139,5 +1151,166 @@ func TestHandleListReposContentionExceedsCPU(t *testing.T) {
 	}
 	if len(items) != count {
 		t.Errorf("got %d items, want %d", len(items), count)
+	}
+}
+
+// modelsStub serves /v1/models and records the last request's path and
+// Authorization header.
+type modelsStub struct {
+	srv      *httptest.Server
+	body     string
+	status   int
+	path     string
+	auth     string
+}
+
+func newModelsStub(t *testing.T, status int, body string) *modelsStub {
+	t.Helper()
+	s := &modelsStub{status: status, body: body}
+	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.path = r.URL.Path
+		s.auth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(s.status)
+		_, _ = w.Write([]byte(s.body))
+	}))
+	t.Cleanup(s.srv.Close)
+	return s
+}
+
+func TestHandleGetModels(t *testing.T) {
+	stub := newModelsStub(t, 200, `{"object":"list","data":[{"id":"model-x"}]}`)
+	cfg := &config.Config{
+		Admin: config.AdminConfig{Token: "secret"},
+		LLM:   config.LLMConfig{BaseURL: stub.srv.URL, APIKey: "k"},
+	}
+	a, _, _ := testAPI(t, cfg, llm.New(cfg.LLM))
+
+	w := do(a.handleGetModels, httptest.NewRequest(http.MethodGet, "http://test/api/models", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var ids []string
+	if err := json.Unmarshal(w.Body.Bytes(), &ids); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "model-x" {
+		t.Errorf("ids = %v, want [model-x]", ids)
+	}
+	if stub.path != "/v1/models" {
+		t.Errorf("upstream path = %q, want /v1/models", stub.path)
+	}
+	if stub.auth != "Bearer k" {
+		t.Errorf("upstream Authorization = %q, want Bearer k", stub.auth)
+	}
+}
+
+func TestHandleGetModelsNoBaseURL(t *testing.T) {
+	a, _, _ := testAPI(t, &config.Config{}, nil)
+	w := do(a.handleGetModels, httptest.NewRequest(http.MethodGet, "http://test/api/models", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["error"] != "llm base url not configured" {
+		t.Errorf("error = %q, want 'llm base url not configured'", body["error"])
+	}
+}
+
+func TestHandleGetModelsUpstreamError(t *testing.T) {
+	stub := newModelsStub(t, 401, `{"error":"nope"}`)
+	cfg := &config.Config{
+		Admin: config.AdminConfig{Token: "secret"},
+		LLM:   config.LLMConfig{BaseURL: "http://configured", APIKey: "wrong"},
+	}
+	a, _, store := testAPI(t, cfg, llm.New(cfg.LLM))
+	// A saved (wrong) base URL overrides the configured one, routing to the stub.
+	if err := store.UpsertSettings(db.Settings{BaseURL: stub.srv.URL, APIKey: "wrong"}); err != nil {
+		t.Fatal(err)
+	}
+	w := do(a.handleGetModels, httptest.NewRequest(http.MethodGet, "http://test/api/models", nil))
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if !strings.Contains(body["error"], "401") {
+		t.Errorf("error = %q, want it to surface the 401", body["error"])
+	}
+}
+
+func TestHandleGetModelsPrefersSavedURL(t *testing.T) {
+	stub := newModelsStub(t, 200, `{"object":"list","data":[{"id":"model-x"}]}`)
+	cfg := &config.Config{
+		Admin: config.AdminConfig{Token: "secret"},
+		LLM:   config.LLMConfig{BaseURL: "http://configured", APIKey: "cfg-key"},
+	}
+	a, _, store := testAPI(t, cfg, llm.New(cfg.LLM))
+	if err := store.UpsertSettings(db.Settings{BaseURL: stub.srv.URL, APIKey: "db-key"}); err != nil {
+		t.Fatal(err)
+	}
+	w := do(a.handleGetModels, httptest.NewRequest(http.MethodGet, "http://test/api/models", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	if stub.path == "" {
+		t.Fatal("the saved (stub) URL was not hit; the configured URL won instead")
+	}
+	if stub.auth != "Bearer db-key" {
+		t.Errorf("upstream Authorization = %q, want Bearer db-key (saved key wins)", stub.auth)
+	}
+}
+
+func TestHandlePutSettingsLLMBlock(t *testing.T) {
+	a, _, store := testAPI(t, &config.Config{}, nil)
+
+	r := newReq(http.MethodPut, "/api/settings",
+		`{"llm_base_url":"https://new.example/v1","llm_api_key":"secret-key"}`, nil)
+	w := do(a.handlePutSettings, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	llm := body["llm"].(map[string]any)
+	if llm["base_url"] != "https://new.example/v1" {
+		t.Errorf("llm base_url = %v", llm["base_url"])
+	}
+	if llm["has_key"] != true {
+		t.Errorf("llm has_key = %v, want true", llm["has_key"])
+	}
+	if llm["api_key"] != "••••••••" {
+		t.Errorf("llm api_key = %v, want masked placeholder", llm["api_key"])
+	}
+	s, err := store.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.BaseURL != "https://new.example/v1" || s.APIKey != "secret-key" {
+		t.Errorf("stored = (%q, %q), want (https://new.example/v1, secret-key)", s.BaseURL, s.APIKey)
+	}
+
+	// Explicit null clears the stored key (never the base URL).
+	r2 := newReq(http.MethodPut, "/api/settings", `{"llm_api_key":null}`, nil)
+	w2 := do(a.handlePutSettings, r2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("clear key status = %d, want 200", w2.Code)
+	}
+	s, _ = store.GetSettings()
+	if s.APIKey != "" {
+		t.Errorf("APIKey after null = %q, want empty", s.APIKey)
+	}
+	if s.BaseURL != "https://new.example/v1" {
+		t.Errorf("BaseURL after key clear = %q, want unchanged", s.BaseURL)
+	}
+
+	// A blank base URL is rejected (it would silently break generation).
+	r3 := newReq(http.MethodPut, "/api/settings", `{"llm_base_url":" "}`, nil)
+	w3 := do(a.handlePutSettings, r3)
+	if w3.Code != http.StatusBadRequest {
+		t.Fatalf("blank base_url status = %d, want 400; body %s", w3.Code, w3.Body.String())
 	}
 }

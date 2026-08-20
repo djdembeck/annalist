@@ -36,7 +36,7 @@ type fjClient interface {
 // pipService is the subset of the pipeline the HTTP API needs, so handlers can
 // be unit-tested with a fake. *pipeline.Pipeline satisfies it.
 type pipService interface {
-	Resolve(ctx context.Context, platform, owner, repo string) (bool, engine.Resolved, error)
+	Resolve(ctx context.Context, platform, owner, repo string) (bool, pipeline.Effective, engine.Resolved, error)
 	GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pipeline.Options) (string, error)
 }
 
@@ -74,6 +74,7 @@ func New(cfg *config.Config, store *db.Store, llmClient *llm.Client, pip *pipeli
 		r.Get("/repos/{platform}/{owner}/{repo}/in-repo-instructions", a.handleInRepoInstructions)
 		r.Get("/settings", a.handleGetSettings)
 		r.Put("/settings", a.handlePutSettings)
+		r.Get("/models", a.handleGetModels)
 	})
 
 	// Webhooks bypass admin auth; each platform handler verifies its own

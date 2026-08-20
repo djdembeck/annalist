@@ -14,6 +14,10 @@ type Settings struct {
 	Model        string
 	Temperature  *float64
 	CommitTypes  string
+	// BaseURL and APIKey override the env/config LLM endpoint when non-empty;
+	// empty means "inherit from env/config".
+	BaseURL string
+	APIKey  string
 }
 
 // RepoSetting is a per-repo override of the global settings. Empty string /
@@ -50,7 +54,9 @@ var migrations = []string{
 		instructions TEXT,
 		model TEXT,
 		temperature REAL,
-		commit_types TEXT
+		commit_types TEXT,
+		base_url TEXT,
+		api_key TEXT
 	)`,
 	`CREATE TABLE IF NOT EXISTS repo_settings (
 		platform TEXT NOT NULL,
@@ -91,6 +97,8 @@ func (s *Store) migrate() error {
 	}{
 		{"settings", "commit_types", "ALTER TABLE settings ADD COLUMN commit_types TEXT"},
 		{"repo_settings", "commit_types", "ALTER TABLE repo_settings ADD COLUMN commit_types TEXT"},
+		{"settings", "base_url", "ALTER TABLE settings ADD COLUMN base_url TEXT"},
+		{"settings", "api_key", "ALTER TABLE settings ADD COLUMN api_key TEXT"},
 	} {
 		if err := s.ensureColumn(col.table, col.name, col.ddl); err != nil {
 			return fmt.Errorf("ensureColumn(%s.%s): %w", col.table, col.name, err)
@@ -139,12 +147,13 @@ func strOrNil(s string) any {
 // temperature) with a nil error.
 func (s *Store) GetSettings() (Settings, error) {
 	var out Settings
-	var tone, instructions, model, commitTypes sql.NullString
+	var tone, instructions, model, commitTypes, baseURL, apiKey sql.NullString
 	var temp sql.NullFloat64
 
 	err := s.db.QueryRow(
-		`SELECT tone, instructions, model, temperature, commit_types FROM settings WHERE id = 1`,
-	).Scan(&tone, &instructions, &model, &temp, &commitTypes)
+		`SELECT tone, instructions, model, temperature, commit_types, base_url, api_key
+		 FROM settings WHERE id = 1`,
+	).Scan(&tone, &instructions, &model, &temp, &commitTypes, &baseURL, &apiKey)
 	if err == sql.ErrNoRows {
 		return out, nil
 	}
@@ -156,6 +165,8 @@ func (s *Store) GetSettings() (Settings, error) {
 	out.Instructions = instructions.String
 	out.Model = model.String
 	out.CommitTypes = commitTypes.String
+	out.BaseURL = baseURL.String
+	out.APIKey = apiKey.String
 	if temp.Valid {
 		v := temp.Float64
 		out.Temperature = &v
@@ -172,15 +183,18 @@ func (s *Store) UpsertSettings(settings Settings) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO settings (id, tone, instructions, model, temperature, commit_types)
-		 VALUES (1, ?, ?, ?, ?, ?)
+		`INSERT INTO settings (id, tone, instructions, model, temperature, commit_types, base_url, api_key)
+		 VALUES (1, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			tone = excluded.tone,
 			instructions = excluded.instructions,
 			model = excluded.model,
 			temperature = excluded.temperature,
-			commit_types = excluded.commit_types`,
+			commit_types = excluded.commit_types,
+			base_url = excluded.base_url,
+			api_key = excluded.api_key`,
 		settings.Tone, settings.Instructions, settings.Model, temp, strOrNil(settings.CommitTypes),
+		strOrNil(settings.BaseURL), strOrNil(settings.APIKey),
 	)
 	return err
 }

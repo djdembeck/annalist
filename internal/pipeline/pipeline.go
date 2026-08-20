@@ -30,6 +30,14 @@ type OwnerRepo struct {
 	PushedAt     time.Time
 }
 
+// Effective is the runtime-resolved LLM endpoint: saved DB settings win
+// over env/config. An empty BaseURL/APIKey means "use the env/config value".
+type Effective struct {
+	BaseURL string
+	APIKey  string
+	Model   string
+}
+
 // Spec identifies a single release for which to generate notes.
 type Spec struct {
 	Platform  string
@@ -130,16 +138,18 @@ func (p *Pipeline) platformFor(platform string) (Platform, error) {
 // Resolve computes the effective settings for a repo. Per-repo row values
 // override the global settings, which fall back to the configured LLM
 // defaults. The in-repo instructions file is resolved separately inside
-// GenerateNotes (highest precedence).
-func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (bool, engine.Resolved, error) {
+// GenerateNotes (highest precedence). The Effective return carries the
+// runtime-resolved LLM endpoint (saved DB base URL / API key win over
+// env/config) for the caller to pass through to generation.
+func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (bool, Effective, engine.Resolved, error) {
 	global, err := p.DB.GetSettings()
 	if err != nil {
-		return false, engine.Resolved{}, fmt.Errorf("pipeline: global settings: %w", err)
+		return false, Effective{}, engine.Resolved{}, fmt.Errorf("pipeline: global settings: %w", err)
 	}
 
 	row, err := p.DB.GetRepoSettings(platform, owner, repo)
 	if err != nil {
-		return false, engine.Resolved{}, fmt.Errorf("pipeline: repo settings: %w", err)
+		return false, Effective{}, engine.Resolved{}, fmt.Errorf("pipeline: repo settings: %w", err)
 	}
 
 	enabled := true
@@ -168,6 +178,20 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 		model = p.Cfg.LLM.Model
 	}
 
+	// Effective endpoint: env/config is the floor; a non-empty saved DB value
+	// (base URL / API key) overrides it.
+	eff := Effective{
+		BaseURL: p.Cfg.LLM.BaseURL,
+		APIKey:  p.Cfg.LLM.APIKey,
+		Model:   model,
+	}
+	if global.BaseURL != "" {
+		eff.BaseURL = global.BaseURL
+	}
+	if global.APIKey != "" {
+		eff.APIKey = global.APIKey
+	}
+
 	// Resolve commit types with same precedence: repo → global → config.
 	commitTypes := global.CommitTypes
 	if row != nil && row.CommitTypes != "" {
@@ -188,7 +212,7 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 		resolved.Temperature = *temperature
 	}
 
-	return enabled, resolved, nil
+	return enabled, eff, resolved, nil
 }
 
 // GenerateNotes produces release notes for spec. Notes are returned even when
@@ -245,7 +269,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	if strings.HasPrefix(from, "-") || strings.HasPrefix(spec.ToTag, "-") {
 		return "", fmt.Errorf("pipeline: invalid tag %q", spec.ToTag)
 	}
-	_, resolved, err := p.Resolve(ctx, spec.Platform, spec.Owner, spec.Repo)
+	_, eff, resolved, err := p.Resolve(ctx, spec.Platform, spec.Owner, spec.Repo)
 	if err != nil {
 		return "", err
 	}
@@ -264,7 +288,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	if strings.TrimSpace(commitLog) == "" {
 		notes = "No changes documented."
 	} else {
-		notes, err = p.Engine.Generate(ctx, resolved, spec.ToTag, from, commitLog)
+		notes, err = p.Engine.Generate(ctx, resolved, eff.BaseURL, eff.APIKey, spec.ToTag, from, commitLog)
 		if err != nil {
 			return "", err
 		}

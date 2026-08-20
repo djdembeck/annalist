@@ -7,7 +7,13 @@
     formatCommitTypes,
     getCommitTypeSelection,
   } from "$lib/commitTypes";
-  import { getSettings, putSettings, type Settings } from "$lib/api";
+  import {
+    getSettings,
+    putSettings,
+    getModels,
+    type Settings,
+    type SettingsUpdate,
+  } from "$lib/api";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
   import {
@@ -26,6 +32,11 @@
   let customTone = $state("");
   let instructions = $state("");
   let model = $state("");
+  let baseUrl = $state("");
+  let apiKey = $state("");
+  let apiKeyTouched = $state(false);
+  let models = $state<string[]>([]);
+  let modelsError = $state("");
   let temperature = $state("");
   let temperatureError = $state("");
   let selectedCommitTypes = $state<string[]>(DEFAULT_COMMIT_TYPES);
@@ -44,7 +55,9 @@
       : undefined,
   );
   let headerLede = $derived(
-    settings ? `${platformStatus} · Model ${settings.llm.model}` : undefined,
+    settings
+      ? `${platformStatus} · Base URL ${settings.llm.base_url || "not set"} · Model ${model.trim() || "system default"}`
+      : undefined,
   );
 
   async function load(): Promise<void> {
@@ -60,6 +73,9 @@
       customTone = PRESET_OPTIONS.includes(tone) ? "" : tone;
       instructions = s.instructions ?? "";
       model = s.model ?? "";
+      baseUrl = s.llm.base_url ?? "";
+      apiKey = "";
+      apiKeyTouched = false;
       temperature = s.temperature === null ? "" : String(s.temperature);
       const commitTypeSelection = getCommitTypeSelection(s.commit_types);
       const hasSavedCommitTypes = Boolean(s.commit_types?.trim());
@@ -81,7 +97,23 @@
     }
   }
 
-  onMount(load);
+  onMount(() => {
+    load();
+    loadModels();
+  });
+
+  async function loadModels(): Promise<void> {
+    modelsError = "";
+    try {
+      models = await getModels();
+    } catch (e) {
+      if (handleAuthError(e)) return;
+      modelsError = formatError(
+        e,
+        "Could not load the model list — check the base URL and API key below.",
+      );
+    }
+  }
 
   async function save(): Promise<void> {
     saved = false;
@@ -94,7 +126,7 @@
         saving = false;
         return;
       }
-      settings = await putSettings({
+      const payload: SettingsUpdate = {
         tone,
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
@@ -102,8 +134,20 @@
         commit_types: commitTypesDirty
           ? formatCommitTypes(selectedCommitTypes, customCommitTypes)
           : (settings?.commit_types ?? null),
-      });
+      };
+      // Only send llm_base_url when the effective value changed (null = revert
+      // to env). Only send llm_api_key when the field was touched (null = clear
+      // the stored key; a blanked, untouched key is omitted so it's kept).
+      if (baseUrl.trim() !== (settings?.llm.base_url ?? "")) {
+        payload.llm_base_url = baseUrl.trim() === "" ? null : baseUrl.trim();
+      }
+      if (apiKeyTouched) {
+        payload.llm_api_key = apiKey === "" ? null : apiKey;
+      }
+      settings = await putSettings(payload);
       commitTypesDirty = false;
+      apiKey = "";
+      apiKeyTouched = false;
       saved = true;
       temperatureError = "";
       error = "";
@@ -156,6 +200,62 @@
         aria-label="Global release note defaults"
       >
         <SectionHead
+          label="LLM endpoint"
+          title="Connection"
+          compact
+          headingLevel="h2"
+        >
+          {#snippet actions()}
+            <button class="btn btn-secondary" onclick={loadModels}>
+              Refresh models
+            </button>
+          {/snippet}
+        </SectionHead>
+        {#if modelsError}
+          <ErrorBanner
+            label="Model list needs attention"
+            message={modelsError}
+            actionLabel="Retry"
+            onAction={loadModels}
+          />
+        {/if}
+        <div class="grid gap-5 sm:grid-cols-2">
+          <label class="field-group"
+            ><span class="field-group__label">Base URL</span><input
+              bind:value={baseUrl}
+              placeholder="https://llm.example.com (trailing /v1 optional)"
+              class="field" /><span class="field-group__hint"
+              >OpenAI-compatible endpoint. Overrides the LLM_BASE_URL env value
+              while set; clear the field to fall back to env.</span
+            ></label
+          >
+          <label class="field-group"
+            ><span class="field-group__label"
+              >API key
+              {#if settings?.llm.has_key}
+              <span class="field-group__hint"
+                >(saved or env: {settings.llm.api_key})</span
+              >
+              {:else}
+              <span class="field-group__hint">(none set)</span>
+              {/if}</span
+            ><input
+              bind:value={apiKey}
+              type="password"
+              oninput={() => (apiKeyTouched = true)}
+              placeholder={settings?.llm.has_key ? "Leave blank to keep current key" : "sk-..."}
+              class="field" /><span class="field-group__hint"
+              >Overrides LLM_API_KEY while non-empty; a blanked, saved key is
+              cleared on Save.</span
+            >{#if apiKeyTouched && apiKey === "" && settings?.llm.has_key}
+              <span class="field-group__hint" role="status"
+                >Blank + save = clear the stored key.</span
+              >
+            {/if}</label
+          >
+        </div>
+
+        <SectionHead
           label="Tone contract"
           title="Global defaults"
           compact
@@ -202,7 +302,16 @@
                 >Model <span class="field-group__hint"
                   >(blank = server default)</span
                 ></span
-              ><input bind:value={model} class="field" /></label
+              ><select bind:value={model} class="field"
+                ><option value="">Inherit (system default)</option
+                >{#each models as m (m)}<option value={m}>{m}</option>{/each
+              }{#if model && !models.includes(model)}<option value={model}>{model}
+                  (not in /models list)</option
+                >{/if}</select
+              ><span class="field-group__hint"
+                >Saved on the global contract; repositories can override per
+                repo.</span
+              ></label
             >
             <label class="field-group"
               ><span class="field-group__label"
@@ -303,10 +412,6 @@
               <dd>{settings.llm.base_url}</dd>
             </div>
             <div>
-              <dt>Model</dt>
-              <dd>{settings.llm.model}</dd>
-            </div>
-            <div>
               <dt>GitHub</dt>
               <dd>
                 <span
@@ -353,7 +458,7 @@
               : toneOption === "inherit"
                 ? "neutral"
                 : toneOption}
-Model: {model.trim() || settings.llm.model || "server default"}
+Model: {model.trim() || "server default"}
 Temperature: {temperature !== "" ? temperature : "server default"}
 Instructions: {instructions.trim() || "No additional instructions."}
 Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()

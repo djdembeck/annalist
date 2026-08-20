@@ -285,7 +285,7 @@ func TestResolvePrecedence(t *testing.T) {
 	}
 
 	t.Run("no row falls back to global", func(t *testing.T) {
-		enabled, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		enabled, eff, r, err := pip.Resolve(context.Background(), "github", "o", "r")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -296,6 +296,14 @@ func TestResolvePrecedence(t *testing.T) {
 			r.Model != "global-model" || r.Temperature != t0 {
 			t.Errorf("resolved = %+v", r)
 		}
+		// The fixture config has no LLM BaseURL/APIKey, so the effective
+		// endpoint is empty (nothing to inherit).
+		if eff.BaseURL != "" || eff.APIKey != "" {
+			t.Errorf("effective endpoint = (%q, %q), want empty (no cfg base url)", eff.BaseURL, eff.APIKey)
+		}
+		if eff.Model != "global-model" {
+			t.Errorf("effective model = %q, want global-model", eff.Model)
+		}
 	})
 
 	t.Run("row overrides tone/model/temperature, inherits instructions", func(t *testing.T) {
@@ -305,7 +313,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -324,7 +332,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "forgejo", "o", "r2")
+		_, _, r, err := pip.Resolve(context.Background(), "forgejo", "o", "r2")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -340,7 +348,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		enabled, _, err := pip.Resolve(context.Background(), "github", "o", "r")
+		enabled, _, _, err := pip.Resolve(context.Background(), "github", "o", "r")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -355,7 +363,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -371,7 +379,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -387,7 +395,7 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-new")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -409,12 +417,31 @@ func TestResolvePrecedence(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		_, r, err := pip2.Resolve(context.Background(), "github", "o", "r-new")
+		_, _, r, err := pip2.Resolve(context.Background(), "github", "o", "r-new")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(r.CommitTypes) != 1 || r.CommitTypes[0] != "perf" {
 			t.Errorf("commit types = %v, want [perf]", r.CommitTypes)
+		}
+	})
+
+	t.Run("saved db endpoint overrides config", func(t *testing.T) {
+		// A fresh pipeline whose config LLM has no BaseURL/APIKey.
+		pip3 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model"}}, DB: store}
+		// Reset the global row, then set a saved endpoint.
+		if err := store.UpsertSettings(db.Settings{Tone: "", CommitTypes: ""}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertSettings(db.Settings{BaseURL: "https://saved", APIKey: "saved-key"}); err != nil {
+			t.Fatal(err)
+		}
+		_, eff, _, err := pip3.Resolve(context.Background(), "github", "o", "r")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if eff.BaseURL != "https://saved" || eff.APIKey != "saved-key" {
+			t.Errorf("effective endpoint = (%q, %q), want (https://saved, saved-key)", eff.BaseURL, eff.APIKey)
 		}
 	})
 }

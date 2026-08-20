@@ -120,6 +120,30 @@ func TestSettingsCRUD(t *testing.T) {
 	if got.Tone != "replaced" || got.Model != "" || got.Temperature != nil {
 		t.Errorf("replace semantics wrong: %+v", got)
 	}
+
+	t.Run("base url and api key round-trip", func(t *testing.T) {
+		if err := s.UpsertSettings(Settings{BaseURL: "https://b", APIKey: "k"}); err != nil {
+			t.Fatalf("UpsertSettings: %v", err)
+		}
+		got, err := s.GetSettings()
+		if err != nil {
+			t.Fatalf("GetSettings: %v", err)
+		}
+		if got.BaseURL != "https://b" || got.APIKey != "k" {
+			t.Errorf("endpoint = (%q, %q), want (https://b, k)", got.BaseURL, got.APIKey)
+		}
+		// Empty round-trips as empty (NULL -> ""), the inherit signal.
+		if err := s.UpsertSettings(Settings{BaseURL: "", APIKey: ""}); err != nil {
+			t.Fatalf("UpsertSettings clear: %v", err)
+		}
+		got, err = s.GetSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.BaseURL != "" || got.APIKey != "" {
+			t.Errorf("cleared endpoint = (%q, %q), want empty", got.BaseURL, got.APIKey)
+		}
+	})
 }
 
 func TestRepoSettingsCRUD(t *testing.T) {
