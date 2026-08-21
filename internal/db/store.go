@@ -20,7 +20,9 @@ type Settings struct {
 	APIKey  string
 	// Mode is "lite" or "deep". Empty means "inherit" on a repo row, "lite"
 	// default on the global row (resolved downstream).
-	Mode string
+	Mode          string
+	MaxTokens     int    // 0 = unset → inherit from config/env
+	ThinkingLevel string // "" | "low" | "medium" | "high"; empty = off/inherit
 }
 
 // RepoSetting is a per-repo override of the global settings. Empty string /
@@ -38,7 +40,9 @@ type RepoSetting struct {
 	CommitTypes  string
 	// Mode is "lite" or "deep". Empty means "inherit" on a repo row, "lite"
 	// default on the global row (resolved downstream).
-	Mode string
+	Mode          string
+	MaxTokens     int    // 0 = unset → inherit from config/env
+	ThinkingLevel string // "" | "low" | "medium" | "high"; empty = off/inherit
 }
 
 // GeneratedNote records a previously generated release note for idempotency.
@@ -63,7 +67,9 @@ var migrations = []string{
 		commit_types TEXT,
 		base_url TEXT,
 		api_key TEXT,
-		mode TEXT
+		mode TEXT,
+		max_tokens INTEGER,
+		thinking_level TEXT
 	)`,
 	`CREATE TABLE IF NOT EXISTS repo_settings (
 		platform TEXT NOT NULL,
@@ -77,6 +83,8 @@ var migrations = []string{
 		trigger TEXT NOT NULL DEFAULT 'auto',
 		commit_types TEXT,
 		mode TEXT,
+		max_tokens INTEGER,
+		thinking_level TEXT,
 		PRIMARY KEY (platform, owner, repo)
 	)`,
 	`CREATE TABLE IF NOT EXISTS generated_notes (
@@ -109,6 +117,10 @@ func (s *Store) migrate() error {
 		{"settings", "api_key", "ALTER TABLE settings ADD COLUMN api_key TEXT"},
 		{"settings", "mode", "ALTER TABLE settings ADD COLUMN mode TEXT"},
 		{"repo_settings", "mode", "ALTER TABLE repo_settings ADD COLUMN mode TEXT"},
+		{"settings", "max_tokens", "ALTER TABLE settings ADD COLUMN max_tokens INTEGER"},
+		{"settings", "thinking_level", "ALTER TABLE settings ADD COLUMN thinking_level TEXT"},
+		{"repo_settings", "max_tokens", "ALTER TABLE repo_settings ADD COLUMN max_tokens INTEGER"},
+		{"repo_settings", "thinking_level", "ALTER TABLE repo_settings ADD COLUMN thinking_level TEXT"},
 	} {
 		if err := s.ensureColumn(col.table, col.name, col.ddl); err != nil {
 			return fmt.Errorf("ensureColumn(%s.%s): %w", col.table, col.name, err)
@@ -159,11 +171,13 @@ func (s *Store) GetSettings() (Settings, error) {
 	var out Settings
 	var tone, instructions, model, commitTypes, baseURL, apiKey, mode sql.NullString
 	var temp sql.NullFloat64
+	var maxTokens sql.NullInt64
+	var thinkingLevel sql.NullString
 
 	err := s.db.QueryRow(
-		`SELECT tone, instructions, model, temperature, commit_types, base_url, api_key, mode
+		`SELECT tone, instructions, model, temperature, commit_types, base_url, api_key, mode, max_tokens, thinking_level
 		 FROM settings WHERE id = 1`,
-	).Scan(&tone, &instructions, &model, &temp, &commitTypes, &baseURL, &apiKey, &mode)
+	).Scan(&tone, &instructions, &model, &temp, &commitTypes, &baseURL, &apiKey, &mode, &maxTokens, &thinkingLevel)
 	if err == sql.ErrNoRows {
 		return out, nil
 	}
@@ -178,6 +192,8 @@ func (s *Store) GetSettings() (Settings, error) {
 	out.BaseURL = baseURL.String
 	out.APIKey = apiKey.String
 	out.Mode = mode.String
+	out.MaxTokens = int(maxTokens.Int64) // invalid/NULL → 0 = unset
+	out.ThinkingLevel = thinkingLevel.String
 	if temp.Valid {
 		v := temp.Float64
 		out.Temperature = &v
@@ -194,8 +210,8 @@ func (s *Store) UpsertSettings(settings Settings) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO settings (id, tone, instructions, model, temperature, commit_types, base_url, api_key, mode)
-		 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO settings (id, tone, instructions, model, temperature, commit_types, base_url, api_key, mode, max_tokens, thinking_level)
+		 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			tone = excluded.tone,
 			instructions = excluded.instructions,
@@ -204,9 +220,12 @@ func (s *Store) UpsertSettings(settings Settings) error {
 			commit_types = excluded.commit_types,
 			base_url = excluded.base_url,
 			api_key = excluded.api_key,
-			mode = excluded.mode`,
+			mode = excluded.mode,
+			max_tokens = excluded.max_tokens,
+			thinking_level = excluded.thinking_level`,
 		settings.Tone, settings.Instructions, settings.Model, temp, strOrNil(settings.CommitTypes),
 		strOrNil(settings.BaseURL), strOrNil(settings.APIKey), strOrNil(settings.Mode),
+		settings.MaxTokens, strOrNil(settings.ThinkingLevel),
 	)
 	return err
 }
@@ -214,7 +233,7 @@ func (s *Store) UpsertSettings(settings Settings) error {
 // ListRepoSettings returns every repo_settings row.
 func (s *Store) ListRepoSettings() ([]RepoSetting, error) {
 	rows, err := s.db.Query(
-		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types, mode
+		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types, mode, max_tokens, thinking_level
 		 FROM repo_settings`,
 	)
 	if err != nil {
@@ -237,7 +256,7 @@ func (s *Store) ListRepoSettings() ([]RepoSetting, error) {
 // row exists (downstream treats a missing row as all-inherit / enabled).
 func (s *Store) GetRepoSettings(platform, owner, repo string) (*RepoSetting, error) {
 	row := s.db.QueryRow(
-		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types, mode
+		`SELECT platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types, mode, max_tokens, thinking_level
 		 FROM repo_settings WHERE platform = ? AND owner = ? AND repo = ?`,
 		platform, owner, repo,
 	)
@@ -267,8 +286,8 @@ func (s *Store) UpsertRepoSettings(r RepoSetting) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO repo_settings (platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types, mode)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO repo_settings (platform, owner, repo, enabled, tone, instructions, model, temperature, trigger, commit_types, mode, max_tokens, thinking_level)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(platform, owner, repo) DO UPDATE SET
 			enabled = excluded.enabled,
 			tone = excluded.tone,
@@ -277,10 +296,13 @@ func (s *Store) UpsertRepoSettings(r RepoSetting) error {
 			temperature = excluded.temperature,
 			trigger = excluded.trigger,
 			commit_types = excluded.commit_types,
-			mode = excluded.mode`,
+			mode = excluded.mode,
+			max_tokens = excluded.max_tokens,
+			thinking_level = excluded.thinking_level`,
 		r.Platform, r.Owner, r.Repo, enabled,
 		strOrNil(r.Tone), strOrNil(r.Instructions), strOrNil(r.Model),
 		temp, r.Trigger, strOrNil(r.CommitTypes), strOrNil(r.Mode),
+		r.MaxTokens, strOrNil(r.ThinkingLevel),
 	)
 	return err
 }
@@ -323,8 +345,10 @@ func scanRepoSetting(row rowScanner, r *RepoSetting) error {
 	var enabled int
 	var tone, instructions, model, trigger, commitTypes, mode sql.NullString
 	var temp sql.NullFloat64
+	var maxTokens sql.NullInt64
+	var thinkingLevel sql.NullString
 
-	err := row.Scan(&r.Platform, &r.Owner, &r.Repo, &enabled, &tone, &instructions, &model, &temp, &trigger, &commitTypes, &mode)
+	err := row.Scan(&r.Platform, &r.Owner, &r.Repo, &enabled, &tone, &instructions, &model, &temp, &trigger, &commitTypes, &mode, &maxTokens, &thinkingLevel)
 	if err != nil {
 		return err
 	}
@@ -336,6 +360,8 @@ func scanRepoSetting(row rowScanner, r *RepoSetting) error {
 	r.Trigger = trigger.String
 	r.CommitTypes = commitTypes.String
 	r.Mode = mode.String
+	r.MaxTokens = int(maxTokens.Int64)
+	r.ThinkingLevel = thinkingLevel.String
 	if trigger.String == "" {
 		r.Trigger = "auto"
 	}

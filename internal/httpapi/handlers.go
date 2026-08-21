@@ -44,6 +44,16 @@ func validMode(m string) bool {
 	return m == "" || m == engine.ModeLite || m == engine.ModeDeep
 }
 
+// validThinkingLevel reports whether l is an accepted thinking level:
+// "" (off/inherit) or one of the named levels.
+func validThinkingLevel(l string) bool {
+	switch l {
+	case "", "low", "medium", "high":
+		return true
+	}
+	return false
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -79,29 +89,33 @@ func decodePresenceMap(r *http.Request) (map[string]json.RawMessage, error) {
 
 // effective is the resolved (inherited) tone/model/temperature/instructions preview.
 type effective struct {
-	Tone         string   `json:"tone"`
-	Model        string   `json:"model"`
-	Temperature  float64  `json:"temperature"`
-	Instructions string   `json:"instructions"`
-	Source       string   `json:"source"`
-	CommitTypes  []string `json:"commit_types"`
-	Mode         string   `json:"mode"`
+	Tone          string   `json:"tone"`
+	Model         string   `json:"model"`
+	Temperature   float64  `json:"temperature"`
+	Instructions  string   `json:"instructions"`
+	Source        string   `json:"source"`
+	CommitTypes   []string `json:"commit_types"`
+	Mode          string   `json:"mode"`
+	MaxTokens     int      `json:"max_tokens"`
+	ThinkingLevel string   `json:"thinking_level"`
 }
 
 // repoItemResp is the JSON shape for a repo in /api/repos and the settings PUT.
 type repoItemResp struct {
-	Platform     string    `json:"platform"`
-	Owner        string    `json:"owner"`
-	Repo         string    `json:"repo"`
-	Enabled      bool      `json:"enabled"`
-	Tone         string    `json:"tone"`
-	Instructions string    `json:"instructions"`
-	Model        string    `json:"model"`
-	Temperature  *float64  `json:"temperature"`
-	Trigger      string    `json:"trigger"`
-	CommitTypes  string    `json:"commit_types"`
-	Mode         string    `json:"mode"`
-	Effective    effective `json:"effective"`
+	Platform      string    `json:"platform"`
+	Owner         string    `json:"owner"`
+	Repo          string    `json:"repo"`
+	Enabled       bool      `json:"enabled"`
+	Tone          string    `json:"tone"`
+	Instructions  string    `json:"instructions"`
+	Model         string    `json:"model"`
+	Temperature   *float64  `json:"temperature"`
+	Trigger       string    `json:"trigger"`
+	CommitTypes   string    `json:"commit_types"`
+	Mode          string    `json:"mode"`
+	MaxTokens     int       `json:"max_tokens"`
+	ThinkingLevel string    `json:"thinking_level"`
+	Effective     effective `json:"effective"`
 }
 
 // repoItem builds the response for a repo_settings row, computing the
@@ -118,25 +132,29 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 	}
 
 	return repoItemResp{
-		Platform:     row.Platform,
-		Owner:        row.Owner,
-		Repo:         row.Repo,
-		Enabled:      row.Enabled,
-		Tone:         row.Tone,
-		Instructions: row.Instructions,
-		Model:        row.Model,
-		Temperature:  row.Temperature,
-		Trigger:      row.Trigger,
-		CommitTypes:  row.CommitTypes,
-		Mode:         row.Mode,
+		Platform:      row.Platform,
+		Owner:         row.Owner,
+		Repo:          row.Repo,
+		Enabled:       row.Enabled,
+		Tone:          row.Tone,
+		Instructions:  row.Instructions,
+		Model:         row.Model,
+		Temperature:   row.Temperature,
+		Trigger:       row.Trigger,
+		CommitTypes:   row.CommitTypes,
+		Mode:          row.Mode,
+		MaxTokens:     row.MaxTokens,
+		ThinkingLevel: row.ThinkingLevel,
 		Effective: effective{
-			Tone:         resolved.Tone,
-			Model:        resolved.Model,
-			Temperature:  resolved.Temperature,
-			Instructions: resolved.Instructions,
-			Source:       source,
-			CommitTypes:  resolved.CommitTypes,
-			Mode:         resolved.Mode,
+			Tone:          resolved.Tone,
+			Model:         resolved.Model,
+			Temperature:   resolved.Temperature,
+			Instructions:  resolved.Instructions,
+			Source:        source,
+			CommitTypes:   resolved.CommitTypes,
+			Mode:          resolved.Mode,
+			MaxTokens:     resolved.MaxTokens,
+			ThinkingLevel: resolved.ThinkingLevel,
 		},
 	}, nil
 }
@@ -435,6 +453,42 @@ func (a *api) handlePutRepoSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// max_tokens: present value sets, explicit null clears to 0 (inherit); integer >= 1 required.
+	if raw, ok := m["max_tokens"]; ok {
+		if string(raw) == "null" {
+			setting.MaxTokens = 0
+		} else {
+			var v int
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			if v < 1 {
+				writeErr(w, http.StatusBadRequest, "max_tokens must be >= 1")
+				return
+			}
+			setting.MaxTokens = v
+		}
+	}
+
+	// thinking_level: present non-null sets, explicit null clears to "".
+	if raw, ok := m["thinking_level"]; ok {
+		if string(raw) == "null" {
+			setting.ThinkingLevel = ""
+		} else {
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			if !validThinkingLevel(v) {
+				writeErr(w, http.StatusBadRequest, "invalid thinking_level")
+				return
+			}
+			setting.ThinkingLevel = v
+		}
+	}
+
 	// enabled / trigger: applied only when present and non-null.
 	if raw, ok := m["enabled"]; ok && string(raw) != "null" {
 		var v bool
@@ -594,12 +648,14 @@ func (a *api) settingsResp(s db.Settings) map[string]any {
 		apiKeyPlaceholder = "••••••••"
 	}
 	return map[string]any{
-		"tone":         s.Tone,
-		"instructions": s.Instructions,
-		"model":        s.Model,
-		"temperature":  s.Temperature,
-		"commit_types": s.CommitTypes,
-		"mode":         s.Mode,
+		"tone":           s.Tone,
+		"instructions":   s.Instructions,
+		"model":          s.Model,
+		"temperature":    s.Temperature,
+		"commit_types":   s.CommitTypes,
+		"mode":           s.Mode,
+		"max_tokens":     s.MaxTokens,
+		"thinking_level": s.ThinkingLevel,
 		"llm": map[string]any{
 			"base_url": baseURL,
 			"api_key":  apiKeyPlaceholder,
@@ -705,6 +761,42 @@ func (a *api) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.Mode = v
+		}
+	}
+
+	// max_tokens: present value sets, explicit null clears to 0 (inherit); integer >= 1 required.
+	if raw, ok := m["max_tokens"]; ok {
+		if string(raw) == "null" {
+			s.MaxTokens = 0
+		} else {
+			var v int
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			if v < 1 {
+				writeErr(w, http.StatusBadRequest, "max_tokens must be >= 1")
+				return
+			}
+			s.MaxTokens = v
+		}
+	}
+
+	// thinking_level: present non-null sets, explicit null clears to "".
+	if raw, ok := m["thinking_level"]; ok {
+		if string(raw) == "null" {
+			s.ThinkingLevel = ""
+		} else {
+			var v string
+			if err := json.Unmarshal(raw, &v); err != nil {
+				badJSON(w, err)
+				return
+			}
+			if !validThinkingLevel(v) {
+				writeErr(w, http.StatusBadRequest, "invalid thinking_level")
+				return
+			}
+			s.ThinkingLevel = v
 		}
 	}
 

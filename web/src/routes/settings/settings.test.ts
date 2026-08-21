@@ -23,6 +23,8 @@ const settingsFixture: Settings = {
   temperature: null,
   commit_types: null,
   mode: "lite",
+  max_tokens: 0,
+  thinking_level: null,
   llm: { base_url: "https://api.example.com", api_key: "", has_key: false },
   github: false,
   forgejo: false,
@@ -238,6 +240,61 @@ describe("settings page commit type contract", () => {
     // field edit had not marked it dirty.
     expect(payload.commit_types).toBe("fix,feat,refactor,perf,security");
     expect(payload.instructions).toBe("be terse");
+    resolvePutSettings();
+  });
+
+  it("saves max_tokens when edited", async () => {
+    mockSettings();
+    await mountPage();
+
+    const maxTokens = screen.getByLabelText(/Max output tokens/);
+    await fireEvent.input(maxTokens, { target: { value: "8192" } });
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    expect(payload.max_tokens).toBe(8192);
+    resolvePutSettings();
+  });
+
+  it("blank max_tokens sends null (inherit)", async () => {
+    mockSettings({ max_tokens: 1234 });
+    await mountPage();
+
+    // The field starts populated from the saved value; blank it.
+    const maxTokens = screen.getByLabelText(/Max output tokens/);
+    await waitFor(() => {
+      expect((maxTokens as HTMLInputElement).value).toBe("1234");
+    });
+    await fireEvent.input(maxTokens, { target: { value: "" } });
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    expect(payload.max_tokens).toBe(null);
+    resolvePutSettings();
+  });
+
+  it("saves thinking_level selection", async () => {
+    mockSettings();
+    await mountPage();
+
+    const thinking = screen.getByLabelText(/Thinking level/);
+    await fireEvent.change(thinking, { target: { value: "high" } });
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    expect(payload.thinking_level).toBe("high");
     resolvePutSettings();
   });
 });

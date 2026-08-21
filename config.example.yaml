@@ -30,6 +30,8 @@ llm:
   temperature: 0.85
   # Maximum tokens to generate.     (env LLM_MAX_TOKENS, default 4096)
   max_tokens: 4096
+  # Model thinking level. Empty = off. (env LLM_THINKING_LEVEL)
+  thinking_level: ""
   # Timeout for LLM HTTP calls, seconds. (env LLM_TIMEOUT_S, default 120)
   timeout_s: 120
   # Conventional commit types included in release notes (comma-separated).

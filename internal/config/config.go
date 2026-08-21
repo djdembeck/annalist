@@ -33,13 +33,14 @@ type DataConfig struct {
 
 // LLMConfig configures the OpenAI-compatible LLM endpoint.
 type LLMConfig struct {
-	BaseURL     string  `mapstructure:"base_url"`
-	APIKey      string  `mapstructure:"api_key"`
-	Model       string  `mapstructure:"model"`
-	Temperature float64 `mapstructure:"temperature"`
-	MaxTokens   int     `mapstructure:"max_tokens"`
-	TimeoutS    int     `mapstructure:"timeout_s"`
-	CommitTypes string  `mapstructure:"commit_types"`
+	BaseURL       string  `mapstructure:"base_url"`
+	APIKey        string  `mapstructure:"api_key"`
+	Model         string  `mapstructure:"model"`
+	Temperature   float64 `mapstructure:"temperature"`
+	MaxTokens     int     `mapstructure:"max_tokens"`
+	ThinkingLevel string  `mapstructure:"thinking_level"` // "" | "low" | "medium" | "high"; "" = off
+	TimeoutS      int     `mapstructure:"timeout_s"`
+	CommitTypes   string  `mapstructure:"commit_types"`
 }
 
 // GitHubConfig configures the GitHub App used for API access and webhooks.
@@ -85,7 +86,7 @@ func Load() (*Config, error) {
 	// (over AllSettings) silently drops env-only keys like ADMIN_TOKEN.
 	for _, key := range []string{
 		"server.port", "server.host", "data.dir",
-		"llm.base_url", "llm.api_key", "llm.model", "llm.temperature", "llm.max_tokens", "llm.timeout_s", "llm.commit_types",
+		"llm.base_url", "llm.api_key", "llm.model", "llm.temperature", "llm.max_tokens", "llm.thinking_level", "llm.timeout_s", "llm.commit_types",
 		"github.app_id", "github.app_private_key_file", "github.webhook_secret",
 		"forgejo.url", "forgejo.token", "forgejo.webhook_secret",
 		"admin.token",

@@ -67,6 +67,7 @@ func TestChatHappyPath(t *testing.T) {
 
 	got, err := c.Chat(context.Background(), ChatRequest{
 		Model: "model-x", System: "sys", User: "user msg", Temperature: 0.4, MaxTokens: 2048,
+		ThinkingLevel: "low",
 	})
 	if err != nil {
 		t.Fatalf("Chat: %v", err)
@@ -95,8 +96,9 @@ func TestChatHappyPath(t *testing.T) {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
-		Temperature float64 `json:"temperature"`
-		MaxTokens   int     `json:"max_tokens"`
+		Temperature     float64 `json:"temperature"`
+		MaxTokens       int     `json:"max_tokens"`
+		ReasoningEffort string  `json:"reasoning_effort"`
 	}
 	if err := json.Unmarshal(getBody(), &payload); err != nil {
 		t.Fatalf("decode wire payload: %v", err)
@@ -116,6 +118,17 @@ func TestChatHappyPath(t *testing.T) {
 	}
 	if payload.MaxTokens != 2048 {
 		t.Errorf("wire max_tokens = %d", payload.MaxTokens)
+	}
+	if payload.ReasoningEffort != "low" {
+		t.Errorf("wire reasoning_effort = %q, want low", payload.ReasoningEffort)
+	}
+
+	// Unset ThinkingLevel must omit reasoning_effort entirely from the wire.
+	if _, err := c.Chat(context.Background(), ChatRequest{Model: "model-x", User: "u"}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if strings.Contains(string(getBody()), "reasoning_effort") {
+		t.Errorf("wire payload must omit reasoning_effort when unset; got %s", getBody())
 	}
 }
 

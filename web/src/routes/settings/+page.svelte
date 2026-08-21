@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { parseTemperature, resolveTone } from "$lib/repoUtils";
+  import {
+    parseMaxTokens,
+    parseTemperature,
+    resolveTone,
+  } from "$lib/repoUtils";
   import {
     DEFAULT_COMMIT_TYPES,
     formatCommitTypes,
@@ -22,6 +26,7 @@
   } from "$lib/composables/useAuthErrorHandler";
 
   const PRESET_OPTIONS = ["chronicler", "engineer", "launch"];
+  const THINKING_LEVELS = ["low", "medium", "high"];
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
@@ -40,6 +45,9 @@
   let mode = $state("lite");
   let temperature = $state("");
   let temperatureError = $state("");
+  let maxTokens = $state<string | null>("");
+  let maxTokensError = $state("");
+  let thinkingLevel = $state("");
   let selectedCommitTypes = $state<string[]>(DEFAULT_COMMIT_TYPES);
   let customCommitTypes = $state("");
   let commitTypesDirty = $state(false);
@@ -79,6 +87,11 @@
       apiKeyTouched = false;
       mode = s.mode === "deep" ? "deep" : "lite";
       temperature = s.temperature === null ? "" : String(s.temperature);
+      maxTokens =
+        s.max_tokens === 0 || s.max_tokens == null
+          ? ""
+          : String(s.max_tokens);
+      thinkingLevel = s.thinking_level ?? "";
       const commitTypeSelection = getCommitTypeSelection(s.commit_types);
       const hasSavedCommitTypes = Boolean(s.commit_types?.trim());
       selectedCommitTypes = hasSavedCommitTypes
@@ -128,12 +141,20 @@
         saving = false;
         return;
       }
+      const tokensResult = parseMaxTokens(maxTokens);
+      if (tokensResult.error) {
+        maxTokensError = tokensResult.error;
+        saving = false;
+        return;
+      }
       const payload: SettingsUpdate = {
         tone,
         instructions: instructions.trim() ? instructions : null,
         model: model.trim() ? model : null,
         mode,
         temperature: tempResult.value,
+        max_tokens: tokensResult.value,
+        thinking_level: thinkingLevel === "" ? null : thinkingLevel,
         commit_types: commitTypesDirty
           ? formatCommitTypes(selectedCommitTypes, customCommitTypes)
           : (settings?.commit_types ?? null),
@@ -160,6 +181,7 @@
       apiKeyTouched = false;
       saved = true;
       temperatureError = "";
+      maxTokensError = "";
       error = "";
     } catch (e) {
       if (handleAuthError(e)) return;
@@ -307,7 +329,7 @@
               >These instructions travel with the global tone contract.</span
             ></label
           >
-          <div class="grid gap-5 sm:grid-cols-2">
+          <div class="grid gap-5 sm:grid-cols-4">
             <label class="field-group"
               ><span class="field-group__label"
                 >Model <span class="field-group__hint"
@@ -342,6 +364,37 @@
                   class="field-group__error"
                   role="alert">{temperatureError}</span
                 >{/if}</label
+            >
+            <label class="field-group"
+              ><span class="field-group__label"
+                >Max output tokens <span class="field-group__hint"
+                  >(blank = server default)</span
+                ></span
+              ><input
+                type="number"
+                step="1"
+                min="1"
+                bind:value={maxTokens}
+                class="field"
+              /><span class="field-group__hint"
+                >Cap on generated tokens per request (blank = server default,
+                min 4096).</span
+              >{#if maxTokensError}<span
+                  class="field-group__error"
+                  role="alert">{maxTokensError}</span
+                >{/if}</label
+            >
+            <label class="field-group"
+              ><span class="field-group__label">Thinking level</span
+              ><select bind:value={thinkingLevel} class="field"
+                ><option value="">off — no extended thinking</option
+                >{#each THINKING_LEVELS as lvl (lvl)}<option
+                    value={lvl}>{lvl}</option
+                  >{/each}</select
+              ><span class="field-group__hint"
+                >Sent to the model as reasoning_effort when not off. Only works
+                on endpoints that support it.</span
+              ></label
             >
           </div>
           <label class="field-group"
@@ -449,6 +502,8 @@
 Model: {model.trim() || "server default"}
 Mode: {mode}
 Temperature: {temperature !== "" ? temperature : "server default"}
+Max tokens: {maxTokens || "server default"}
+Thinking: {thinkingLevel || "off"}
 Instructions: {instructions.trim() || "No additional instructions."}
 Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()
               ? `${DEFAULT_COMMIT_TYPES.join(",")} (default, not saved)`
