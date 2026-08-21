@@ -31,6 +31,24 @@ export function parseTemperature(value: string): {
 }
 
 /**
+ * Parse and validate a max-output-tokens value (integer >= 1).
+ * A Svelte number-input binding hands back a string or a number (NaN / null
+ * when the user blanks the field); all three forms mean "inherit" and clear
+ * to null.
+ */
+export function parseMaxTokens(value: string | number | null): {
+  value: number | null;
+  error: string;
+} {
+  if (value === null || value === "" || Number.isNaN(Number(value)))
+    return { value: null, error: "" };
+  const num = Number(value);
+  if (!Number.isInteger(num) || num < 1)
+    return { value: null, error: "Enter a whole number of 1 or more." };
+  return { value: num, error: "" };
+}
+
+/**
  * Resolve the effective tone string or null from a UI tone selection.
  *
  * - "inherit" → null (use server default)

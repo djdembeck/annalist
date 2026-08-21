@@ -44,6 +44,11 @@ func validMode(m string) bool {
 	return m == "" || m == engine.ModeLite || m == engine.ModeDeep
 }
 
+// thinkingLevelValues are the accepted thinking_level values for the settings
+// PUTs: "" (inherit) or one of the named levels, including "off" which
+// explicitly disables extended thinking even when config/env set a level.
+var thinkingLevelValues = []string{"", "off", "low", "medium", "high"}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -56,6 +61,54 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 
 func badJSON(w http.ResponseWriter, err error) {
 	writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+}
+
+// setPresenceInt handles an optional integer field in a presence map: an
+// explicit null clears *target to 0 (inherit), a present value sets it after
+// checking it is >= min. A missing key leaves *target untouched.
+func setPresenceInt(m map[string]json.RawMessage, key string, target *int, min int) error {
+	raw, ok := m[key]
+	if !ok {
+		return nil
+	}
+	if string(raw) == "null" {
+		*target = 0
+		return nil
+	}
+	var v int
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	if v < min {
+		return fmt.Errorf("%s must be >= %d", key, min)
+	}
+	*target = v
+	return nil
+}
+
+// setPresenceStr handles an optional string field in a presence map: an
+// explicit null clears *target to "", a present value sets it after checking
+// it is one of allowed. A missing key leaves *target untouched.
+func setPresenceStr(m map[string]json.RawMessage, key string, target *string, allowed ...string) error {
+	raw, ok := m[key]
+	if !ok {
+		return nil
+	}
+	if string(raw) == "null" {
+		*target = ""
+		return nil
+	}
+	var v string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	for _, a := range allowed {
+		if v == a {
+			*target = v
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid %s", key)
 }
 
 // decodePresenceMap reads the request body as an object while preserving which
@@ -79,29 +132,33 @@ func decodePresenceMap(r *http.Request) (map[string]json.RawMessage, error) {
 
 // effective is the resolved (inherited) tone/model/temperature/instructions preview.
 type effective struct {
-	Tone         string   `json:"tone"`
-	Model        string   `json:"model"`
-	Temperature  float64  `json:"temperature"`
-	Instructions string   `json:"instructions"`
-	Source       string   `json:"source"`
-	CommitTypes  []string `json:"commit_types"`
-	Mode         string   `json:"mode"`
+	Tone          string   `json:"tone"`
+	Model         string   `json:"model"`
+	Temperature   float64  `json:"temperature"`
+	Instructions  string   `json:"instructions"`
+	Source        string   `json:"source"`
+	CommitTypes   []string `json:"commit_types"`
+	Mode          string   `json:"mode"`
+	MaxTokens     int      `json:"max_tokens"`
+	ThinkingLevel string   `json:"thinking_level"`
 }
 
 // repoItemResp is the JSON shape for a repo in /api/repos and the settings PUT.
 type repoItemResp struct {
-	Platform     string    `json:"platform"`
-	Owner        string    `json:"owner"`
-	Repo         string    `json:"repo"`
-	Enabled      bool      `json:"enabled"`
-	Tone         string    `json:"tone"`
-	Instructions string    `json:"instructions"`
-	Model        string    `json:"model"`
-	Temperature  *float64  `json:"temperature"`
-	Trigger      string    `json:"trigger"`
-	CommitTypes  string    `json:"commit_types"`
-	Mode         string    `json:"mode"`
-	Effective    effective `json:"effective"`
+	Platform      string    `json:"platform"`
+	Owner         string    `json:"owner"`
+	Repo          string    `json:"repo"`
+	Enabled       bool      `json:"enabled"`
+	Tone          string    `json:"tone"`
+	Instructions  string    `json:"instructions"`
+	Model         string    `json:"model"`
+	Temperature   *float64  `json:"temperature"`
+	Trigger       string    `json:"trigger"`
+	CommitTypes   string    `json:"commit_types"`
+	Mode          string    `json:"mode"`
+	MaxTokens     int       `json:"max_tokens"`
+	ThinkingLevel string    `json:"thinking_level"`
+	Effective     effective `json:"effective"`
 }
 
 // repoItem builds the response for a repo_settings row, computing the
@@ -118,25 +175,29 @@ func (a *api) repoItem(ctx context.Context, row db.RepoSetting) (repoItemResp, e
 	}
 
 	return repoItemResp{
-		Platform:     row.Platform,
-		Owner:        row.Owner,
-		Repo:         row.Repo,
-		Enabled:      row.Enabled,
-		Tone:         row.Tone,
-		Instructions: row.Instructions,
-		Model:        row.Model,
-		Temperature:  row.Temperature,
-		Trigger:      row.Trigger,
-		CommitTypes:  row.CommitTypes,
-		Mode:         row.Mode,
+		Platform:      row.Platform,
+		Owner:         row.Owner,
+		Repo:          row.Repo,
+		Enabled:       row.Enabled,
+		Tone:          row.Tone,
+		Instructions:  row.Instructions,
+		Model:         row.Model,
+		Temperature:   row.Temperature,
+		Trigger:       row.Trigger,
+		CommitTypes:   row.CommitTypes,
+		Mode:          row.Mode,
+		MaxTokens:     row.MaxTokens,
+		ThinkingLevel: row.ThinkingLevel,
 		Effective: effective{
-			Tone:         resolved.Tone,
-			Model:        resolved.Model,
-			Temperature:  resolved.Temperature,
-			Instructions: resolved.Instructions,
-			Source:       source,
-			CommitTypes:  resolved.CommitTypes,
-			Mode:         resolved.Mode,
+			Tone:          resolved.Tone,
+			Model:         resolved.Model,
+			Temperature:   resolved.Temperature,
+			Instructions:  resolved.Instructions,
+			Source:        source,
+			CommitTypes:   resolved.CommitTypes,
+			Mode:          resolved.Mode,
+			MaxTokens:     resolved.MaxTokens,
+			ThinkingLevel: resolved.ThinkingLevel,
 		},
 	}, nil
 }
@@ -435,6 +496,20 @@ func (a *api) handlePutRepoSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// max_tokens: present value sets, explicit null clears to 0 (inherit);
+	// integer >= 1 required.
+	if err := setPresenceInt(m, "max_tokens", &setting.MaxTokens, 1); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// thinking_level: present non-null sets, explicit null clears to ""
+	// (inherit); "" | off | low | medium | high accepted.
+	if err := setPresenceStr(m, "thinking_level", &setting.ThinkingLevel, thinkingLevelValues...); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	// enabled / trigger: applied only when present and non-null.
 	if raw, ok := m["enabled"]; ok && string(raw) != "null" {
 		var v bool
@@ -594,12 +669,14 @@ func (a *api) settingsResp(s db.Settings) map[string]any {
 		apiKeyPlaceholder = "••••••••"
 	}
 	return map[string]any{
-		"tone":         s.Tone,
-		"instructions": s.Instructions,
-		"model":        s.Model,
-		"temperature":  s.Temperature,
-		"commit_types": s.CommitTypes,
-		"mode":         s.Mode,
+		"tone":           s.Tone,
+		"instructions":   s.Instructions,
+		"model":          s.Model,
+		"temperature":    s.Temperature,
+		"commit_types":   s.CommitTypes,
+		"mode":           s.Mode,
+		"max_tokens":     s.MaxTokens,
+		"thinking_level": s.ThinkingLevel,
 		"llm": map[string]any{
 			"base_url": baseURL,
 			"api_key":  apiKeyPlaceholder,
@@ -706,6 +783,20 @@ func (a *api) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			s.Mode = v
 		}
+	}
+
+	// max_tokens: present value sets, explicit null clears to 0 (inherit);
+	// integer >= 1 required.
+	if err := setPresenceInt(m, "max_tokens", &s.MaxTokens, 1); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// thinking_level: present non-null sets, explicit null clears to ""
+	// (inherit); "" | off | low | medium | high accepted.
+	if err := setPresenceStr(m, "thinking_level", &s.ThinkingLevel, thinkingLevelValues...); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	// llm_base_url: present non-null sets, explicit null clears (revert to env).

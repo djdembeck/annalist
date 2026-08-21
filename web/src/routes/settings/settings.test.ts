@@ -23,6 +23,8 @@ const settingsFixture: Settings = {
   temperature: null,
   commit_types: null,
   mode: "lite",
+  max_tokens: 0,
+  thinking_level: null,
   llm: { base_url: "https://api.example.com", api_key: "", has_key: false },
   github: false,
   forgejo: false,
@@ -204,6 +206,115 @@ describe("settings page commit type contract", () => {
 
     // Only one request went out despite the in-flight state.
     expect(putCallCount).toBe(1);
+    resolvePutSettings();
+  });
+
+  it("saves max_tokens when edited", async () => {
+    mockSettings();
+    await mountPage();
+
+    const maxTokens = screen.getByLabelText(/Max output tokens/);
+    await fireEvent.input(maxTokens, { target: { value: "8192" } });
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    expect(payload.max_tokens).toBe(8192);
+    resolvePutSettings();
+  });
+
+  it("blank max_tokens sends null (inherit)", async () => {
+    mockSettings({ max_tokens: 1234 });
+    await mountPage();
+
+    // The field starts populated from the saved value; blank it.
+    const maxTokens = screen.getByLabelText(/Max output tokens/);
+    await waitFor(() => {
+      expect((maxTokens as HTMLInputElement).value).toBe("1234");
+    });
+    await fireEvent.input(maxTokens, { target: { value: "" } });
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    expect(payload.max_tokens).toBe(null);
+    resolvePutSettings();
+  });
+
+  it("shows a validation error and skips the PUT when max_tokens is invalid", async () => {
+    mockSettings();
+    await mountPage();
+
+    const maxTokens = screen.getByLabelText(/Max output tokens/);
+    for (const bad of ["0", "1.5"]) {
+      await fireEvent.input(maxTokens, { target: { value: bad } });
+      await fireEvent.click(
+        screen.getByRole("button", { name: /Save contract/ }),
+      );
+
+      // Svelte schedules the re-render as a microtask after the click.
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Enter a whole number of 1 or more/),
+        ).toBeInstanceOf(HTMLElement);
+      });
+      expect(putCallCount).toBe(0);
+      expect(putBody).toBeNull();
+    }
+  });
+
+  it("saves thinking_level selection", async () => {
+    mockSettings();
+    await mountPage();
+
+    const thinking = screen.getByLabelText(/Thinking level/);
+    await fireEvent.change(thinking, { target: { value: "high" } });
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    expect(payload.thinking_level).toBe("high");
+    resolvePutSettings();
+  });
+
+  it("saves off literally so it suppresses a config/env level", async () => {
+    // The saved row carries a level; the UI select shows it.
+    mockSettings({ thinking_level: "medium" });
+    await mountPage();
+
+    const thinking = screen.getByLabelText(/Thinking level/) as HTMLSelectElement;
+    expect(thinking.value).toBe("medium");
+    // Switch to off (option value "").
+    await fireEvent.change(thinking, { target: { value: "" } });
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    // The UI's off option sends the literal "off" so it is stored as a value
+    // that suppresses a level set via config/env; null would clear to "" and
+    // re-inherit.
+    expect(payload.thinking_level).toBe("off");
+    resolvePutSettings();
+  });
+
+  it("maps a stored off back to the off option on load", async () => {
+    mockSettings({ thinking_level: "off" });
+    await mountPage();
+
+    const thinking = screen.getByLabelText(/Thinking level/) as HTMLSelectElement;
+    expect(thinking.value).toBe("");
     resolvePutSettings();
   });
 });

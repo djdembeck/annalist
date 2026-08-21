@@ -41,6 +41,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGEJO_URL", "")
 	t.Setenv("FORGEJO_WEBHOOK_SECRET", "")
 	t.Setenv("ADMIN_TOKEN", "")
+	t.Setenv("LLM_THINKING_LEVEL", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -69,6 +70,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.LLM.CommitTypes != "" {
 		t.Errorf("llm.commit_types = %q, want empty (no default)", cfg.LLM.CommitTypes)
+	}
+	if cfg.LLM.ThinkingLevel != "" {
+		t.Errorf("llm.thinking_level = %q, want empty (off)", cfg.LLM.ThinkingLevel)
 	}
 	if cfg.Forgejo.URL != "" {
 		t.Errorf("forgejo.url = %q, want empty (no default; set FORGEJO_URL to enable Forgejo)", cfg.Forgejo.URL)
@@ -99,6 +103,7 @@ func TestLoadEnvBinding(t *testing.T) {
 	t.Setenv("FORGEJO_TOKEN", "forgejo-token")
 	t.Setenv("LLM_BASE_URL", "https://llm.example.com/v1")
 	t.Setenv("LLM_API_KEY", "llm-key")
+	t.Setenv("LLM_THINKING_LEVEL", "medium")
 
 	cfg, err := Load()
 	if err != nil {
@@ -130,6 +135,9 @@ func TestLoadEnvBinding(t *testing.T) {
 	}
 	if cfg.LLM.BaseURL != "https://llm.example.com/v1" || cfg.LLM.APIKey != "llm-key" {
 		t.Errorf("llm base_url/api_key = %q/%q", cfg.LLM.BaseURL, cfg.LLM.APIKey)
+	}
+	if cfg.LLM.ThinkingLevel != "medium" {
+		t.Errorf("llm.thinking_level = %q, want medium (env)", cfg.LLM.ThinkingLevel)
 	}
 	if !cfg.GitHubEnabled() {
 		t.Error("GitHubEnabled() should be true with full GitHub creds")
