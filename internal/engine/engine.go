@@ -27,7 +27,7 @@ type Resolved struct {
 	CommitTypes   []string
 	Mode          string
 	MaxTokens     int    // 0 = unset; Generate applies a 4096 floor
-	ThinkingLevel string // "" | "low" | "medium" | "high"
+	ThinkingLevel string // "" (off) | "low" | "medium" | "high"; empty omits reasoning_effort
 }
 
 // rulesBlock defines the default release-notes structure (prose lead +
@@ -73,12 +73,17 @@ func (e *Engine) BuildSystemPrompt(r Resolved) string {
 	return strings.Join(parts, "\n\n")
 }
 
+// defaultMaxTokens is the engine's floor for the max output token count when
+// the resolved value is unset (0). It must stay in sync with the llm.max_tokens
+// default in internal/config.
+const defaultMaxTokens = 4096
+
 // maxTokensOrDefault applies the default max output token count only when the
 // resolved value is unset (0); explicit overrides — including values below the
 // default — pass through to the wire unchanged.
 func maxTokensOrDefault(n int) int {
 	if n <= 0 {
-		return 4096
+		return defaultMaxTokens
 	}
 	return n
 }

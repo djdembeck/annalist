@@ -38,7 +38,7 @@ type LLMConfig struct {
 	Model         string  `mapstructure:"model"`
 	Temperature   float64 `mapstructure:"temperature"`
 	MaxTokens     int     `mapstructure:"max_tokens"`
-	ThinkingLevel string  `mapstructure:"thinking_level"` // "" | "low" | "medium" | "high"; "" = off
+	ThinkingLevel string  `mapstructure:"thinking_level"` // "" | "off" | "low" | "medium" | "high"; "" = no default
 	TimeoutS      int     `mapstructure:"timeout_s"`
 	CommitTypes   string  `mapstructure:"commit_types"`
 }

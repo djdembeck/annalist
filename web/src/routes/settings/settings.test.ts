@@ -247,6 +247,28 @@ describe("settings page commit type contract", () => {
     resolvePutSettings();
   });
 
+  it("shows a validation error and skips the PUT when max_tokens is invalid", async () => {
+    mockSettings();
+    await mountPage();
+
+    const maxTokens = screen.getByLabelText(/Max output tokens/);
+    for (const bad of ["0", "1.5"]) {
+      await fireEvent.input(maxTokens, { target: { value: bad } });
+      await fireEvent.click(
+        screen.getByRole("button", { name: /Save contract/ }),
+      );
+
+      // Svelte schedules the re-render as a microtask after the click.
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Enter a whole number of 1 or more/),
+        ).toBeInstanceOf(HTMLElement);
+      });
+      expect(putCallCount).toBe(0);
+      expect(putBody).toBeNull();
+    }
+  });
+
   it("saves thinking_level selection", async () => {
     mockSettings();
     await mountPage();
@@ -261,6 +283,38 @@ describe("settings page commit type contract", () => {
     await waitForPut();
     const payload = JSON.parse(putBody as string) as SettingsUpdate;
     expect(payload.thinking_level).toBe("high");
+    resolvePutSettings();
+  });
+
+  it("saves off literally so it suppresses a config/env level", async () => {
+    // The saved row carries a level; the UI select shows it.
+    mockSettings({ thinking_level: "medium" });
+    await mountPage();
+
+    const thinking = screen.getByLabelText(/Thinking level/) as HTMLSelectElement;
+    expect(thinking.value).toBe("medium");
+    // Switch to off (option value "").
+    await fireEvent.change(thinking, { target: { value: "" } });
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    // The UI's off option sends the literal "off" so it is stored as a value
+    // that suppresses a level set via config/env; null would clear to "" and
+    // re-inherit.
+    expect(payload.thinking_level).toBe("off");
+    resolvePutSettings();
+  });
+
+  it("maps a stored off back to the off option on load", async () => {
+    mockSettings({ thinking_level: "off" });
+    await mountPage();
+
+    const thinking = screen.getByLabelText(/Thinking level/) as HTMLSelectElement;
+    expect(thinking.value).toBe("");
     resolvePutSettings();
   });
 });

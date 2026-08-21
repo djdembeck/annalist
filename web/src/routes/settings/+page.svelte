@@ -91,7 +91,7 @@
         s.max_tokens === 0 || s.max_tokens == null
           ? ""
           : String(s.max_tokens);
-      thinkingLevel = s.thinking_level ?? "";
+      thinkingLevel = s.thinking_level === "off" ? "" : (s.thinking_level ?? "");
       const commitTypeSelection = getCommitTypeSelection(s.commit_types);
       const hasSavedCommitTypes = Boolean(s.commit_types?.trim());
       selectedCommitTypes = hasSavedCommitTypes
@@ -154,7 +154,10 @@
         mode,
         temperature: tempResult.value,
         max_tokens: tokensResult.value,
-        thinking_level: thinkingLevel === "" ? null : thinkingLevel,
+        // The UI's off option (value "") sends the literal "off" so it is
+        // stored as a value that suppresses a level set via config/env;
+        // "" (inherit/clear) is the empty string.
+        thinking_level: thinkingLevel === "" ? "off" : thinkingLevel,
         commit_types: commitTypesDirty
           ? formatCommitTypes(selectedCommitTypes, customCommitTypes)
           : (settings?.commit_types ?? null),
@@ -377,8 +380,8 @@
                 bind:value={maxTokens}
                 class="field"
               /><span class="field-group__hint"
-                >Cap on generated tokens per request (blank = server default,
-                min 4096).</span
+                >Cap on generated tokens per request (blank = server default;
+                whole number of 1 or more).</span
               >{#if maxTokensError}<span
                   class="field-group__error"
                   role="alert">{maxTokensError}</span

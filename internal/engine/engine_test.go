@@ -123,8 +123,10 @@ type llmWireRequest struct {
 }
 
 // TestGenerateRequestPayload verifies the LLM call carries the resolved model,
-// temperature, the hardcoded 4096 default, the system prompt built from the
-// resolved tone, and a user prompt naming the version range and the commit log.
+// temperature, the 4096 engine floor (applied because no max tokens were
+// resolved; the pipeline normally supplies the config default), the system
+// prompt built from the resolved tone, and a user prompt naming the version
+// range and the commit log.
 func TestGenerateRequestPayload(t *testing.T) {
 	var got llmWireRequest
 	called := false
@@ -160,7 +162,7 @@ func TestGenerateRequestPayload(t *testing.T) {
 		t.Errorf("temperature = %v, want 0.85", got.Temperature)
 	}
 	if got.MaxTokens != 4096 {
-		t.Errorf("max_tokens = %d, want 4096 (config default)", got.MaxTokens)
+		t.Errorf("max_tokens = %d, want 4096 (engine floor for unset)", got.MaxTokens)
 	}
 	if len(got.Messages) != 2 {
 		t.Fatalf("messages = %d, want 2", len(got.Messages))

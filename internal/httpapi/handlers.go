@@ -44,15 +44,10 @@ func validMode(m string) bool {
 	return m == "" || m == engine.ModeLite || m == engine.ModeDeep
 }
 
-// validThinkingLevel reports whether l is an accepted thinking level:
-// "" (off/inherit) or one of the named levels.
-func validThinkingLevel(l string) bool {
-	switch l {
-	case "", "low", "medium", "high":
-		return true
-	}
-	return false
-}
+// thinkingLevelValues are the accepted thinking_level values for the settings
+// PUTs: "" (inherit) or one of the named levels, including "off" which
+// explicitly disables extended thinking even when config/env set a level.
+var thinkingLevelValues = []string{"", "off", "low", "medium", "high"}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -66,6 +61,54 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 
 func badJSON(w http.ResponseWriter, err error) {
 	writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+}
+
+// setPresenceInt handles an optional integer field in a presence map: an
+// explicit null clears *target to 0 (inherit), a present value sets it after
+// checking it is >= min. A missing key leaves *target untouched.
+func setPresenceInt(m map[string]json.RawMessage, key string, target *int, min int) error {
+	raw, ok := m[key]
+	if !ok {
+		return nil
+	}
+	if string(raw) == "null" {
+		*target = 0
+		return nil
+	}
+	var v int
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	if v < min {
+		return fmt.Errorf("%s must be >= %d", key, min)
+	}
+	*target = v
+	return nil
+}
+
+// setPresenceStr handles an optional string field in a presence map: an
+// explicit null clears *target to "", a present value sets it after checking
+// it is one of allowed. A missing key leaves *target untouched.
+func setPresenceStr(m map[string]json.RawMessage, key string, target *string, allowed ...string) error {
+	raw, ok := m[key]
+	if !ok {
+		return nil
+	}
+	if string(raw) == "null" {
+		*target = ""
+		return nil
+	}
+	var v string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	for _, a := range allowed {
+		if v == a {
+			*target = v
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid %s", key)
 }
 
 // decodePresenceMap reads the request body as an object while preserving which
@@ -453,40 +496,18 @@ func (a *api) handlePutRepoSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// max_tokens: present value sets, explicit null clears to 0 (inherit); integer >= 1 required.
-	if raw, ok := m["max_tokens"]; ok {
-		if string(raw) == "null" {
-			setting.MaxTokens = 0
-		} else {
-			var v int
-			if err := json.Unmarshal(raw, &v); err != nil {
-				badJSON(w, err)
-				return
-			}
-			if v < 1 {
-				writeErr(w, http.StatusBadRequest, "max_tokens must be >= 1")
-				return
-			}
-			setting.MaxTokens = v
-		}
+	// max_tokens: present value sets, explicit null clears to 0 (inherit);
+	// integer >= 1 required.
+	if err := setPresenceInt(m, "max_tokens", &setting.MaxTokens, 1); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
-	// thinking_level: present non-null sets, explicit null clears to "".
-	if raw, ok := m["thinking_level"]; ok {
-		if string(raw) == "null" {
-			setting.ThinkingLevel = ""
-		} else {
-			var v string
-			if err := json.Unmarshal(raw, &v); err != nil {
-				badJSON(w, err)
-				return
-			}
-			if !validThinkingLevel(v) {
-				writeErr(w, http.StatusBadRequest, "invalid thinking_level")
-				return
-			}
-			setting.ThinkingLevel = v
-		}
+	// thinking_level: present non-null sets, explicit null clears to ""
+	// (inherit); "" | off | low | medium | high accepted.
+	if err := setPresenceStr(m, "thinking_level", &setting.ThinkingLevel, thinkingLevelValues...); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	// enabled / trigger: applied only when present and non-null.
@@ -764,40 +785,18 @@ func (a *api) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// max_tokens: present value sets, explicit null clears to 0 (inherit); integer >= 1 required.
-	if raw, ok := m["max_tokens"]; ok {
-		if string(raw) == "null" {
-			s.MaxTokens = 0
-		} else {
-			var v int
-			if err := json.Unmarshal(raw, &v); err != nil {
-				badJSON(w, err)
-				return
-			}
-			if v < 1 {
-				writeErr(w, http.StatusBadRequest, "max_tokens must be >= 1")
-				return
-			}
-			s.MaxTokens = v
-		}
+	// max_tokens: present value sets, explicit null clears to 0 (inherit);
+	// integer >= 1 required.
+	if err := setPresenceInt(m, "max_tokens", &s.MaxTokens, 1); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
-	// thinking_level: present non-null sets, explicit null clears to "".
-	if raw, ok := m["thinking_level"]; ok {
-		if string(raw) == "null" {
-			s.ThinkingLevel = ""
-		} else {
-			var v string
-			if err := json.Unmarshal(raw, &v); err != nil {
-				badJSON(w, err)
-				return
-			}
-			if !validThinkingLevel(v) {
-				writeErr(w, http.StatusBadRequest, "invalid thinking_level")
-				return
-			}
-			s.ThinkingLevel = v
-		}
+	// thinking_level: present non-null sets, explicit null clears to ""
+	// (inherit); "" | off | low | medium | high accepted.
+	if err := setPresenceStr(m, "thinking_level", &s.ThinkingLevel, thinkingLevelValues...); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	// llm_base_url: present non-null sets, explicit null clears (revert to env).
