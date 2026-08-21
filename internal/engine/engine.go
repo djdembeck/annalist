@@ -20,12 +20,14 @@ const (
 
 // Resolved is the final set of options after precedence resolution.
 type Resolved struct {
-	Tone         string
-	Instructions string
-	Model        string
-	Temperature  float64
-	CommitTypes  []string
-	Mode         string
+	Tone          string
+	Instructions  string
+	Model         string
+	Temperature   float64
+	CommitTypes   []string
+	Mode          string
+	MaxTokens     int    // 0 = unset; Generate applies a 4096 floor
+	ThinkingLevel string // "" | "low" | "medium" | "high"
 }
 
 // rulesBlock defines the default release-notes structure (prose lead +
@@ -71,6 +73,16 @@ func (e *Engine) BuildSystemPrompt(r Resolved) string {
 	return strings.Join(parts, "\n\n")
 }
 
+// maxTokensOrDefault applies the default max output token count only when the
+// resolved value is unset (0); explicit overrides — including values below the
+// default — pass through to the wire unchanged.
+func maxTokensOrDefault(n int) int {
+	if n <= 0 {
+		return 4096
+	}
+	return n
+}
+
 // Generate produces release notes for toTag given the commit log. baseURL and
 // apiKey, when non-empty, override the LLM client's configured endpoint for
 // this call (the pipeline resolves the effective endpoint). In deep mode
@@ -90,15 +102,13 @@ func (e *Engine) Generate(ctx context.Context, r Resolved, baseURL, apiKey, toTa
 	}
 
 	return e.LLM.Chat(ctx, llm.ChatRequest{
-		Model:       r.Model,
-		System:      prompt,
-		User:        userMsg,
-		Temperature: r.Temperature,
-		// TODO: MaxTokens is fixed at 4096. With one bullet per commit, large
-		// release ranges may exceed this limit and truncate. Consider computing
-		// MaxTokens based on commit count.
-		MaxTokens: 4096,
-		BaseURL:   baseURL,
-		APIKey:    apiKey,
+		Model:         r.Model,
+		System:        prompt,
+		User:          userMsg,
+		Temperature:   r.Temperature,
+		MaxTokens:     maxTokensOrDefault(r.MaxTokens),
+		ThinkingLevel: r.ThinkingLevel,
+		BaseURL:       baseURL,
+		APIKey:        apiKey,
 	})
 }

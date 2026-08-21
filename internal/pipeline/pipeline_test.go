@@ -101,8 +101,9 @@ type wireReq struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	} `json:"messages"`
-	Temperature float64 `json:"temperature"`
-	MaxTokens   int     `json:"max_tokens"`
+	Temperature     float64 `json:"temperature"`
+	MaxTokens       int     `json:"max_tokens"`
+	ReasoningEffort string  `json:"reasoning_effort"`
 }
 
 func (s *llmStub) request() (wireReq, error) {
@@ -518,6 +519,95 @@ func TestResolveModePrecedence(t *testing.T) {
 			t.Errorf("mode = %q, want lite", r.Mode)
 		}
 	})
+}
+
+// TestResolveMaxTokensThinkingPrecedence covers the max_tokens and
+// thinking_level resolution chains: repo row → global row → config.
+func TestResolveMaxTokensThinkingPrecedence(t *testing.T) {
+	_, _, _, store := fixture(t, nil, nil)
+	pip := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{
+		Model: "default-model", Temperature: 0.7, MaxTokens: 3000, ThinkingLevel: "low",
+	}}, DB: store}
+
+	t.Run("no rows resolve to config", func(t *testing.T) {
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-none")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.MaxTokens != 3000 || r.ThinkingLevel != "low" {
+			t.Errorf("resolved = (%d, %q), want (3000, low)", r.MaxTokens, r.ThinkingLevel)
+		}
+	})
+
+	t.Run("global row beats config", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{MaxTokens: 5000, ThinkingLevel: "medium"}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-global")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.MaxTokens != 5000 || r.ThinkingLevel != "medium" {
+			t.Errorf("resolved = (%d, %q), want (5000, medium)", r.MaxTokens, r.ThinkingLevel)
+		}
+	})
+
+	t.Run("repo row beats global", func(t *testing.T) {
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r-repo", Enabled: true,
+			MaxTokens: 7000, ThinkingLevel: "high",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.MaxTokens != 7000 || r.ThinkingLevel != "high" {
+			t.Errorf("resolved = (%d, %q), want (7000, high)", r.MaxTokens, r.ThinkingLevel)
+		}
+	})
+
+	t.Run("unset repo row inherits global", func(t *testing.T) {
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r-repo", Enabled: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.MaxTokens != 5000 || r.ThinkingLevel != "medium" {
+			t.Errorf("resolved = (%d, %q), want (5000, medium) from global", r.MaxTokens, r.ThinkingLevel)
+		}
+	})
+}
+
+// TestGenerateNotesMaxTokensThinkingWire verifies the resolved max_tokens and
+// thinking level reach the wire (max_tokens + reasoning_effort) through the
+// full GenerateNotes flow.
+func TestGenerateNotesMaxTokensThinkingWire(t *testing.T) {
+	pip, stub, _, store := fixture(t, nil, nil)
+	if err := store.UpsertRepoSettings(db.RepoSetting{
+		Platform: "github", Owner: "djdembeck", Repo: "annalist", Enabled: true,
+		MaxTokens: 1234, ThinkingLevel: "high",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-tok"), Options{}); err != nil {
+		t.Fatalf("GenerateNotes: %v", err)
+	}
+	req, err := stub.request()
+	if err != nil {
+		t.Fatalf("decode stub request: %v", err)
+	}
+	if req.MaxTokens != 1234 {
+		t.Errorf("wire max_tokens = %d, want 1234", req.MaxTokens)
+	}
+	if req.ReasoningEffort != "high" {
+		t.Errorf("wire reasoning_effort = %q, want high", req.ReasoningEffort)
+	}
 }
 
 // TestGenerateNotesDeepMode verifies the full GenerateNotes flow: deep mode

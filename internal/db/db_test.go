@@ -169,6 +169,28 @@ func TestSettingsCRUD(t *testing.T) {
 	if got.Mode != "" {
 		t.Errorf("mode = %q, want empty", got.Mode)
 	}
+
+	// MaxTokens/ThinkingLevel round-trip; zero/empty read back unset.
+	if err := s.UpsertSettings(Settings{MaxTokens: 4096, ThinkingLevel: "high"}); err != nil {
+		t.Fatalf("UpsertSettings knobs: %v", err)
+	}
+	got, err = s.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings knobs: %v", err)
+	}
+	if got.MaxTokens != 4096 || got.ThinkingLevel != "high" {
+		t.Errorf("knobs = (%d, %q), want (4096, high)", got.MaxTokens, got.ThinkingLevel)
+	}
+	if err := s.UpsertSettings(Settings{}); err != nil {
+		t.Fatalf("UpsertSettings clear knobs: %v", err)
+	}
+	got, err = s.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings clear knobs: %v", err)
+	}
+	if got.MaxTokens != 0 || got.ThinkingLevel != "" {
+		t.Errorf("cleared knobs = (%d, %q), want (0, empty)", got.MaxTokens, got.ThinkingLevel)
+	}
 }
 
 func TestRepoSettingsCRUD(t *testing.T) {
@@ -300,6 +322,33 @@ func TestRepoSettingsCRUD(t *testing.T) {
 	if got2 == nil || got2.Mode != "" {
 		t.Errorf("mode = %+v, want empty (inherit)", got2)
 	}
+
+	// MaxTokens/ThinkingLevel round-trip; zero/empty read back unset (inherit).
+	if err := s.UpsertRepoSettings(RepoSetting{
+		Platform: "forgejo", Owner: "o", Repo: "r2", Enabled: true,
+		MaxTokens: 4096, ThinkingLevel: "high",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got2, err = s.GetRepoSettings("forgejo", "o", "r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2 == nil || got2.MaxTokens != 4096 || got2.ThinkingLevel != "high" {
+		t.Errorf("knobs = %+v, want (4096, high)", got2)
+	}
+	if err := s.UpsertRepoSettings(RepoSetting{
+		Platform: "forgejo", Owner: "o", Repo: "r2", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got2, err = s.GetRepoSettings("forgejo", "o", "r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2 == nil || got2.MaxTokens != 0 || got2.ThinkingLevel != "" {
+		t.Errorf("cleared knobs = %+v, want unset", got2)
+	}
 }
 
 // TestOpenLegacySchemaVerifies ensureColumn backfills commit_types/mode on a
@@ -363,6 +412,9 @@ func TestOpenLegacySchema(t *testing.T) {
 	if got.CommitTypes != "" || got.Mode != "" {
 		t.Errorf("backfilled columns should be empty, got commit_types=%q mode=%q", got.CommitTypes, got.Mode)
 	}
+	if got.MaxTokens != 0 || got.ThinkingLevel != "" {
+		t.Errorf("backfilled settings knobs should be unset, got (%d, %q)", got.MaxTokens, got.ThinkingLevel)
+	}
 	row, err := s.GetRepoSettings("github", "o", "r")
 	if err != nil {
 		t.Fatalf("GetRepoSettings: %v", err)
@@ -372,6 +424,9 @@ func TestOpenLegacySchema(t *testing.T) {
 	}
 	if row.Tone != "seed-repo-tone" || row.CommitTypes != "" || row.Mode != "" {
 		t.Errorf("seeded repo row mismatch: %+v", row)
+	}
+	if row.MaxTokens != 0 || row.ThinkingLevel != "" {
+		t.Errorf("seeded repo row knobs should be unset, got (%d, %q)", row.MaxTokens, row.ThinkingLevel)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)

@@ -24,13 +24,14 @@ type Client struct {
 // ChatRequest is a single chat completion request. BaseURL and APIKey, when
 // non-empty, override the client's configured endpoint for this call.
 type ChatRequest struct {
-	Model       string
-	System      string
-	User        string
-	Temperature float64
-	MaxTokens   int
-	BaseURL     string
-	APIKey      string
+	Model         string
+	System        string
+	User          string
+	Temperature   float64
+	MaxTokens     int
+	ThinkingLevel string
+	BaseURL       string
+	APIKey        string
 }
 
 // NormalizeBaseURL strips a trailing slash and any trailing /v1 so the client
@@ -55,10 +56,11 @@ func New(cfg config.LLMConfig) *Client {
 
 // chatRequest is the wire payload sent to the endpoint.
 type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
-	MaxTokens   int           `json:"max_tokens"`
+	Model           string        `json:"model"`
+	Messages        []chatMessage `json:"messages"`
+	Temperature     float64       `json:"temperature"`
+	MaxTokens       int           `json:"max_tokens"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
 }
 
 type chatMessage struct {
@@ -91,8 +93,9 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 			{Role: "system", Content: req.System},
 			{Role: "user", Content: req.User},
 		},
-		Temperature: req.Temperature,
-		MaxTokens:   req.MaxTokens,
+		Temperature:     req.Temperature,
+		MaxTokens:       req.MaxTokens,
+		ReasoningEffort: req.ThinkingLevel,
 	}
 
 	body, err := json.Marshal(payload)
