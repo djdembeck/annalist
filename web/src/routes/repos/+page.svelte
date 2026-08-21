@@ -238,10 +238,10 @@
         mode: d.mode === "inherit" ? null : d.mode,
         temperature: tempResult.value,
         max_tokens: tokensResult.value,
-        thinking_level:
-          d.thinkingLevel === "" || d.thinkingLevel === "inherit"
-            ? null
-            : d.thinkingLevel,
+        // "inherit" sends null (stored empty, resolves through the chain);
+      // "off" sends the literal "off" so it suppresses a global/config
+      // level rather than inheriting.
+        thinking_level: d.thinkingLevel === "inherit" ? null : d.thinkingLevel,
         trigger: d.trigger,
         commit_types: d.inheritCommitTypes
           ? null
@@ -548,7 +548,7 @@
                     bind:value={d.maxTokens}
                     class="field"
                   /><span class="field-group__hint"
-                    >0/blank inherits the global value.</span
+                    >Blank inherits the global value.</span
                   >{#if maxTokensError[key]}<span
                       class="field-group__error"
                       role="alert">{maxTokensError[key]}</span
@@ -558,11 +558,12 @@
                   ><span class="field-group__label">Thinking level</span
                   ><select bind:value={d.thinkingLevel} class="field"
                     ><option value="inherit">Inherit (global)</option
+                    ><option value="off">off — no extended thinking</option
                     ><option value="low">low</option
                     ><option value="medium">medium</option
                     ><option value="high">high</option
                   ></select><span class="field-group__hint"
-                    >Sent to the model as reasoning_effort when not inherit.</span
+                    >Sent to the model as reasoning_effort when not off or inherit.</span
                   ></label
                 >
                 <label class="field-group"

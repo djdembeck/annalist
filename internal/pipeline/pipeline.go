@@ -219,13 +219,19 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 		maxTokens = p.Cfg.LLM.MaxTokens
 	}
 
-	// Thinking level precedence: repo row → global row → config ("" = off).
+	// Thinking level precedence: repo row → global row → config. Empty
+	// inherits down the chain; "off" is a stored value that terminates the
+	// chain — an explicit UI off must not be overridden by an env/config
+	// level.
 	thinkingLevel := global.ThinkingLevel
 	if row != nil && row.ThinkingLevel != "" {
 		thinkingLevel = row.ThinkingLevel
 	}
 	if thinkingLevel == "" {
 		thinkingLevel = p.Cfg.LLM.ThinkingLevel
+	}
+	if thinkingLevel == "off" {
+		thinkingLevel = ""
 	}
 
 	resolved := engine.Resolved{

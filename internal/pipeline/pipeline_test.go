@@ -582,6 +582,69 @@ func TestResolveMaxTokensThinkingPrecedence(t *testing.T) {
 			t.Errorf("resolved = (%d, %q), want (5000, medium) from global", r.MaxTokens, r.ThinkingLevel)
 		}
 	})
+
+	t.Run("global off suppresses config level", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{MaxTokens: 0, ThinkingLevel: "off"}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-off-global")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Config says "low" but the explicit global off must win.
+		if r.ThinkingLevel != "" {
+			t.Errorf("thinking = %q, want empty (explicit off suppresses config)", r.ThinkingLevel)
+		}
+	})
+
+	t.Run("repo off suppresses global level", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{MaxTokens: 0, ThinkingLevel: "medium"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.UpsertRepoSettings(db.RepoSetting{
+			Platform: "github", Owner: "o", Repo: "r-off-repo", Enabled: true,
+			ThinkingLevel: "off",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-off-repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Global says "medium" but the explicit repo off must win.
+		if r.ThinkingLevel != "" {
+			t.Errorf("thinking = %q, want empty (explicit off suppresses global)", r.ThinkingLevel)
+		}
+	})
+
+	t.Run("empty rows still inherit config level", func(t *testing.T) {
+		if err := store.UpsertSettings(db.Settings{MaxTokens: 0, ThinkingLevel: ""}); err != nil {
+			t.Fatal(err)
+		}
+		_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r-unsup")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.ThinkingLevel != "low" {
+			t.Errorf("thinking = %q, want low (unset inherits config)", r.ThinkingLevel)
+		}
+	})
+}
+
+// TestResolveOffConfigLevel verifies a config-level "off" (e.g.
+// LLM_THINKING_LEVEL=off) also suppresses reasoning_effort.
+func TestResolveOffConfigLevel(t *testing.T) {
+	_, _, _, store := fixture(t, nil, nil)
+	pip := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{
+		Model: "default-model", ThinkingLevel: "off",
+	}}, DB: store}
+	_, _, r, err := pip.Resolve(context.Background(), "github", "o", "r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ThinkingLevel != "" {
+		t.Errorf("thinking = %q, want empty (config off)", r.ThinkingLevel)
+	}
 }
 
 // TestGenerateNotesMaxTokensThinkingWire verifies the resolved max_tokens and
@@ -607,6 +670,25 @@ func TestGenerateNotesMaxTokensThinkingWire(t *testing.T) {
 	}
 	if req.ReasoningEffort != "high" {
 		t.Errorf("wire reasoning_effort = %q, want high", req.ReasoningEffort)
+	}
+}
+
+// TestGenerateNotesOffWire verifies an explicit "off" thinking level omits
+// reasoning_effort from the wire even when the config sets a level.
+func TestGenerateNotesOffWire(t *testing.T) {
+	pip, stub, _, store := fixture(t, nil, nil)
+	if err := store.UpsertSettings(db.Settings{ThinkingLevel: "off"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-off"), Options{}); err != nil {
+		t.Fatalf("GenerateNotes: %v", err)
+	}
+	req, err := stub.request()
+	if err != nil {
+		t.Fatalf("decode stub request: %v", err)
+	}
+	if req.ReasoningEffort != "" {
+		t.Errorf("wire reasoning_effort = %q, want omitted (explicit off)", req.ReasoningEffort)
 	}
 }
 

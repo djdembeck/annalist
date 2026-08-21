@@ -22,7 +22,7 @@ type Settings struct {
 	// default on the global row (resolved downstream).
 	Mode          string
 	MaxTokens     int    // 0 = unset → inherit from config/env
-	ThinkingLevel string // "" | "low" | "medium" | "high"; empty = off/inherit
+	ThinkingLevel string // "off" | "low" | "medium" | "high"; empty = inherit from config/env
 }
 
 // RepoSetting is a per-repo override of the global settings. Empty string /
@@ -42,7 +42,7 @@ type RepoSetting struct {
 	// default on the global row (resolved downstream).
 	Mode          string
 	MaxTokens     int    // 0 = unset → inherit from config/env
-	ThinkingLevel string // "" | "low" | "medium" | "high"; empty = off/inherit
+	ThinkingLevel string // "off" | "low" | "medium" | "high"; empty = inherit from global
 }
 
 // GeneratedNote records a previously generated release note for idempotency.
