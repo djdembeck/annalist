@@ -571,6 +571,69 @@ func (a *api) handleInRepoInstructions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"instructions": content})
 }
 
+// releaseItem is the JSON shape for a release in /api/repos/.../releases.
+type releaseItem struct {
+	ID          int64   `json:"id"`
+	Tag         string  `json:"tag"`
+	Body        string  `json:"body"`
+	Draft       bool    `json:"draft"`
+	CreatedAt   string  `json:"created_at"`
+	PublishedAt *string `json:"published_at"`
+}
+
+// handleListReleases returns the platform's releases for a repo, published
+// first then drafts. Like in-repo-instructions this is on-demand: the batch
+// /api/repos endpoint never calls the platform API for speed.
+func (a *api) handleListReleases(w http.ResponseWriter, r *http.Request) {
+	platform := chi.URLParam(r, "platform")
+	owner := chi.URLParam(r, "owner")
+	repo := chi.URLParam(r, "repo")
+	if !validPlatform(platform) {
+		writeErr(w, http.StatusBadRequest, "invalid platform")
+		return
+	}
+
+	var (
+		rel   []pipeline.Release
+		listE error
+	)
+	switch platform {
+	case "forgejo":
+		if a.fj == nil {
+			writeErr(w, http.StatusServiceUnavailable, "forgejo client not configured")
+			return
+		}
+		rel, listE = a.fj.ListReleases(r.Context(), owner, repo)
+	default:
+		if a.gh == nil {
+			writeErr(w, http.StatusServiceUnavailable, "github client not configured")
+			return
+		}
+		rel, listE = a.gh.ListReleases(r.Context(), owner, repo)
+	}
+	if listE != nil {
+		writeErr(w, http.StatusBadGateway, listE.Error())
+		return
+	}
+	items := make([]releaseItem, 0, len(rel))
+	for _, x := range rel {
+		var at *string
+		if x.PublishedAt != nil {
+			s := x.PublishedAt.Format(time.RFC3339)
+			at = &s
+		}
+		items = append(items, releaseItem{
+			ID:          x.ID,
+			Tag:         x.Tag,
+			Body:        x.Body,
+			Draft:       x.Draft,
+			CreatedAt:   x.CreatedAt.Format(time.RFC3339),
+			PublishedAt: at,
+		})
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
 // effectiveLLM returns the endpoint to use: saved settings override env/config.
 func (a *api) effectiveLLM(s db.Settings) (baseURL, apiKey string) {
 	baseURL, apiKey = a.cfg.LLM.BaseURL, a.cfg.LLM.APIKey

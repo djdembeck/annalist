@@ -62,6 +62,7 @@ func (f *fakePip) GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pi
 // fakeClient is a controllable ghClient/fjClient double.
 type fakeClient struct {
 	repos        []pipeline.OwnerRepo
+	releases     []pipeline.Release
 	err          error
 	fileContents map[string]string
 }
@@ -86,6 +87,13 @@ func (f *fakeClient) ReadRepoFile(ctx context.Context, owner, repo, path string)
 		return content, nil
 	}
 	return "", fmt.Errorf("%w: %s", pipeline.ErrNotFound, path)
+}
+
+func (f *fakeClient) ListReleases(ctx context.Context, owner, repo string) ([]pipeline.Release, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.releases, nil
 }
 
 // testAPI builds an api with a real temp-db store and a fake pip. llmClient
@@ -1309,6 +1317,135 @@ func TestHandleInRepoInstructionsReadError502(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "upstream connection refused") {
 		t.Errorf("body = %q, want error text", w.Body.String())
+	}
+}
+
+func TestHandleListReleases(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg, nil)
+	created := time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC)
+	published := time.Date(2026, 1, 6, 10, 0, 0, 0, time.UTC)
+	a.gh = &fakeClient{releases: []pipeline.Release{{
+		ID:          2,
+		Tag:         "v1.0.0",
+		Body:        "notes",
+		Draft:       false,
+		CreatedAt:   created,
+		PublishedAt: &published,
+	}}}
+
+	r := newReq(http.MethodGet, "/api/repos/github/o/r/releases", "", map[string]string{
+		"platform": "github",
+		"owner":    "o",
+		"repo":     "r",
+	})
+	w := do(a.handleListReleases, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var items []releaseItem
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %v, want 1", items)
+	}
+	it := items[0]
+	if it.ID != 2 || it.Tag != "v1.0.0" || it.Body != "notes" || it.Draft {
+		t.Errorf("item = %+v", it)
+	}
+	if it.CreatedAt != created.Format(time.RFC3339) {
+		t.Errorf("created_at = %q, want %q", it.CreatedAt, created.Format(time.RFC3339))
+	}
+	if it.PublishedAt == nil || *it.PublishedAt != published.Format(time.RFC3339) {
+		t.Errorf("published_at = %v, want %q", it.PublishedAt, published.Format(time.RFC3339))
+	}
+}
+
+func TestHandleListReleasesEmpty(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg, nil)
+	a.gh = &fakeClient{releases: nil}
+
+	r := newReq(http.MethodGet, "/api/repos/github/o/r/releases", "", map[string]string{
+		"platform": "github",
+		"owner":    "o",
+		"repo":     "r",
+	})
+	w := do(a.handleListReleases, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	if body := strings.TrimSpace(w.Body.String()); body != "[]" {
+		t.Errorf("body = %q, want []", body)
+	}
+}
+
+func TestHandleListReleasesNilClient(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg, nil)
+	a.gh = nil // explicitly nil
+
+	r := newReq(http.MethodGet, "/api/repos/github/o/r/releases", "", map[string]string{
+		"platform": "github",
+		"owner":    "o",
+		"repo":     "r",
+	})
+	w := do(a.handleListReleases, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleListReleasesUpstreamError(t *testing.T) {
+	cfg := &config.Config{GitHub: config.GitHubConfig{WebhookSecret: "s"}}
+	a, _, _ := testAPI(t, cfg, nil)
+	a.gh = &fakeClient{err: errors.New("upstream boom")}
+
+	r := newReq(http.MethodGet, "/api/repos/github/o/r/releases", "", map[string]string{
+		"platform": "github",
+		"owner":    "o",
+		"repo":     "r",
+	})
+	w := do(a.handleListReleases, r)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "upstream boom") {
+		t.Errorf("body = %q, want error text", w.Body.String())
+	}
+}
+
+func TestHandleListReleasesForgejo(t *testing.T) {
+	cfg := &config.Config{Forgejo: config.ForgejoConfig{Token: "t"}}
+	a, _, _ := testAPI(t, cfg, nil)
+	created := time.Date(2026, 2, 1, 9, 0, 0, 0, time.UTC)
+	a.fj = &fakeClient{releases: []pipeline.Release{{
+		ID:        7,
+		Tag:       "v2.0.0",
+		Body:      "fj notes",
+		Draft:     true,
+		CreatedAt: created,
+	}}}
+
+	r := newReq(http.MethodGet, "/api/repos/forgejo/fjuser/repo/releases", "", map[string]string{
+		"platform": "forgejo",
+		"owner":    "fjuser",
+		"repo":     "repo",
+	})
+	w := do(a.handleListReleases, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var items []releaseItem
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != 7 || items[0].Tag != "v2.0.0" || !items[0].Draft {
+		t.Errorf("items = %+v", items)
+	}
+	if items[0].PublishedAt != nil {
+		t.Errorf("published_at = %v, want null for draft", items[0].PublishedAt)
 	}
 }
 

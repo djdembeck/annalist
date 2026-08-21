@@ -120,6 +120,12 @@ func TestGetReleaseByTagNoCreds(t *testing.T) {
 	assertCredsError(t, err)
 }
 
+func TestListReleasesNoCreds(t *testing.T) {
+	c := New(config.GitHubConfig{})
+	_, err := c.ListReleases(context.Background(), "owner", "repo")
+	assertCredsError(t, err)
+}
+
 func TestEditReleaseBodyNoCreds(t *testing.T) {
 	c := New(config.GitHubConfig{})
 	err := c.EditReleaseBody(context.Background(), "owner", "repo", 1, "body")

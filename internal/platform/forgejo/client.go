@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -205,6 +206,61 @@ func (c *Client) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (
 		return nil, err
 	}
 	return &pipeline.Release{ID: resp.ID, Body: resp.Body}, nil
+}
+
+// ListReleases returns the repository's releases: published first (descending
+// publication time), then drafts (descending creation time).
+func (c *Client) ListReleases(ctx context.Context, owner, repo string) ([]pipeline.Release, error) {
+	var out []pipeline.Release
+	page := 1
+	for {
+		var batch []struct {
+			ID          int64     `json:"id"`
+			TagName     string    `json:"tag_name"`
+			Body        string    `json:"body"`
+			Draft       bool      `json:"draft"`
+			CreatedAt   time.Time `json:"created_at"`
+			PublishedAt time.Time `json:"published_at"`
+		}
+		p := "/repos/" + apiPath(owner) + "/" + apiPath(repo) + "/releases?limit=" + strconv.Itoa(defaultReposPerPage) + "&page=" + strconv.Itoa(page)
+		if err := c.do(ctx, http.MethodGet, p, nil, &batch); err != nil {
+			return nil, err
+		}
+		for _, r := range batch {
+			published := r.PublishedAt
+			var at *time.Time
+			if !published.IsZero() {
+				at = &published
+			}
+			out = append(out, pipeline.Release{
+				ID:          r.ID,
+				Tag:         r.TagName,
+				Body:        r.Body,
+				Draft:       r.Draft,
+				CreatedAt:   r.CreatedAt,
+				PublishedAt: at,
+			})
+		}
+		if len(batch) < defaultReposPerPage {
+			break
+		}
+		page++
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Draft != out[j].Draft {
+			return !out[i].Draft
+		}
+		t := out[i].PublishedAt
+		if t == nil {
+			t = &out[i].CreatedAt
+		}
+		u := out[j].PublishedAt
+		if u == nil {
+			u = &out[j].CreatedAt
+		}
+		return t.After(*u)
+	})
+	return out, nil
 }
 
 // EditReleaseBody replaces a release's body.

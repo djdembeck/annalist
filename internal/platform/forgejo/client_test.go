@@ -324,3 +324,118 @@ func TestCloneInfoNoToken(t *testing.T) {
 		t.Fatal("expected error without token, got nil")
 	}
 }
+
+// releaseFixture returns a map of release JSON objects for the list endpoint.
+func releaseFixture(id int64, tag, body string, draft bool, published bool) map[string]any {
+	rel := map[string]any{
+		"id":         id,
+		"tag_name":   tag,
+		"body":       body,
+		"draft":      draft,
+		"created_at": "2026-01-05T10:00:00Z",
+	}
+	if published {
+		rel["published_at"] = "2026-01-06T10:00:00Z"
+	}
+	return rel
+}
+
+func TestListReleases(t *testing.T) {
+	// Page 1 returns exactly defaultReposPerPage items (a full page) to force
+	// pagination; page 2 returns the two interesting rows. The handler serves
+	// the page selected by the ?page= param.
+	var pages [][]map[string]any
+	page1 := make([]map[string]any, 0, defaultReposPerPage)
+	for i := 0; i < defaultReposPerPage; i++ {
+		page1 = append(page1, releaseFixture(int64(100+i), fmt.Sprintf("vbulk-%02d", i), "", false, true))
+	}
+	page2 := []map[string]any{
+		releaseFixture(2, "v1.0.0", "published newest", false, true),
+		releaseFixture(1, "draft-one", "draft notes", true, false),
+	}
+	pages = append(pages, page1, page2)
+
+	_, client, log := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Path; got != "/api/v1/repos/owner/repo/releases" {
+			t.Errorf("path = %q, want /api/v1/repos/owner/repo/releases", got)
+		}
+		q := r.URL.Query()
+		if got := q.Get("limit"); got != "50" {
+			t.Errorf("limit = %q, want 50", got)
+		}
+		switch q.Get("page") {
+		case "1":
+			okJSON(w, 200, pages[0])
+		case "2":
+			okJSON(w, 200, pages[1])
+		default:
+			t.Errorf("unexpected page %q", q.Get("page"))
+		}
+	})
+
+	got, err := client.ListReleases(context.Background(), "owner", "repo")
+	if err != nil {
+		t.Fatalf("ListReleases: %v", err)
+	}
+	if len(got) != defaultReposPerPage+2 {
+		t.Fatalf("got %d releases, want %d", len(got), defaultReposPerPage+2)
+	}
+	// Two list requests: the full page 1 and the partial page 2.
+	if len(log.reqs) != 2 {
+		t.Errorf("expected 2 requests, got %d", len(log.reqs))
+	}
+	for i, r := range log.reqs {
+		if want := "page=" + fmt.Sprint(i+1); !strings.Contains(r.path, want) {
+			t.Errorf("request %d = %q, want %s", i, r.path, want)
+		}
+	}
+	// Drafts sort last and carry a nil PublishedAt.
+	last := got[len(got)-1]
+	if last.Tag != "draft-one" || !last.Draft {
+		t.Errorf("last release = %+v, want the draft", last)
+	}
+	if last.PublishedAt != nil {
+		t.Errorf("draft published_at = %v, want nil", *last.PublishedAt)
+	}
+	first := got[0]
+	if first.Tag != "vbulk-00" || first.Draft {
+		t.Errorf("first release = %+v, want vbulk-00 published", first)
+	}
+	if first.PublishedAt == nil {
+		t.Error("first release published_at = nil, want set")
+	}
+}
+
+func TestListReleasesSinglePage(t *testing.T) {
+	_, client, log := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Path; got != "/api/v1/repos/owner/repo/releases" {
+			t.Errorf("path = %q", got)
+		}
+		okJSON(w, 200, []map[string]any{
+			releaseFixture(1, "v2.0.0", "hand-written", false, true),
+			releaseFixture(2, "v1.0.0", "generated", false, true),
+		})
+	})
+
+	got, err := client.ListReleases(context.Background(), "owner", "repo")
+	if err != nil {
+		t.Fatalf("ListReleases: %v", err)
+	}
+	if len(log.reqs) != 1 {
+		t.Errorf("expected 1 request, got %d", len(log.reqs))
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d releases, want 2", len(got))
+	}
+	// Published descending by publication time (both share the fixture time,
+	// so stable order keeps the API order).
+	if got[0].ID != 1 || got[1].ID != 2 {
+		t.Errorf("order = [%d, %d], want [1, 2]", got[0].ID, got[1].ID)
+	}
+	if got[0].Body != "hand-written" || got[0].Tag != "v2.0.0" {
+		t.Errorf("first = %+v", got[0])
+	}
+	if got[0].PublishedAt == nil || got[0].PublishedAt.Year() != 2026 {
+		t.Errorf("published_at = %v, want 2026", got[0].PublishedAt)
+	}
+}

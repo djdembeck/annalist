@@ -755,6 +755,21 @@ textarea.field {
   line-height: 1.2;
 }
 
+/* Release-notes-state chips in the Generate panel. */
+.chip--annalist {
+  color: var(--trace-cyan);
+  border-color: var(--trace-line-strong);
+}
+
+.chip--manual {
+  color: var(--trace-ink);
+}
+
+.chip--none {
+  color: var(--trace-muted);
+  opacity: 0.7;
+}
+
 .empty-state {
   border: 1px dashed var(--trace-line-strong);
   border-radius: 0.25rem;

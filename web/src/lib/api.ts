@@ -68,6 +68,15 @@ export type GenerateRequest = {
   publish?: boolean;
 };
 
+export type Release = {
+  id: number;
+  tag: string;
+  body: string;
+  draft: boolean;
+  created_at: string;
+  published_at: string | null;
+};
+
 export type Settings = {
   tone: string | null;
   instructions: string | null;
@@ -176,6 +185,16 @@ export function getInRepoInstructions(
   return apiFetch<{ instructions?: string }>(
     `/api/repos/${platform}/${owner}/${repo}/in-repo-instructions`,
   ).then((r) => r.instructions ?? null);
+}
+
+export function getReleases(
+  platform: string,
+  owner: string,
+  repo: string,
+): Promise<Release[]> {
+  return apiFetch<Release[]>(
+    `/api/repos/${platform}/${owner}/${repo}/releases`,
+  );
 }
 
 export function putRepoSettings(

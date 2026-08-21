@@ -68,6 +68,14 @@ func (f *fakePlatform) CloneInfo(ctx context.Context, owner, repo string) (strin
 	return f.origin, "Bearer test-token", nil
 }
 
+func (f *fakePlatform) ListReleases(ctx context.Context, owner, repo string) ([]Release, error) {
+	out := make([]Release, 0, len(f.releases))
+	for tag, r := range f.releases {
+		out = append(out, Release{ID: r.ID, Tag: tag, Body: r.Body, Draft: r.Draft, CreatedAt: r.CreatedAt, PublishedAt: r.PublishedAt})
+	}
+	return out, nil
+}
+
 // llmStub records every chat request and returns a fixed, non-empty answer.
 type llmStub struct {
 	srv       *httptest.Server
@@ -870,6 +878,43 @@ func TestGenerateNotesIdempotentAndPublishGuard(t *testing.T) {
 			t.Errorf("LLM called %d times after idempotent run, want 1 (stored note returned)", stub.calls)
 		}
 	})
+}
+
+// TestGenerateNotesResolvesReleaseID verifies that a Spec with an empty
+// ReleaseID (manual generation) resolves the platform's release ID up front,
+// so the generated note is stored under the same "platform:<id>" key the
+// webhooks use: a later non-forced run with that explicit ReleaseID returns
+// the stored note without re-generating.
+func TestGenerateNotesResolvesReleaseID(t *testing.T) {
+	pip, stub, _, store := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 77, Body: ""}})
+
+	notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", ""), Options{Force: true, Publish: true})
+	if err != nil {
+		t.Fatalf("GenerateNotes: %v", err)
+	}
+	if stub.calls != 1 {
+		t.Fatalf("LLM calls = %d, want 1", stub.calls)
+	}
+
+	gn, err := store.GetGenerated("github", "github:77")
+	if err != nil {
+		t.Fatalf("GetGenerated: %v", err)
+	}
+	if gn == nil {
+		t.Fatal("no generated record under github:77; ReleaseID was not auto-resolved")
+	}
+
+	// A non-forced run carrying the explicit webhook-style ID hits the store.
+	again, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "github:77"), Options{})
+	if err != nil {
+		t.Fatalf("second GenerateNotes: %v", err)
+	}
+	if again != notes {
+		t.Errorf("idempotent run returned %q, want %q", again, notes)
+	}
+	if stub.calls != 1 {
+		t.Errorf("LLM called %d times after idempotent run, want 1", stub.calls)
+	}
 }
 
 // pipForPlatformErrors builds a Pipeline wired to a real store but with no

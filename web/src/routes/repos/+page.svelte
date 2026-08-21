@@ -4,6 +4,8 @@
     repoKey,
     parseTemperature,
     resolveTone,
+    releaseNotesState,
+    releaseDate,
     SAVE_MSG_TIMEOUT,
   } from "$lib/repoUtils";
   import {
@@ -17,6 +19,8 @@
     generate,
     getInRepoInstructions,
     getModels,
+    getReleases,
+    type Release,
     type Repo,
   } from "$lib/api";
   import CommitTypeSelector from "$lib/components/CommitTypeSelector.svelte";
@@ -123,6 +127,35 @@
       });
   }
 
+  // Per-repo release list for the Generate panel, fetched when the panel
+  // opens. A failure is shown as an alert line; it never blocks the panel.
+  let releases = $state<Record<string, Release[]>>({});
+  let releasesState = $state<
+    Record<string, "idle" | "loading" | "success" | "error">
+  >({});
+  let releasesError = $state<Record<string, string | null>>({});
+
+  function loadReleases(r: Repo, force = false): void {
+    const key = repoKey(r);
+    if (!force && releasesState[key] === "loading") return;
+    if (!force && releasesState[key] === "success") return; // cached
+    releasesState[key] = "loading";
+    releasesError[key] = null;
+    getReleases(r.platform, r.owner, r.repo)
+      .then((list) => {
+        releases[key] = list;
+        releasesState[key] = "success";
+      })
+      .catch((e) => {
+        if (handleAuthError(e)) return;
+        releasesState[key] = "error";
+        releasesError[key] = formatError(
+          e,
+          "Could not load releases — check that the repository is reachable.",
+        );
+      });
+  }
+
   // Model list for the per-repo dropdowns. A failure must NOT fail or block
   // the repo list; it only surfaces a retry banner and leaves the previous
   // list in place.
@@ -202,6 +235,7 @@
     force[key] = false;
     publish[key] = false;
     openPanel[key] = openPanel[key] === "generate" ? undefined : "generate";
+    loadReleases(r);
   }
 
   async function saveSettings(r: Repo): Promise<void> {
@@ -756,7 +790,72 @@
                       class="field-group__error"
                       role="alert">{genTagError[key]}</span
                     >{/if}</label
-                ><button
+                >
+                <div class="field-group w-full">
+                  <div class="flex items-center justify-between">
+                    <span class="field-group__label">Releases</span>
+                    {#if releasesState[key] === "success"}
+                      <button
+                        type="button"
+                        class="btn btn-ghost"
+                        onclick={() => loadReleases(r, true)}
+                        aria-label={"Refresh releases for " + r.owner + "/" + r.repo}
+                      >Refresh</button>
+                    {/if}
+                  </div>
+                  {#if releasesState[key] === "loading" || releasesState[key] === "idle"}
+                    <div class="skeleton mt-2 h-12 w-full"></div>
+                    <div class="skeleton mt-2 h-12 w-full"></div>
+                  {:else if releasesState[key] === "error"}
+                    <p class="mt-2 text-xs text-alert" role="alert">
+                      {releasesError[key]}
+                    </p>
+                  {:else if (releases[key] ?? []).length === 0}
+                    <p class="mt-2 text-xs text-ink-3">
+                      No releases found on this repository.
+                    </p>
+                  {:else}
+                    <ul
+                      class="mt-2 max-h-56 overflow-auto"
+                      aria-label="Releases for {r.owner}/{r.repo}"
+                    >
+                      {#each releases[key] as rel (rel.id)}
+                        {@const state = releaseNotesState(rel.body)}
+                        <li
+                          class="flex items-center gap-2 border-b border-line py-1.5 last:border-b-0"
+                        >
+                          <button
+                            type="button"
+                            class="chip text-left"
+                            title="Use {rel.tag} as the release tag"
+                            onclick={() => {
+                              generateTag[key] = rel.tag;
+                              genTagError[key] = null;
+                            }}
+                          >{rel.tag}</button>
+                          <span
+                            class="chip {state === 'generated'
+                              ? 'chip--annalist'
+                              : state === 'manual'
+                                ? 'chip--manual'
+                                : 'chip--none'}"
+                          >
+                            {state === "generated"
+                              ? "notes by annalist"
+                              : state === "manual"
+                                ? "hand-written notes"
+                                : "no notes"}
+                          </span>
+                          {#if rel.draft}<span class="chip">draft</span>{/if}
+                          <span class="ml-auto text-xs text-ink-3">
+                            {releaseDate(rel.published_at ?? rel.created_at)}
+                          </span>
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
+                </div>
+                <button
                   onclick={() => runGenerate(r)}
                   disabled={pending[key]?.generating ||
                     (force[key] && overwriteConfirm[key])}

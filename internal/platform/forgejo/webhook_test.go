@@ -40,6 +40,9 @@ func (f *fakePlatform) GetReleaseByTag(ctx context.Context, owner, repo, tag str
 	}
 	return nil, fmt.Errorf("%w: %s", pipeline.ErrNotFound, tag)
 }
+func (f *fakePlatform) ListReleases(ctx context.Context, owner, repo string) ([]pipeline.Release, error) {
+	return nil, nil
+}
 func (f *fakePlatform) EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error {
 	return nil
 }

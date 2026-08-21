@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"time"
 
 	gogithub "github.com/google/go-github/v89/github"
 
@@ -205,6 +207,60 @@ func (c *Client) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (
 		return nil, err
 	}
 	return &pipeline.Release{ID: rel.GetID(), Body: rel.GetBody()}, nil
+}
+
+// ListReleases returns the repository's releases: published first (descending
+// publication time), then drafts (descending creation time).
+func (c *Client) ListReleases(ctx context.Context, owner, repo string) ([]pipeline.Release, error) {
+	client, err := c.repoClient(ctx, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+	var list []*gogithub.RepositoryRelease
+	opts := &gogithub.ListOptions{PerPage: 100}
+	for {
+		batch, resp, err := client.Repositories.ListReleases(ctx, owner, repo, opts)
+		if err != nil {
+			return nil, fmt.Errorf("github: list releases %s/%s: %w", owner, repo, err)
+		}
+		list = append(list, batch...)
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	rel := make([]pipeline.Release, 0, len(list))
+	for _, r := range list {
+		createdAt := r.GetCreatedAt().Time
+		var at *time.Time
+		if r.PublishedAt != nil {
+			t := r.PublishedAt.Time
+			at = &t
+		}
+		rel = append(rel, pipeline.Release{
+			ID:          r.GetID(),
+			Tag:         r.GetTagName(),
+			Body:        r.GetBody(),
+			Draft:       r.GetDraft(),
+			CreatedAt:   createdAt,
+			PublishedAt: at,
+		})
+	}
+	sort.SliceStable(rel, func(i, j int) bool {
+		if rel[i].Draft != rel[j].Draft {
+			return !rel[i].Draft
+		}
+		t := rel[i].PublishedAt
+		if t == nil {
+			t = &rel[i].CreatedAt
+		}
+		u := rel[j].PublishedAt
+		if u == nil {
+			u = &rel[j].CreatedAt
+		}
+		return t.After(*u)
+	})
+	return rel, nil
 }
 
 // EditReleaseBody replaces the body of the release identified by releaseID.
