@@ -208,44 +208,36 @@ describe("settings page commit type contract", () => {
   });
 
   // Typing a value into the free-text "Additional types" input must mark
-  // the selector dirty: without it, unchecking a previously-checked known
-  // type afterwards re-sends the previously saved union (with that type
-  // still in it) instead of the true unchecked union. See a saved
-  // "docs,build" demonstrating the trap.
-  it("marks dirty when the free-text custom field is edited, so an uncheck cannot leave a stale known type in the saved union", async () => {
+  // the selector dirty: without it, a save after an unrelated edit
+  // re-sends the stale saved value (null here), silently dropping the
+  // custom type the user just typed.
+  it("persists a custom type typed into the free-text field on save", async () => {
     mockSettings();
     await mountPage();
 
-    // Check the "docs" checkbox first (this marks the selector dirty).
-    const docsCheckbox = screen.getByRole("checkbox", { name: /docs/i });
-    await fireEvent.click(docsCheckbox);
-
-    // Type a custom type into the free-text field — this must NOT mark
-    // the selector dirty (the input only reflects the union of the
-    // checkboxes, not the custom value's independent dirty state).
+    // Type a custom (non-known) type into the free-text field — this is
+    // what must mark the selector dirty. The checkboxes stay at the
+    // visible default four (fix, feat, refactor, perf).
     const customInput = container!.querySelector(
       "input[placeholder='security,breaking']",
     ) as HTMLInputElement;
-    await fireEvent.input(customInput, { target: { value: "build" } });
+    await fireEvent.input(customInput, { target: { value: "security" } });
 
-    // Save with the known type still checked — this commits a union
-    // containing both docs and build.
-    await fireEvent.click(screen.getByRole("button", { name: /Save contract/ }));
-    await waitForPut();
-    let payload = JSON.parse(putBody as string) as SettingsUpdate;
-    expect(payload.commit_types).toBe("docs,build");
-    resolvePutSettings();
+    // Change an unrelated field so the save is a real edit, then save.
+    const instructions = screen.getByLabelText(/Instructions/);
+    await fireEvent.input(instructions, { target: { value: "be terse" } });
 
-    // Now uncheck the "docs" checkbox. After the free-text fix, this
-    // uncheck must mark the selector dirty, so a second save must reflect
-    // the true checkbox union (no docs, still carries the custom build)
-    // instead of re-sending the previously persisted "docs,build".
-    const saveButton = screen.getByRole("button", { name: /Save contract/ });
-    await fireEvent.click(docsCheckbox);
-    await fireEvent.click(saveButton);
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
     await waitForPut();
-    payload = JSON.parse(putBody as string) as SettingsUpdate;
-    expect(payload.commit_types).toBe("build");
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    // The custom type survives the save: visible default four plus the
+    // typed extra — NOT the stale null the selector would re-send if the
+    // field edit had not marked it dirty.
+    expect(payload.commit_types).toBe("fix,feat,refactor,perf,security");
+    expect(payload.instructions).toBe("be terse");
     resolvePutSettings();
   });
 });
