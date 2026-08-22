@@ -218,8 +218,8 @@ describe("settings page commit type contract", () => {
     // Type a custom (non-known) type into the free-text field — this is
     // what must mark the selector dirty. The checkboxes stay at the
     // visible default four (fix, feat, refactor, perf).
-    const customInput = container!.querySelector(
-      "input[placeholder='security,breaking']",
+    const customInput = screen.getByLabelText(
+      /Additional types/,
     ) as HTMLInputElement;
     await fireEvent.input(customInput, { target: { value: "security" } });
 
