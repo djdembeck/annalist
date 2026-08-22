@@ -49,7 +49,7 @@
     <span class="field-group__hint">Additional types (optional)</span>
     <input
       bind:value={custom}
-      oninput={() => onDirty?.()}
+      spellcheck={false}
       placeholder="security,breaking"
       class="field"
     />

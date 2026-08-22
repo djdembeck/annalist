@@ -297,11 +297,18 @@ func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, inclu
 		return ""
 	}
 
+	// --no-merges keeps Merge commits out of the raw log: a merge subject
+	// has no "type: description" form, so FilterCommitLog would treat it as
+	// untyped and always keep it — letting a merge body that effectively
+	// carries non-selected types (chore/docs, etc.) leak into the LLM log
+	// even when a type filter is in effect. The merge body stays attached to
+	// whichever retained commit is its retained first parent, so real work
+	// behind a merge is not lost when its merge commit is excluded.
 	var args []string
 	if fromTag == "" {
-		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--reverse", "HEAD"}
+		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--no-merges", "--reverse", "HEAD"}
 	} else {
-		args = []string{"log", `--pretty=format:- %s%n%b%x00`, fromTag + ".." + toTag}
+		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--no-merges", fromTag + ".." + toTag}
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
