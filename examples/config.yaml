@@ -34,6 +34,11 @@ llm:
   thinking_level: ""
   # Timeout for LLM HTTP calls, seconds. (env LLM_TIMEOUT_S, default 120)
   timeout_s: 120
+  # Conventional commit types included in release notes (comma-separated).
+  # Blank = recommended default (fix,feat,refactor,perf). Set * to include
+  # all commit types. Breaking changes always included.
+  #                                        (env LLM_COMMIT_TYPES, no default)
+  commit_types: ""
 
 github:
   # GitHub App ID.                  (env GITHUB_APP_ID, no default)

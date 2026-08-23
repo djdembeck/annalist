@@ -11,6 +11,7 @@
     DEFAULT_COMMIT_TYPES,
     formatCommitTypes,
     getCommitTypeSelection,
+    isKeepAll,
   } from "$lib/commitTypes";
   import {
     getRepos,
@@ -617,12 +618,14 @@
                     hint={
                       d.inheritCommitTypes
                         ? "Uses the global selection. Turn off inheritance to choose repository-specific types."
-                        : formatCommitTypes(
-                            d.selectedCommitTypes,
-                            d.customCommitTypes,
+                        : isKeepAll(
+                            formatCommitTypes(
+                              d.selectedCommitTypes,
+                              d.customCommitTypes,
+                            ),
                           )
-                          ? "Selected types are included in notes."
-                          : "No filter saved — all commit types are included."
+                          ? "No filter — all commit types are included."
+                          : "Selected types are included in notes."
                     }
                     ariaLabel="Repository commit types"
                   />

@@ -138,7 +138,8 @@ func (p *Pipeline) platformFor(platform string) (Platform, error) {
 
 // Resolve computes the effective settings for a repo. Per-repo row values
 // override the global settings, which fall back to the configured LLM
-// defaults. The in-repo instructions file is resolved separately inside
+// defaults, and (for commit types only) to the recommended default types.
+// The in-repo instructions file is resolved separately inside
 // GenerateNotes (highest precedence). The Effective return carries the
 // runtime-resolved LLM endpoint (saved DB base URL / API key win over
 // env/config) for the caller to pass through to generation.
@@ -192,13 +193,19 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 		eff.APIKey = global.APIKey
 	}
 
-	// Resolve commit types with same precedence: repo → global → config.
+	// Resolve commit types with same precedence: repo → global → config →
+	// default. When nothing is saved or configured, the recommended default
+	// types (engine.DefaultCommitTypes) apply; only an explicit "*" keeps
+	// all commit types.
 	commitTypes := global.CommitTypes
 	if row != nil && row.CommitTypes != "" {
 		commitTypes = row.CommitTypes
 	}
 	if commitTypes == "" {
 		commitTypes = p.Cfg.LLM.CommitTypes
+	}
+	if commitTypes == "" {
+		commitTypes = engine.DefaultCommitTypes
 	}
 
 	// Mode precedence: repo row → global row → default lite.

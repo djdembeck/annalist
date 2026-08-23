@@ -107,12 +107,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function mountPage() {
+async function mountPage(
+  initialHint: string | RegExp = /Default selection shown/,
+) {
   container = document.createElement("div");
   document.body.append(container);
   component = mount(SettingsPage, { target: container });
   await waitFor(() => {
-    expect(container?.textContent).toMatch(/Default selection shown/);
+    expect(container?.textContent).toMatch(initialHint);
   });
 }
 
@@ -240,6 +242,51 @@ describe("settings page commit type contract", () => {
     // field edit had not marked it dirty.
     expect(payload.commit_types).toBe("fix,feat,refactor,perf,security");
     expect(payload.instructions).toBe("be terse");
+    resolvePutSettings();
+  });
+
+  // Unchecking every box leaves the effective selection empty; since the
+  // user touched the selector, the save must send the keep-all sentinel
+  // rather than re-sending the stored value.
+  it("saves the keep-all sentinel when every checkbox is unchecked", async () => {
+    mockSettings();
+    await mountPage();
+
+    for (const name of ["fix", "feat", "refactor", "perf"]) {
+      await fireEvent.click(
+        screen.getByRole("checkbox", { name: new RegExp(name, "i") }),
+      );
+    }
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    expect(payload.commit_types).toBe("*");
+    resolvePutSettings();
+  });
+
+  it("shows every box unchecked and the no-filter hint when the saved value is the keep-all sentinel", async () => {
+    mockSettings({ commit_types: "*" });
+    // A stored sentinel is a saved value, so the page shows the no-filter
+    // hint rather than the not-yet-saved default hint.
+    await mountPage(/No filter — all commit types are included\./);
+
+    for (const name of ["fix", "feat", "refactor", "perf"]) {
+      const box = screen.getByRole("checkbox", {
+        name: new RegExp(name, "i"),
+      }) as HTMLInputElement;
+      expect(box.checked).toBe(false);
+    }
+    const customInput = screen.getByLabelText(
+      /Additional types/,
+    ) as HTMLInputElement;
+    expect(customInput.value).toBe("");
+    // The hint span appends the breaking-changes note, so match the
+    // hint sentence, not the span's full text.
+    expect(screen.getByText(/No filter — all commit types are included\./));
     resolvePutSettings();
   });
 

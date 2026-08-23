@@ -9,6 +9,7 @@
     DEFAULT_COMMIT_TYPES,
     formatCommitTypes,
     getCommitTypeSelection,
+    isKeepAll,
   } from "$lib/commitTypes";
   import {
     getSettings,
@@ -419,9 +420,9 @@
               hint={
                 !commitTypesDirty && !settings?.commit_types?.trim()
                   ? "Default selection shown for new installs. Change a checkbox to save a filter."
-                  : formatCommitTypes(selectedCommitTypes, customCommitTypes)
-                    ? "Selected types are included in notes."
-                    : "No filter saved — all commit types are included."
+                  : isKeepAll(formatCommitTypes(selectedCommitTypes, customCommitTypes))
+                    ? "No filter — all commit types are included."
+                    : "Selected types are included in notes."
               }
               ariaLabel="Global commit types"
               onDirty={() => (commitTypesDirty = true)}
@@ -511,8 +512,9 @@ Thinking: {thinkingLevel || "off"}
 Instructions: {instructions.trim() || "No additional instructions."}
 Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()
               ? `${DEFAULT_COMMIT_TYPES.join(",")} (default, not saved)`
-              : formatCommitTypes(selectedCommitTypes, customCommitTypes) ||
-                "all commit types"}</pre>
+              : isKeepAll(formatCommitTypes(selectedCommitTypes, customCommitTypes))
+                ? "all commit types (no filter)"
+                : formatCommitTypes(selectedCommitTypes, customCommitTypes)}</pre>
           <p class="mt-3 text-xs text-ink-3">
             This proof reflects the values in the form. Repository-level
             settings can override the global contract.

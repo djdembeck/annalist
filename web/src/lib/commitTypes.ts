@@ -19,6 +19,11 @@ export const COMMIT_TYPE_OPTIONS: CommitTypeOption[] = [
 
 export const DEFAULT_COMMIT_TYPES = ["fix", "feat", "refactor", "perf"];
 
+// Sentinel for "no filter — include all types"; round-trips through the Go
+// server (FilterCommitLog keeps all on ""). See engine.DefaultCommitTypes
+// for the separate blank-means-default rule.
+export const KEEP_ALL = "*";
+
 const KNOWN_COMMIT_TYPES = new Set(
   COMMIT_TYPE_OPTIONS.map((option) => option.value),
 );
@@ -31,10 +36,16 @@ export function splitCommitTypes(value: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+export function isKeepAll(value: string | null | undefined): boolean {
+  const parsed = splitCommitTypes(value);
+  return parsed.length === 1 && parsed[0] === KEEP_ALL;
+}
+
 export function getCommitTypeSelection(value: string | null | undefined): {
   selected: string[];
   custom: string[];
 } {
+  if (isKeepAll(value)) return { selected: [], custom: [] };
   const parsed = splitCommitTypes(value);
   const selected = COMMIT_TYPE_OPTIONS.filter((option) =>
     parsed.some((type) => type.toLowerCase() === option.value),
@@ -48,7 +59,7 @@ export function getCommitTypeSelection(value: string | null | undefined): {
 export function formatCommitTypes(
   selected: string[],
   custom: string,
-): string | null {
+): string {
   const selectedSet = new Set(selected);
   const known = COMMIT_TYPE_OPTIONS.filter((option) =>
     selectedSet.has(option.value),
@@ -57,5 +68,5 @@ export function formatCommitTypes(
     (type) => !KNOWN_COMMIT_TYPES.has(type.toLowerCase()),
   );
   const result = [...known, ...extras];
-  return result.length ? result.join(",") : null;
+  return result.length ? result.join(",") : KEEP_ALL;
 }

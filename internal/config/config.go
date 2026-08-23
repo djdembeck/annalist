@@ -79,7 +79,9 @@ func Load() (*Config, error) {
 	v.SetDefault("llm.temperature", 0.85)
 	v.SetDefault("llm.max_tokens", 4096)
 	v.SetDefault("llm.timeout_s", 120)
-	// No default for llm.commit_types — empty string keeps all commit types.
+	// No config-level default for llm.commit_types — an empty value falls
+	// through to the recommended default types (engine.DefaultCommitTypes)
+	// in pipeline.Resolve; only an explicit "*" keeps all commit types.
 
 	// BindEnv makes every key resolvable from its env var even when it has no
 	// default and no config.yaml entry. Without this, viper's Unmarshal path
