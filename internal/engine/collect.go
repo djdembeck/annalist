@@ -281,8 +281,9 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 }
 
 // CollectCommitLog collects the commit log between fromTag and toTag. With
-// fromTag == "" it uses `git log --pretty=format:- %s%n%b%x00 --reverse HEAD`;
-// otherwise `git log --pretty=format:- %s%n%b%x00 <from>..<to>`. The raw
+// fromTag == "" it uses `git log --pretty=format:- %s%n%b%x00 --no-merges
+// --reverse HEAD`; otherwise `git log --pretty=format:- %s%n%b%x00 --no-merges
+// <from>..<to>`. The raw
 // output consists of NUL-delimited records: each record holds a commit subject
 // prefixed with "- " followed by the commit body. The records are then passed
 // through FilterCommitLog, which applies conventional-commit type filtering
@@ -297,11 +298,19 @@ func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, inclu
 		return ""
 	}
 
+	// --no-merges keeps Merge commits out of the raw log: a merge subject
+	// has no "type: description" form, so FilterCommitLog would treat it as
+	// untyped and always keep it — letting a merge body that effectively
+	// carries non-selected types (chore/docs, etc.) leak into the LLM log
+	// even when a type filter is in effect. `--no-merges` omits the merge
+	// commit's subject and body entirely; Git still traverses non-merge commits
+	// reachable from both parents, so branch work remains available while
+	// merge-only text is dropped.
 	var args []string
 	if fromTag == "" {
-		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--reverse", "HEAD"}
+		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--no-merges", "--reverse", "HEAD"}
 	} else {
-		args = []string{"log", `--pretty=format:- %s%n%b%x00`, fromTag + ".." + toTag}
+		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--no-merges", fromTag + ".." + toTag}
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)

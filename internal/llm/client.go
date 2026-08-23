@@ -24,13 +24,14 @@ type Client struct {
 // ChatRequest is a single chat completion request. BaseURL and APIKey, when
 // non-empty, override the client's configured endpoint for this call.
 type ChatRequest struct {
-	Model       string
-	System      string
-	User        string
-	Temperature float64
-	MaxTokens   int
-	BaseURL     string
-	APIKey      string
+	Model         string
+	System        string
+	User          string
+	Temperature   float64
+	MaxTokens     int
+	ThinkingLevel string
+	BaseURL       string
+	APIKey        string
 }
 
 // NormalizeBaseURL strips a trailing slash and any trailing /v1 so the client
@@ -41,6 +42,19 @@ func NormalizeBaseURL(u string) string {
 		u = strings.TrimSuffix(u, "/v1")
 	}
 	return u
+}
+
+// thinkingEffort translates a resolved thinking level to the reasoning_effort
+// wire value. "" sends nothing (field omitted) so the endpoint applies its
+// own default; "off" sends "none" — omitting the field instead would leave
+// the model's default behavior in force, and for thinking models that
+// default is extended thinking, whose reasoning tokens consume the whole
+// max_tokens budget and come back with empty content.
+func thinkingEffort(level string) string {
+	if level == "off" {
+		return "none"
+	}
+	return level
 }
 
 // New builds a Client from configuration. The HTTP client carries the
@@ -55,10 +69,11 @@ func New(cfg config.LLMConfig) *Client {
 
 // chatRequest is the wire payload sent to the endpoint.
 type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
-	MaxTokens   int           `json:"max_tokens"`
+	Model           string        `json:"model"`
+	Messages        []chatMessage `json:"messages"`
+	Temperature     float64       `json:"temperature"`
+	MaxTokens       int           `json:"max_tokens"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
 }
 
 type chatMessage struct {
@@ -91,8 +106,9 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 			{Role: "system", Content: req.System},
 			{Role: "user", Content: req.User},
 		},
-		Temperature: req.Temperature,
-		MaxTokens:   req.MaxTokens,
+		Temperature:     req.Temperature,
+		MaxTokens:       req.MaxTokens,
+		ReasoningEffort: thinkingEffort(req.ThinkingLevel),
 	}
 
 	body, err := json.Marshal(payload)
