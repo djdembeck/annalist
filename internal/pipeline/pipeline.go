@@ -210,13 +210,37 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 		mode = engine.ModeLite
 	}
 
+	// Max tokens precedence: repo row → global row → config (0 = unset).
+	maxTokens := global.MaxTokens
+	if row != nil && row.MaxTokens > 0 {
+		maxTokens = row.MaxTokens
+	}
+	if maxTokens == 0 {
+		maxTokens = p.Cfg.LLM.MaxTokens
+	}
+
+	// Thinking level precedence: repo row → global row → config. Empty
+	// inherits down the chain; "off" is a stored value that terminates the
+	// chain — an explicit UI off must not be overridden by an env/config
+	// level. "off" stays as-is here; the llm client translates it to the
+	// wire value.
+	thinkingLevel := global.ThinkingLevel
+	if row != nil && row.ThinkingLevel != "" {
+		thinkingLevel = row.ThinkingLevel
+	}
+	if thinkingLevel == "" {
+		thinkingLevel = p.Cfg.LLM.ThinkingLevel
+	}
+
 	resolved := engine.Resolved{
-		Tone:         tone,
-		Instructions: instructions,
-		Model:        model,
-		Temperature:  p.Cfg.LLM.Temperature,
-		CommitTypes:  engine.ParseCommitTypes(commitTypes),
-		Mode:         mode,
+		Tone:          tone,
+		Instructions:  instructions,
+		Model:         model,
+		Temperature:   p.Cfg.LLM.Temperature,
+		CommitTypes:   engine.ParseCommitTypes(commitTypes),
+		Mode:          mode,
+		MaxTokens:     maxTokens,
+		ThinkingLevel: thinkingLevel,
 	}
 	if temperature != nil {
 		resolved.Temperature = *temperature

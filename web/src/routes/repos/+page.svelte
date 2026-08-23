@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import {
     repoKey,
+    parseMaxTokens,
     parseTemperature,
     resolveTone,
     SAVE_MSG_TIMEOUT,
@@ -39,6 +40,8 @@
     mode: string;
     temperature: string;
     trigger: string;
+    maxTokens: string | null;
+    thinkingLevel: string;
     inheritCommitTypes: boolean;
     selectedCommitTypes: string[];
     customCommitTypes: string;
@@ -70,6 +73,7 @@
   let genTagError = $state<Record<string, string | null>>({});
   let overwriteConfirm = $state<Record<string, boolean>>({});
   let temperatureError = $state<Record<string, string | null>>({});
+  let maxTokensError = $state<Record<string, string | null>>({});
 
   let inventoryLede = $derived(
     loadState === "success" || loadState === "error"
@@ -176,6 +180,9 @@
         r.mode === "deep" ? "deep" : r.mode === "lite" ? "lite" : "inherit",
       temperature: r.temperature === null ? "" : String(r.temperature),
       trigger: r.trigger ?? "auto",
+      maxTokens:
+        r.max_tokens === 0 || r.max_tokens == null ? "" : String(r.max_tokens),
+      thinkingLevel: r.thinking_level === null || r.thinking_level === "" ? "inherit" : r.thinking_level,
       inheritCommitTypes: !r.commit_types,
       selectedCommitTypes: commitTypeSelection.selected,
       customCommitTypes: commitTypeSelection.custom.join(", "),
@@ -210,9 +217,15 @@
     saveErr[key] = null;
     saveMsg[key] = null;
     temperatureError[key] = null;
+    maxTokensError[key] = null;
     const tempResult = parseTemperature(d.temperature);
     if (tempResult.error) {
       temperatureError[key] = tempResult.error;
+      return;
+    }
+    const tokensResult = parseMaxTokens(d.maxTokens);
+    if (tokensResult.error) {
+      maxTokensError[key] = tokensResult.error;
       return;
     }
     pending[key] = { ...(pending[key] ?? {}), saving: true };
@@ -224,6 +237,11 @@
         model: d.model.trim() ? d.model : null,
         mode: d.mode === "inherit" ? null : d.mode,
         temperature: tempResult.value,
+        max_tokens: tokensResult.value,
+        // "inherit" sends null (stored empty, resolves through the chain);
+      // "off" sends the literal "off" so it suppresses a global/config
+      // level rather than inheriting.
+        thinking_level: d.thinkingLevel === "inherit" ? null : d.thinkingLevel,
         trigger: d.trigger,
         commit_types: d.inheritCommitTypes
           ? null
@@ -232,6 +250,7 @@
       await refresh();
       saveMsg[key] = "Saved";
       temperatureError[key] = null;
+      maxTokensError[key] = null;
       window.setTimeout(() => {
         saveMsg[key] = null;
       }, SAVE_MSG_TIMEOUT);
@@ -518,6 +537,36 @@
                     >{/if}</label
                 >
                 <label class="field-group"
+                  ><span class="field-group__label"
+                    >Max output tokens <span class="field-group__hint"
+                      >(blank = inherit)</span
+                    ></span
+                  ><input
+                    type="number"
+                    step="1"
+                    min="1"
+                    bind:value={d.maxTokens}
+                    class="field"
+                  /><span class="field-group__hint"
+                    >Blank inherits the global value.</span
+                  >{#if maxTokensError[key]}<span
+                      class="field-group__error"
+                      role="alert">{maxTokensError[key]}</span
+                    >{/if}</label
+                >
+                <label class="field-group"
+                  ><span class="field-group__label">Thinking level</span
+                  ><select bind:value={d.thinkingLevel} class="field"
+                    ><option value="inherit">Inherit (global)</option
+                    ><option value="off">off — no extended thinking</option
+                    ><option value="low">low</option
+                    ><option value="medium">medium</option
+                    ><option value="high">high</option
+                  ></select><span class="field-group__hint"
+                    >Sent to the model as reasoning_effort; off sends "none".</span
+                  ></label
+                >
+                <label class="field-group"
                   ><span class="field-group__label">Trigger</span><select
                     bind:value={d.trigger}
                     class="field"
@@ -609,6 +658,12 @@
                     : "inherit"}</span
                 >
                 · mode <span class="text-ink">{r.effective.mode ?? "inherit"}</span>
+                · max tokens
+                <span class="text-ink">{r.effective.max_tokens}</span>
+                · thinking
+                <span class="text-ink"
+                  >{r.effective.thinking_level || "off"}</span
+                >
               </p>
               {#if inRepoInstructions[key] || r.effective.instructions}
                 <details class="mt-4">

@@ -38,7 +38,7 @@ type fakePip struct {
 func newFakePip() *fakePip {
 	return &fakePip{
 		notes: "generated notes",
-		eff:   engine.Resolved{Tone: "t0", Instructions: "i0", Model: "m0", Temperature: 0.5},
+		eff:   engine.Resolved{Tone: "t0", Instructions: "i0", Model: "m0", Temperature: 0.5, MaxTokens: 4096, ThinkingLevel: "low"},
 	}
 }
 
@@ -760,6 +760,136 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 	if rowMode3 == nil || rowMode3.Mode != "" {
 		t.Errorf("stored row after bogus mode = %+v, want unchanged (mode empty)", rowMode3)
 	}
+
+	// max_tokens/thinking_level round-trip: set → verify response + store,
+	// invalid thinking_level rejected.
+	rKnobs := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"max_tokens":2048,"thinking_level":"medium"}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	wKnobs := do(a.handlePutRepoSettings, rKnobs)
+	if wKnobs.Code != http.StatusOK {
+		t.Fatalf("knobs PUT status = %d, want 200; body %s", wKnobs.Code, wKnobs.Body.String())
+	}
+	var itemKnobs repoItemResp
+	_ = json.Unmarshal(wKnobs.Body.Bytes(), &itemKnobs)
+	if itemKnobs.MaxTokens != 2048 || itemKnobs.ThinkingLevel != "medium" {
+		t.Errorf("response knobs = (%d, %q), want (2048, medium)", itemKnobs.MaxTokens, itemKnobs.ThinkingLevel)
+	}
+	if itemKnobs.Effective.MaxTokens != 4096 || itemKnobs.Effective.ThinkingLevel != "low" {
+		t.Errorf("effective knobs = (%d, %q), want (4096, low) from fakePip", itemKnobs.Effective.MaxTokens, itemKnobs.Effective.ThinkingLevel)
+	}
+	rowKnobs, err := store.GetRepoSettings("github", "djdembeck", "annalist")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if rowKnobs == nil || rowKnobs.MaxTokens != 2048 || rowKnobs.ThinkingLevel != "medium" {
+		t.Errorf("stored knobs = %+v, want (2048, medium)", rowKnobs)
+	}
+
+	// "off" is an accepted stored value (not a clear) — it round-trips
+	// verbatim so the pipeline can suppress a config/env level.
+	rOff := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"thinking_level":"off"}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	wOff := do(a.handlePutRepoSettings, rOff)
+	if wOff.Code != http.StatusOK {
+		t.Fatalf("off PUT status = %d, want 200; body %s", wOff.Code, wOff.Body.String())
+	}
+	rowOff, err := store.GetRepoSettings("github", "djdembeck", "annalist")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if rowOff == nil || rowOff.ThinkingLevel != "off" {
+		t.Errorf("stored off = %+v, want thinking_level off", rowOff)
+	}
+
+	rBadKnob := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"thinking_level":"ultra"}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	wBadKnob := do(a.handlePutRepoSettings, rBadKnob)
+	if wBadKnob.Code != http.StatusBadRequest {
+		t.Fatalf("invalid thinking_level PUT status = %d, want 400", wBadKnob.Code)
+	}
+}
+
+func TestHandlePutRepoSettingsMaxTokensThinkingEdgeCases(t *testing.T) {
+	a, _, store := testAPI(t, &config.Config{Admin: config.AdminConfig{Token: "secret"}}, nil)
+	params := map[string]string{"platform": "github", "owner": "o", "repo": "r"}
+
+	// Seed both knobs so the edge cases below have a known stored state.
+	rSeed := newReq(http.MethodPut, "/api/repos/github/o/r/settings",
+		`{"max_tokens":2048,"thinking_level":"medium"}`, params)
+	wSeed := do(a.handlePutRepoSettings, rSeed)
+	if wSeed.Code != http.StatusOK {
+		t.Fatalf("seed PUT status = %d, want 200; body %s", wSeed.Code, wSeed.Body.String())
+	}
+	rowSeed, err := store.GetRepoSettings("github", "o", "r")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if rowSeed == nil || rowSeed.MaxTokens != 2048 || rowSeed.ThinkingLevel != "medium" {
+		t.Fatalf("stored seed = %+v, want (2048, medium)", rowSeed)
+	}
+
+	// Invalid max_tokens is rejected without touching the stored row.
+	for _, tc := range []struct {
+		body string
+		msg  string
+	}{
+		{`{"max_tokens":0}`, "max_tokens must be"},
+		{`{"max_tokens":1.5}`, "invalid JSON"},
+	} {
+		wBad := do(a.handlePutRepoSettings, newReq(http.MethodPut, "/api/repos/github/o/r/settings", tc.body, params))
+		if wBad.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", tc.body, wBad.Code)
+		}
+		if !strings.Contains(wBad.Body.String(), tc.msg) {
+			t.Errorf("%s: body = %s, want containing %q", tc.body, wBad.Body.String(), tc.msg)
+		}
+	}
+	rowBad, err := store.GetRepoSettings("github", "o", "r")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if rowBad == nil || rowBad.MaxTokens != 2048 || rowBad.ThinkingLevel != "medium" {
+		t.Errorf("stored row after rejected PUTs = %+v, want (2048, medium)", rowBad)
+	}
+
+	// Absent-key preservation: a partial PUT of only thinking_level must
+	// leave the stored max_tokens untouched.
+	rPartial := newReq(http.MethodPut, "/api/repos/github/o/r/settings",
+		`{"thinking_level":"off"}`, params)
+	wPartial := do(a.handlePutRepoSettings, rPartial)
+	if wPartial.Code != http.StatusOK {
+		t.Fatalf("partial PUT status = %d, want 200; body %s", wPartial.Code, wPartial.Body.String())
+	}
+	rowPartial, err := store.GetRepoSettings("github", "o", "r")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if rowPartial == nil || rowPartial.MaxTokens != 2048 || rowPartial.ThinkingLevel != "off" {
+		t.Errorf("stored row after partial PUT = %+v, want (2048, off)", rowPartial)
+	}
+
+	// Explicit nulls clear both knobs back to zero-value (inherit).
+	rClear := newReq(http.MethodPut, "/api/repos/github/o/r/settings",
+		`{"max_tokens":null,"thinking_level":null}`, params)
+	wClear := do(a.handlePutRepoSettings, rClear)
+	if wClear.Code != http.StatusOK {
+		t.Fatalf("clear PUT status = %d, want 200; body %s", wClear.Code, wClear.Body.String())
+	}
+	var itemClear repoItemResp
+	_ = json.Unmarshal(wClear.Body.Bytes(), &itemClear)
+	if itemClear.MaxTokens != 0 || itemClear.ThinkingLevel != "" {
+		t.Errorf("cleared response = (%d, %q), want (0, \"\")", itemClear.MaxTokens, itemClear.ThinkingLevel)
+	}
+	rowClear, err := store.GetRepoSettings("github", "o", "r")
+	if err != nil {
+		t.Fatalf("GetRepoSettings: %v", err)
+	}
+	if rowClear == nil || rowClear.MaxTokens != 0 || rowClear.ThinkingLevel != "" {
+		t.Errorf("stored row after clear = %+v, want (0, \"\")", rowClear)
+	}
 }
 
 func TestHandlePutRepoSettingsInvalidPlatform(t *testing.T) {
@@ -863,6 +993,76 @@ func TestHandlePutSettingsRoundTrip(t *testing.T) {
 	_ = json.Unmarshal(w3.Body.Bytes(), &body3)
 	if body3["commit_types"] != "" {
 		t.Errorf("commit_types after null = %v, want empty", body3["commit_types"])
+	}
+}
+
+func TestHandlePutSettingsMaxTokensThinking(t *testing.T) {
+	a, _, store := testAPI(t, &config.Config{}, nil)
+
+	r := newReq(http.MethodPut, "/api/settings",
+		`{"max_tokens":8192,"thinking_level":"high"}`,
+		nil)
+	w := do(a.handlePutSettings, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["max_tokens"] != 8192.0 || body["thinking_level"] != "high" {
+		t.Errorf("response = max_tokens %v, thinking_level %v", body["max_tokens"], body["thinking_level"])
+	}
+	s, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if s.MaxTokens != 8192 || s.ThinkingLevel != "high" {
+		t.Errorf("stored = %+v, want (8192, high)", s)
+	}
+
+	// Explicit nulls clear to 0/"".
+	r2 := newReq(http.MethodPut, "/api/settings",
+		`{"max_tokens":null,"thinking_level":null}`,
+		nil)
+	w2 := do(a.handlePutSettings, r2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("clear status = %d", w2.Code)
+	}
+	var body2 map[string]any
+	_ = json.Unmarshal(w2.Body.Bytes(), &body2)
+	if body2["max_tokens"] != 0.0 || body2["thinking_level"] != "" {
+		t.Errorf("cleared = max_tokens %v, thinking_level %v", body2["max_tokens"], body2["thinking_level"])
+	}
+
+	// "off" is an accepted stored value (not a clear) — it round-trips
+	// verbatim so the pipeline can suppress a config/env level.
+	rOff := newReq(http.MethodPut, "/api/settings", `{"thinking_level":"off"}`, nil)
+	wOff := do(a.handlePutSettings, rOff)
+	if wOff.Code != http.StatusOK {
+		t.Fatalf("off PUT status = %d, want 200; body %s", wOff.Code, wOff.Body.String())
+	}
+	sOff, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if sOff.ThinkingLevel != "off" {
+		t.Errorf("stored off = %q, want off", sOff.ThinkingLevel)
+	}
+
+	for _, tc := range []struct {
+		body string
+		msg  string
+	}{
+		{`{"max_tokens":0}`, "max_tokens must be"},
+		{`{"max_tokens":1.5}`, "invalid JSON"},
+		{`{"thinking_level":"ultra"}`, "invalid thinking_level"},
+	} {
+		w3 := do(a.handlePutSettings, newReq(http.MethodPut, "/api/settings", tc.body, nil))
+		if w3.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", tc.body, w3.Code)
+		}
+		if !strings.Contains(w3.Body.String(), tc.msg) {
+			t.Errorf("%s: body = %s, want containing %q", tc.body, w3.Body.String(), tc.msg)
+		}
 	}
 }
 
