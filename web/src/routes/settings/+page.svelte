@@ -395,7 +395,8 @@
                     value={lvl}>{lvl}</option
                   >{/each}</select
               ><span class="field-group__hint"
-                >Sent to the model as reasoning_effort when not off. Only works
+                >Sent to the model as reasoning_effort; off sends
+                "none" so extended thinking stays off. Only works
                 on endpoints that support it.</span
               ></label
             >
