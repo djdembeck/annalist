@@ -27,7 +27,7 @@ type Resolved struct {
 	CommitTypes   []string
 	Mode          string
 	MaxTokens     int    // 0 = unset; Generate applies a 4096 floor
-	ThinkingLevel string // "" (off) | "low" | "medium" | "high"; empty omits reasoning_effort
+	ThinkingLevel string // "" (inherit, omit) | "off" (wire: none) | "low" | "medium" | "high"
 }
 
 // rulesBlock defines the default release-notes structure (prose lead +

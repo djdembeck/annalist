@@ -590,6 +590,50 @@ func TestCollectCommitLogBreakingChange(t *testing.T) {
 	}
 }
 
+func TestCollectCommitLogExcludesMerges(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	//   P (base, tagged v1.0.0)
+	//    ├── main:
+	//    └── feature: fix: branch work
+	//    Merge of feature into main: subject "Merge branch 'feature' into
+	//    main" (no conventional type) with a body carrying a non-selected
+	//    type ("chore: bump deps"). The untyped merge subject would be kept
+	//    by FilterCommitLog's untyped rule, so without --no-merges the merge
+	//    subject AND its chore body leak into the filtered log.
+	gitTa(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: base")
+	gitTa(t, dir, "tag", "v1.0.0")
+	baseBranch := gitTaOut(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
+
+	gitTa(t, dir, "checkout", "-q", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(dir, "fix.txt"), []byte("fix\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: branch work")
+
+	gitTa(t, dir, "checkout", "-q", baseBranch)
+	gitTa(t, dir, "merge", "-q", "--no-commit", "--no-ff", "feature")
+	gitTa(t, dir, "commit", "-q", "-m", "Merge branch 'feature' into main", "-m", "chore: bump deps")
+
+	// Guard the premise: HEAD must be a real two-parent merge.
+	if parents := strings.Fields(gitTaOut(t, dir, "rev-list", "--parents", "-n", "1", "HEAD")); len(parents) != 3 {
+		t.Fatalf("fixture broken: HEAD is not a two-parent merge (rev-list: %q)", strings.Join(parents, " "))
+	}
+
+	// With a "fix" type filter in effect: branch work (fix) is retained, the
+	// merge subject and its chore body are absent.
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"fix"})
+	if got != "- fix: branch work" {
+		t.Fatalf("CollectCommitLog = %q, want exactly %q (merge commit must be omitted)", got, "- fix: branch work")
+	}
+}
+
 func TestClassifyFile(t *testing.T) {
 	cases := []struct {
 		path string

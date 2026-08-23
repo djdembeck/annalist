@@ -591,9 +591,11 @@ func TestResolveMaxTokensThinkingPrecedence(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Config says "low" but the explicit global off must win.
-		if r.ThinkingLevel != "" {
-			t.Errorf("thinking = %q, want empty (explicit off suppresses config)", r.ThinkingLevel)
+		// Config says "low" but the explicit global off must win: the
+		// resolved value is the stored "off", which the llm client maps to
+		// reasoning_effort "none" on the wire.
+		if r.ThinkingLevel != "off" {
+			t.Errorf("thinking = %q, want off (explicit off suppresses config)", r.ThinkingLevel)
 		}
 	})
 
@@ -612,8 +614,8 @@ func TestResolveMaxTokensThinkingPrecedence(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Global says "medium" but the explicit repo off must win.
-		if r.ThinkingLevel != "" {
-			t.Errorf("thinking = %q, want empty (explicit off suppresses global)", r.ThinkingLevel)
+		if r.ThinkingLevel != "off" {
+			t.Errorf("thinking = %q, want off (explicit off suppresses global)", r.ThinkingLevel)
 		}
 	})
 
@@ -632,7 +634,8 @@ func TestResolveMaxTokensThinkingPrecedence(t *testing.T) {
 }
 
 // TestResolveOffConfigLevel verifies a config-level "off" (e.g.
-// LLM_THINKING_LEVEL=off) also suppresses reasoning_effort.
+// LLM_THINKING_LEVEL=off) suppresses the inherited level; it resolves to
+// "off", which the llm client maps to reasoning_effort "none" on the wire.
 func TestResolveOffConfigLevel(t *testing.T) {
 	_, _, _, store := fixture(t, nil, nil)
 	pip := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{
@@ -642,8 +645,8 @@ func TestResolveOffConfigLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ThinkingLevel != "" {
-		t.Errorf("thinking = %q, want empty (config off)", r.ThinkingLevel)
+	if r.ThinkingLevel != "off" {
+		t.Errorf("thinking = %q, want off (config off)", r.ThinkingLevel)
 	}
 }
 
@@ -673,8 +676,10 @@ func TestGenerateNotesMaxTokensThinkingWire(t *testing.T) {
 	}
 }
 
-// TestGenerateNotesOffWire verifies an explicit "off" thinking level omits
-// reasoning_effort from the wire even when the config sets a level.
+// TestGenerateNotesOffWire verifies an explicit "off" thinking level sends
+// reasoning_effort "none" on the wire even when the config sets a level.
+// "none" — not an omitted field — is required: omitting it leaves the
+// model's default (extended thinking for thinking models) in force.
 func TestGenerateNotesOffWire(t *testing.T) {
 	pip, stub, _, store := fixture(t, nil, nil)
 	if err := store.UpsertSettings(db.Settings{ThinkingLevel: "off"}); err != nil {
@@ -687,8 +692,8 @@ func TestGenerateNotesOffWire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode stub request: %v", err)
 	}
-	if req.ReasoningEffort != "" {
-		t.Errorf("wire reasoning_effort = %q, want omitted (explicit off)", req.ReasoningEffort)
+	if req.ReasoningEffort != "none" {
+		t.Errorf("wire reasoning_effort = %q, want none (explicit off)", req.ReasoningEffort)
 	}
 }
 

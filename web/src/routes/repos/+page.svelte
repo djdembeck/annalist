@@ -563,7 +563,7 @@
                     ><option value="medium">medium</option
                     ><option value="high">high</option
                   ></select><span class="field-group__hint"
-                    >Sent to the model as reasoning_effort when not off or inherit.</span
+                    >Sent to the model as reasoning_effort; off sends "none".</span
                   ></label
                 >
                 <label class="field-group"

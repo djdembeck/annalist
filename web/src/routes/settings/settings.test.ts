@@ -209,6 +209,40 @@ describe("settings page commit type contract", () => {
     resolvePutSettings();
   });
 
+  // Typing a value into the free-text "Additional types" input must mark
+  // the selector dirty: without it, a save after an unrelated edit
+  // re-sends the stale saved value (null here), silently dropping the
+  // custom type the user just typed.
+  it("persists a custom type typed into the free-text field on save", async () => {
+    mockSettings();
+    await mountPage();
+
+    // Type a custom (non-known) type into the free-text field — this is
+    // what must mark the selector dirty. The checkboxes stay at the
+    // visible default four (fix, feat, refactor, perf).
+    const customInput = screen.getByLabelText(
+      /Additional types/,
+    ) as HTMLInputElement;
+    await fireEvent.input(customInput, { target: { value: "security" } });
+
+    // Change an unrelated field so the save is a real edit, then save.
+    const instructions = screen.getByLabelText(/Instructions/);
+    await fireEvent.input(instructions, { target: { value: "be terse" } });
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Save contract/ }),
+    );
+
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    // The custom type survives the save: visible default four plus the
+    // typed extra — NOT the stale null the selector would re-send if the
+    // field edit had not marked it dirty.
+    expect(payload.commit_types).toBe("fix,feat,refactor,perf,security");
+    expect(payload.instructions).toBe("be terse");
+    resolvePutSettings();
+  });
+
   it("saves max_tokens when edited", async () => {
     mockSettings();
     await mountPage();

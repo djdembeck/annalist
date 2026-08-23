@@ -44,6 +44,19 @@ func NormalizeBaseURL(u string) string {
 	return u
 }
 
+// thinkingEffort translates a resolved thinking level to the reasoning_effort
+// wire value. "" sends nothing (field omitted) so the endpoint applies its
+// own default; "off" sends "none" — omitting the field instead would leave
+// the model's default behavior in force, and for thinking models that
+// default is extended thinking, whose reasoning tokens consume the whole
+// max_tokens budget and come back with empty content.
+func thinkingEffort(level string) string {
+	if level == "off" {
+		return "none"
+	}
+	return level
+}
+
 // New builds a Client from configuration. The HTTP client carries the
 // configured per-request timeout.
 func New(cfg config.LLMConfig) *Client {
@@ -95,7 +108,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 		},
 		Temperature:     req.Temperature,
 		MaxTokens:       req.MaxTokens,
-		ReasoningEffort: req.ThinkingLevel,
+		ReasoningEffort: thinkingEffort(req.ThinkingLevel),
 	}
 
 	body, err := json.Marshal(payload)

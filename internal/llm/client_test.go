@@ -130,6 +130,22 @@ func TestChatHappyPath(t *testing.T) {
 	if strings.Contains(string(getBody()), "reasoning_effort") {
 		t.Errorf("wire payload must omit reasoning_effort when unset; got %s", getBody())
 	}
+
+	// An explicit "off" must send reasoning_effort "none": omitting the
+	// field would leave the model's default behavior in force, which for
+	// thinking models is extended thinking.
+	if _, err := c.Chat(context.Background(), ChatRequest{Model: "model-x", User: "u", ThinkingLevel: "off"}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	var offPayload struct {
+		ReasoningEffort string `json:"reasoning_effort"`
+	}
+	if err := json.Unmarshal(getBody(), &offPayload); err != nil {
+		t.Fatalf("decode wire payload: %v", err)
+	}
+	if offPayload.ReasoningEffort != "none" {
+		t.Errorf("wire reasoning_effort = %q, want none (explicit off)", offPayload.ReasoningEffort)
+	}
 }
 
 // TestChatBaseURLTrim verifies trailing "/" and "/v1" handling so the request
