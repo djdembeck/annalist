@@ -37,8 +37,10 @@ export function splitCommitTypes(value: string | null | undefined): string[] {
 }
 
 export function isKeepAll(value: string | null | undefined): boolean {
+  // Mirrors FilterCommitLog: any include set containing "*" keeps all types,
+  // so mixed values like "fix,*" are keep-all, not a filtered selection.
   const parsed = splitCommitTypes(value);
-  return parsed.length === 1 && parsed[0] === KEEP_ALL;
+  return parsed.includes(KEEP_ALL);
 }
 
 export function getCommitTypeSelection(value: string | null | undefined): {
