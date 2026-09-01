@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  KEEP_ALL,
   formatCommitTypes,
   getCommitTypeSelection,
+  isKeepAll,
   splitCommitTypes,
 } from "./commitTypes";
 
@@ -12,7 +14,7 @@ describe("commit type selection helpers", () => {
       expect(selection).toEqual({ selected: [], custom: [] });
       expect(
         formatCommitTypes(selection.selected, selection.custom.join(",")),
-      ).toBe(null);
+      ).toBe(KEEP_ALL);
     }
   });
 
@@ -36,9 +38,35 @@ describe("commit type selection helpers", () => {
     );
   });
 
-  it("serializes an empty selection as unset", () => {
-    expect(formatCommitTypes([], "")).toBe(null);
-    expect(formatCommitTypes([], " , ")).toBe(null);
+  it("serializes an empty selection as the keep-all sentinel", () => {
+    expect(formatCommitTypes([], "")).toBe(KEEP_ALL);
+    expect(formatCommitTypes([], " , ")).toBe(KEEP_ALL);
+  });
+
+  it("recognizes the keep-all sentinel and loads it as an empty selection", () => {
+    expect(isKeepAll("*")).toBe(true);
+    expect(isKeepAll(null)).toBe(false);
+    expect(getCommitTypeSelection("*")).toEqual({ selected: [], custom: [] });
+  });
+
+  it("treats any mixed value containing the wildcard as keep-all, like FilterCommitLog", () => {
+    expect(isKeepAll("fix,*")).toBe(true);
+    expect(isKeepAll("*,fix")).toBe(true);
+    expect(isKeepAll("*,fix,feat")).toBe(true);
+    // Mixed wildcard values normalize to the keep-all empty selection so the
+    // selector shows every box unchecked and serializes back to "*".
+    expect(getCommitTypeSelection("fix,*")).toEqual({
+      selected: [],
+      custom: [],
+    });
+    expect(getCommitTypeSelection("*,Security")).toEqual({
+      selected: [],
+      custom: [],
+    });
+    const selection = getCommitTypeSelection("fix,*");
+    expect(
+      formatCommitTypes(selection.selected, selection.custom.join(",")),
+    ).toBe(KEEP_ALL);
   });
 
   it("round-trips a configured filter without changing its meaning", () => {

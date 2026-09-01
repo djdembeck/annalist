@@ -154,6 +154,12 @@ func ResolvePrevTag(ctx context.Context, workdir, current string) string {
 	return bestTag
 }
 
+// DefaultCommitTypes is the commit-type filter used when no saved repo or
+// global setting and no config value specify one. It must stay in sync
+// with DEFAULT_COMMIT_TYPES in web/src/lib/commitTypes.ts, which the
+// settings UI displays as the pre-checked default.
+const DefaultCommitTypes = "fix,feat,refactor,perf"
+
 // ParseCommitTypes splits a comma-separated string of conventional commit types,
 // trimming whitespace and dropping empty entries. Returns nil if the input is
 // empty or contains only commas/whitespace.
@@ -207,7 +213,8 @@ func validGitRef(s string) bool {
 // and filters them by includeTypes. Kept commits carry their body (when present)
 // appended after the subject. Breaking commits are always kept. Untyped commits
 // are always kept. Typed commits are kept only if their type is in includeTypes.
-// If includeTypes is nil or empty, all commits are kept.
+// If includeTypes is nil or empty, all commits are kept; an include set
+// containing the wildcard "*" is an explicit keep-all and behaves the same.
 func FilterCommitLog(raw string, includeTypes []string) string {
 	if raw == "" {
 		return ""
@@ -215,6 +222,16 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 
 	records := strings.Split(raw, "\x00")
 	var kept []string
+
+	keepAll := len(includeTypes) == 0
+	if !keepAll {
+		for _, allowed := range includeTypes {
+			if allowed == "*" {
+				keepAll = true
+				break
+			}
+		}
+	}
 
 	for _, rec := range records {
 		rec = strings.TrimSpace(rec)
@@ -262,8 +279,8 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 		} else if !hasType {
 			// Untyped commits always kept
 			kept = append(kept, keptLine)
-		} else if len(includeTypes) == 0 {
-			// No filter configured, keep all
+		} else if keepAll {
+			// No filter configured, or explicit wildcard keep-all
 			kept = append(kept, keptLine)
 		} else {
 			// Check if type is in include set (case-insensitive)

@@ -410,6 +410,32 @@ func TestFilterCommitLog(t *testing.T) {
 	}
 }
 
+func TestFilterCommitLogWildcard(t *testing.T) {
+	raw := "- docs: update readme\x00- build(deps): bump dep\x00- fix: patch bug\x00"
+
+	t.Run("wildcard keeps all types", func(t *testing.T) {
+		got := FilterCommitLog(raw, ParseCommitTypes("*"))
+		for _, subject := range []string{"docs: update readme", "build(deps): bump dep", "fix: patch bug"} {
+			if !strings.Contains(got, subject) {
+				t.Errorf("wildcard output missing %q; got:\n%s", subject, got)
+			}
+		}
+	})
+
+	t.Run("default types keep fix, drop docs and build", func(t *testing.T) {
+		got := FilterCommitLog(raw, ParseCommitTypes("fix,feat,refactor,perf"))
+		if !strings.Contains(got, "fix: patch bug") {
+			t.Errorf("output missing fix subject; got:\n%s", got)
+		}
+		if strings.Contains(got, "docs: update readme") {
+			t.Errorf("output should not contain docs subject; got:\n%s", got)
+		}
+		if strings.Contains(got, "build(deps): bump dep") {
+			t.Errorf("output should not contain build subject; got:\n%s", got)
+		}
+	})
+}
+
 func TestSelectHunks(t *testing.T) {
 	// Each unit costs header + hunk = 25 + 15 = 40 bytes on first emit
 	// per file; a second hunk of the same file costs only its 15 bytes.

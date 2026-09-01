@@ -258,6 +258,10 @@ func fixtureWithStub(t *testing.T, stub *llmStub, files map[string]string, relea
 			Model:       "qwen3.5-397b-a17b",
 			Temperature: 0.85,
 			MaxTokens:   4096,
+			// Keep-all so fixture tests exercise generation, not type
+			// filtering (the origin's "first:"/"second:" subjects parse as
+			// typed and the default filter would drop them).
+			CommitTypes: "*",
 		},
 	}
 
@@ -417,14 +421,20 @@ func TestResolvePrecedence(t *testing.T) {
 		if len(r.CommitTypes) != 2 || r.CommitTypes[0] != "fix" || r.CommitTypes[1] != "perf" {
 			t.Errorf("commit types = %v, want [fix perf]", r.CommitTypes)
 		}
-		// Twin: config also empty → keep-all (nil).
+		// Twin: config also empty → default recommended types.
 		pip4 := &Pipeline{Cfg: &config.Config{LLM: config.LLMConfig{Model: "default-model"}}, DB: fresh}
 		_, _, r, err = pip4.Resolve(context.Background(), "github", "o", "r-fresh")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if r.CommitTypes != nil {
-			t.Errorf("commit types = %v, want nil (keep-all)", r.CommitTypes)
+		want := []string{"fix", "feat", "refactor", "perf"}
+		if len(r.CommitTypes) != len(want) {
+			t.Fatalf("commit types = %v, want %v", r.CommitTypes, want)
+		}
+		for i, c := range want {
+			if r.CommitTypes[i] != c {
+				t.Fatalf("commit types = %v, want %v", r.CommitTypes, want)
+			}
 		}
 	})
 
