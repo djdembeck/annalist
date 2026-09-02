@@ -158,7 +158,7 @@ Generate notes for one release from the command line. `--publish` writes them to
   --publish
 ```
 
-The command accepts `--platform --owner --repo --to-tag [--from-tag] [--publish]`. It always forces regeneration. Platform credentials and `LLM_BASE_URL` must be configured for generation.
+The command accepts `--platform --owner --repo --to-tag [--from-tag] [--profile name] [--display-version text] [--publish]`. `--profile` selects one named release-note profile from the repository's `.annalist/release-notes.yaml` manifest, and `--display-version` presents a version other than the source tag (omitted, the source tag is used). It always forces regeneration. Platform credentials and `LLM_BASE_URL` must be configured for generation.
 
 Show the build version:
 
@@ -171,6 +171,8 @@ Run `annalist generate --help` (or `annalist serve` with no config) for a brief 
 ### Configurable release-note tone
 
 Annalist treats `tone` as a configuration term for the generated release-note style. Set it globally or per repository. The dashboard provides three built-in presets—`chronicler`, `engineer`, and `launch`; any other `tone` value is treated as a custom freeform system prompt. Additional per-repository Markdown instructions can bind style, length, or terminology.
+
+Repositories can also define **named release-note profiles** in `.annalist/release-notes.yaml`, one prompt per named audience, selected explicitly per generation request with `profile` (API) or `--profile` (CLI). A request with no profile keeps the legacy in-repository instructions behavior unchanged; see [docs/release-notes-voices.md](docs/release-notes-voices.md) for the manifest schema, `display_version` semantics, and publication rules.
 
 ## Configuration
 
@@ -213,6 +215,8 @@ The annotated [`config.example.yaml`](config.example.yaml) documents every key. 
 - `POST /api/repos/{platform}/{owner}/{repo}/generate`
 - `GET /api/settings`
 - `PUT /api/settings`
+
+The generate endpoint, `POST /api/repos/{platform}/{owner}/{repo}/generate`, accepts optional JSON fields `from_tag`, `to_tag`, `profile`, `display_version`, `publish` (default `false`), `force`, and `mode`. `profile` selects one named profile from the repository's `.annalist/release-notes.yaml` manifest; `display_version` presents a version other than the source tag and resolves to the source tag when omitted. The response carries `notes`, `release_id`, and `published` alongside the resolved generation contract: `profile`, `display_version`, `from_tag`, `to_tag`, and a `config_digest` that anchors the idempotency cache. An invalid profile name or a blank `display_version` returns 400; a missing or malformed manifest, an unknown profile, or a missing or empty prompt file returns 422 with no LLM call made.
 
 The webhook routes are:
 

@@ -126,8 +126,10 @@ func cmdGenerate(cfg *config.Config, args []string) {
 	fromTag := fs.String("from-tag", "", "previous tag (optional; auto-resolved if empty)")
 	publish := fs.Bool("publish", false, "publish the generated notes to the release body")
 	mode := fs.String("mode", "", "generation mode: lite (default) or deep (commit log + diff)")
+	profile := fs.String("profile", "", "named release-note profile from .annalist/release-notes.yaml (default: legacy provider-specific instructions)")
+	displayVersion := fs.String("display-version", "", "presentation version shown in the notes (default: the source tag)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: annalist generate --platform <github|forgejo> --owner <owner> --repo <repo> --to-tag <tag> [--from-tag <tag>] [--mode <lite|deep>] [--publish]")
+		fmt.Fprintln(os.Stderr, "usage: annalist generate --platform <github|forgejo> --owner <owner> --repo <repo> --to-tag <tag> [--from-tag <tag>] [--mode <lite|deep>] [--profile <name>] [--display-version <text>] [--publish]")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
@@ -174,18 +176,20 @@ func cmdGenerate(cfg *config.Config, args []string) {
 	}
 
 	releaseID := "cli:" + *platform + "/" + *owner + "/" + *repo + "@" + *toTag
-	notes, err := pip.GenerateNotes(context.Background(), pipeline.Spec{
-		Platform:  *platform,
-		Owner:     *owner,
-		Repo:      *repo,
-		ToTag:     *toTag,
-		FromTag:   *fromTag,
-		ReleaseID: releaseID,
+	result, err := pip.GenerateNotes(context.Background(), pipeline.Spec{
+		Platform:       *platform,
+		Owner:          *owner,
+		Repo:           *repo,
+		ToTag:          *toTag,
+		FromTag:        *fromTag,
+		ReleaseID:      releaseID,
+		Profile:        *profile,
+		DisplayVersion: *displayVersion,
 	}, pipeline.Options{Force: true, Publish: *publish, Mode: *mode})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "generating notes: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Println(notes)
+	fmt.Println(result.Notes)
 }

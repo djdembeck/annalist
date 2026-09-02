@@ -173,7 +173,7 @@ func TestReadRepoFileDecodesBase64(t *testing.T) {
 		okJSON(w, 200, map[string]any{"content": content, "encoding": "base64"})
 	})
 
-	got, err := client.ReadRepoFile(context.Background(), "owner", "my-repo", "dir/file.txt")
+	got, err := client.ReadRepoFile(context.Background(), "owner", "my-repo", "dir/file.txt", "")
 	if err != nil {
 		t.Fatalf("ReadRepoFile: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestReadRepoFileEscapesPathSegments(t *testing.T) {
 		}
 		okJSON(w, 200, map[string]any{"content": content, "encoding": "base64"})
 	})
-	if _, err := client.ReadRepoFile(context.Background(), "own er", "my-repo", "my file.txt"); err != nil {
+	if _, err := client.ReadRepoFile(context.Background(), "own er", "my-repo", "my file.txt", ""); err != nil {
 		t.Fatalf("ReadRepoFile: %v", err)
 	}
 }
@@ -203,7 +203,7 @@ func TestReadRepoFileNotFound(t *testing.T) {
 	_, client, _ := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})
-	_, err := client.ReadRepoFile(context.Background(), "owner", "repo", "missing.txt")
+	_, err := client.ReadRepoFile(context.Background(), "owner", "repo", "missing.txt", "")
 	if !errors.Is(err, pipeline.ErrNotFound) {
 		t.Errorf("ReadRepoFile error = %v, want pipeline.ErrNotFound", err)
 	}
@@ -213,10 +213,64 @@ func TestReadRepoFileBadBase64(t *testing.T) {
 	_, client, _ := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
 		okJSON(w, 200, map[string]any{"content": "!!!not-base64!!!", "encoding": "base64"})
 	})
-	_, err := client.ReadRepoFile(context.Background(), "owner", "repo", "file.txt")
+	_, err := client.ReadRepoFile(context.Background(), "owner", "repo", "file.txt", "")
 	if err == nil {
 		t.Fatal("expected base64 decode error, got nil")
 	}
+}
+
+// TestReadRepoFilePinsRef verifies the contents request carries the exact
+// requested ref as a query parameter, and that an empty ref omits it
+// (default-branch behavior).
+func TestReadRepoFilePinsRef(t *testing.T) {
+	t.Run("non-empty ref is sent verbatim", func(t *testing.T) {
+		_, client, log := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
+			okJSON(w, 200, map[string]any{"content": base64.StdEncoding.EncodeToString([]byte("x")), "encoding": "base64"})
+		})
+		if _, err := client.ReadRepoFile(context.Background(), "owner", "repo", "p/f.md", "v1.2.3"); err != nil {
+			t.Fatalf("ReadRepoFile: %v", err)
+		}
+		req := log.first()
+		if req == nil {
+			t.Fatal("no request recorded")
+		}
+		if got, want := req.path, "/api/v1/repos/owner/repo/contents/p/f.md?ref=v1.2.3"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("special ref characters are escaped", func(t *testing.T) {
+		_, client, log := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
+			okJSON(w, 200, map[string]any{"content": base64.StdEncoding.EncodeToString([]byte("x")), "encoding": "base64"})
+		})
+		if _, err := client.ReadRepoFile(context.Background(), "owner", "repo", "f.md", "v1.0.0-beta.3+exp"); err != nil {
+			t.Fatalf("ReadRepoFile: %v", err)
+		}
+		req := log.first()
+		if req == nil {
+			t.Fatal("no request recorded")
+		}
+		// '+' must be escaped (url.QueryEscape) so it is not read as a space.
+		if got, want := req.path, "/api/v1/repos/owner/repo/contents/f.md?ref=v1.0.0-beta.3%2Bexp"; got != want {
+			t.Errorf("path = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("empty ref sends no ref query", func(t *testing.T) {
+		_, client, log := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
+			okJSON(w, 200, map[string]any{"content": base64.StdEncoding.EncodeToString([]byte("x")), "encoding": "base64"})
+		})
+		if _, err := client.ReadRepoFile(context.Background(), "owner", "repo", "f.md", ""); err != nil {
+			t.Fatalf("ReadRepoFile: %v", err)
+		}
+		req := log.first()
+		if req == nil {
+			t.Fatal("no request recorded")
+		}
+		if got, want := req.path, "/api/v1/repos/owner/repo/contents/f.md"; got != want {
+			t.Errorf("path = %q, want %q (no ref query)", got, want)
+		}
+	})
 }
 
 func TestGetReleaseByTag(t *testing.T) {

@@ -100,3 +100,46 @@ Tone is [2-3 adjectives, e.g. "authoritative, concise, and action-oriented"]. Pr
 - Make rules verifiable. "Every commit becomes one bullet" can be checked. "Write clearly" cannot.
 - Avoid vague adjectives doing the work. Instead of "write concisely," say "one sentence per bullet."
 - Place the most critical constraints first — models pay most attention to early instructions.
+
+## 6. Named release-note profiles
+
+The built-in voices and the in-repository instructions file resolve one effective system prompt per release. Named profiles extend that model: the repository owns a manifest of named prompt files, and each generation request selects exactly one profile. One repository can therefore serve several note streams — maintainer, customer-facing, compact — from the same source range.
+
+### The manifest
+
+Profiles are declared in `.annalist/release-notes.yaml` at the root of the consuming repository:
+
+```yaml
+version: 1
+profiles:
+  maintainer:
+    prompt: .annalist/prompts/maintainer.md
+  customer:
+    prompt: .annalist/prompts/customer.md
+  compact:
+    prompt: .annalist/prompts/compact.md
+```
+
+The manifest is strict. `version` must be `1`. At least one profile is required, and **every** entry is validated — not just the one requested: profile names must match `^[a-z0-9][a-z0-9_-]{0,63}$` (lowercase, digits, `_`, and `-`; starts alphanumeric; at most 64 characters), and each `prompt` must be a non-empty, repository-root-relative slash path ending in `.md`. Absolute paths, empty or `.` segments, `..` traversal, unknown fields, and a second YAML document are all rejected. When a profile is selected, its prompt file must exist and be non-empty.
+
+The selected prompt is the **entire** authoritative system prompt for that generation: no built-in persona and no legacy instructions file are layered on top. Write profile prompts as complete instruction sets (the tips in section 5 apply); [`examples/prompts/`](../examples/prompts/) has small, working examples.
+
+### Selection
+
+Profile selection is explicit, and **one request generates exactly one profile's output** — there is no batch endpoint and no output composition. There is no default profile: a request with no `profile` (or an empty one) never reads the manifest and keeps the legacy behavior unchanged — the provider-specific in-repository instructions file (`.github/release-notes-instructions.md` for GitHub, `.forgejo/release-notes.md` for Forgejo) is used, and when it is absent or unreadable Annalist falls back to the configured tone/persona as before. When a profile *is* named, only that profile's prompt is used and the legacy instructions file is intentionally ignored rather than composed. Webhook-driven generation never selects a profile; it always follows the legacy path.
+
+Both the manifest and the selected prompt file are read **pinned to the source tag** — the `to_tag` of the request — so the notes are always generated from the prompt that existed at the version being released.
+
+### `display_version`
+
+A generation can present a version that differs from the source tag — for example, a beta tag `v2.0.0-beta.3` displayed as `2.0`. The optional `display_version` field must be trimmed, at most 128 UTF-8 bytes, and free of ASCII control bytes. It changes only the identity in the user message sent to the LLM; the system prompt is unaffected. Omitted, it resolves to the source tag and the user message is byte-identical to today's form, `Generate release notes for version <tag>. (changes since <from>)`. Present and different, the message names both identities: `Generate release notes for version <display>. (source tag <source>; changes since <from>)`. The `; changes since <from>` clause is omitted when there is no from tag.
+
+### Failure behavior
+
+Invalid request values fail before any platform work: an invalid profile name, or a `display_version` that is present but blank, is HTTP 400 from the API (a non-zero exit from the CLI). Missing or malformed configuration — a missing manifest, an unknown profile, an invalid manifest, or a missing or empty prompt file — fails the request with HTTP 422 and zero LLM calls; the CLI exits non-zero. Non-404 platform read failures and other generation failures propagate as HTTP 500, as today.
+
+### Publication
+
+A release body holds **one** selected profile's notes. Repeated `publish: true` calls for different profiles on the same release replace the same Annalist-owned body **last-write-wins**: the publishes serialize and the later one wins. Callers that need several outputs must generate each profile with `publish: false`, compose the final body externally, and publish once.
+
+Idempotency follows the full generation contract. The note cache key covers the platform, owner, repository, release id, from/to tags, profile, resolved display version, and a digest of the effective configuration (system prompt, model, temperature, commit types, mode, max tokens, thinking level, LLM base URL). An identical request with an identical configuration is a cache hit with no LLM call; any change to the contract — editing a profile's prompt text, switching modes — changes the key and regenerates.

@@ -45,15 +45,23 @@ type RepoSetting struct {
 	ThinkingLevel string // "off" | "low" | "medium" | "high"; empty = inherit from global
 }
 
-// GeneratedNote records a previously generated release note for idempotency.
+// GeneratedNote records a previously generated release note for idempotency,
+// keyed by the full generation contract (cache key). Legacy rows migrated
+// from the old release-id-keyed table carry legacy metadata (empty
+// from_tag/profile/config_digest, to_tag as display_version).
 type GeneratedNote struct {
-	Platform  string
-	Owner     string
-	Repo      string
-	ReleaseID string
-	Tag       string
-	Notes     string
-	CreatedAt string
+	CacheKey       string
+	Platform       string
+	Owner          string
+	Repo           string
+	ReleaseID      string
+	FromTag        string
+	ToTag          string
+	Profile        string
+	DisplayVersion string
+	ConfigDigest   string
+	Notes          string
+	CreatedAt      string
 }
 
 // migrations are applied in order at Store construction.
@@ -88,14 +96,18 @@ var migrations = []string{
 		PRIMARY KEY (platform, owner, repo)
 	)`,
 	`CREATE TABLE IF NOT EXISTS generated_notes (
+		cache_key TEXT PRIMARY KEY,
 		platform TEXT NOT NULL,
 		owner TEXT NOT NULL,
 		repo TEXT NOT NULL,
 		release_id TEXT NOT NULL,
-		tag TEXT NOT NULL,
+		from_tag TEXT NOT NULL DEFAULT '',
+		to_tag TEXT NOT NULL,
+		profile TEXT NOT NULL DEFAULT '',
+		display_version TEXT NOT NULL,
+		config_digest TEXT NOT NULL DEFAULT '',
 		notes TEXT NOT NULL,
-		created_at TEXT NOT NULL DEFAULT (datetime('now')),
-		PRIMARY KEY (release_id)
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`,
 }
 
@@ -104,6 +116,12 @@ func (s *Store) migrate() error {
 		if _, err := s.db.Exec(m); err != nil {
 			return fmt.Errorf("running migration: %w", err)
 		}
+	}
+	// Rebuild generated_notes from the legacy release-id-keyed schema to the
+	// contract-keyed schema, if needed. Runs before the ensureColumn loop
+	// (which only adds columns to tables that keep their legacy shape).
+	if err := s.migrateGeneratedNotes(); err != nil {
+		return fmt.Errorf("migrate generated_notes: %w", err)
 	}
 	// Backfill columns added after the table was first created.
 	// CREATE TABLE IF NOT EXISTS is a no-op on existing tables, so the column
@@ -127,6 +145,75 @@ func (s *Store) migrate() error {
 		}
 	}
 	return nil
+}
+
+// migrateGeneratedNotes rebuilds generated_notes from the legacy
+// release-id-keyed schema to the contract-keyed schema in a single
+// transaction. The guard makes fresh creation, the first legacy upgrade, and
+// repeated startups deterministic: when the table already has cache_key it
+// returns without mutation. Legacy rows are preserved verbatim with derived
+// metadata (legacy: platform:releaseID cache key, empty from_tag/profile/
+// config_digest, tag as to_tag and display_version); they intentionally
+// miss new contract-keyed lookups once, so stale output cannot survive the
+// contract change. Any error rolls back the whole transaction.
+func (s *Store) migrateGeneratedNotes() error {
+	rows, err := s.db.Query("PRAGMA table_info(generated_notes)")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	hasCacheKey := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "cache_key" {
+			hasCacheKey = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if hasCacheKey {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after commit
+
+	stmts := []string{
+		`CREATE TABLE generated_notes_new (
+			cache_key TEXT PRIMARY KEY,
+			platform TEXT NOT NULL,
+			owner TEXT NOT NULL,
+			repo TEXT NOT NULL,
+			release_id TEXT NOT NULL,
+			from_tag TEXT NOT NULL DEFAULT '',
+			to_tag TEXT NOT NULL,
+			profile TEXT NOT NULL DEFAULT '',
+			display_version TEXT NOT NULL,
+			config_digest TEXT NOT NULL DEFAULT '',
+			notes TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`INSERT INTO generated_notes_new (cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes, created_at)
+		 SELECT 'legacy:' || platform || ':' || release_id, platform, owner, repo, release_id, '', tag, '', tag, '', notes, created_at
+		 FROM generated_notes`,
+		`DROP TABLE generated_notes`,
+		`ALTER TABLE generated_notes_new RENAME TO generated_notes`,
+	}
+	for _, st := range stmts {
+		if _, err := tx.Exec(st); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ensureColumn adds a column to a table if it does not already exist.
@@ -308,25 +395,27 @@ func (s *Store) UpsertRepoSettings(r RepoSetting) error {
 }
 
 // MarkGenerated records a generated release note, overwriting any prior note
-// for the same release_id (idempotent for retries and force regeneration).
-func (s *Store) MarkGenerated(platform, owner, repo, releaseID, tag, notes string) error {
+// with the same cache key (idempotent for retries and force regeneration of
+// the same contract).
+func (s *Store) MarkGenerated(note GeneratedNote) error {
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO generated_notes (platform, owner, repo, release_id, tag, notes)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		platform, owner, repo, releaseID, tag, notes,
+		`INSERT OR REPLACE INTO generated_notes (cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		note.CacheKey, note.Platform, note.Owner, note.Repo, note.ReleaseID,
+		note.FromTag, note.ToTag, note.Profile, note.DisplayVersion, note.ConfigDigest, note.Notes,
 	)
 	return err
 }
 
-// GetGenerated returns the stored generated note for a release, or
+// GetGenerated returns the stored generated note for a cache key, or
 // (nil, nil) when none exists.
-func (s *Store) GetGenerated(platform, releaseID string) (*GeneratedNote, error) {
+func (s *Store) GetGenerated(cacheKey string) (*GeneratedNote, error) {
 	var n GeneratedNote
 	err := s.db.QueryRow(
-		`SELECT platform, owner, repo, release_id, tag, notes, created_at
-		 FROM generated_notes WHERE release_id = ?`,
-		releaseID,
-	).Scan(&n.Platform, &n.Owner, &n.Repo, &n.ReleaseID, &n.Tag, &n.Notes, &n.CreatedAt)
+		`SELECT cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes, created_at
+		 FROM generated_notes WHERE cache_key = ?`,
+		cacheKey,
+	).Scan(&n.CacheKey, &n.Platform, &n.Owner, &n.Repo, &n.ReleaseID, &n.FromTag, &n.ToTag, &n.Profile, &n.DisplayVersion, &n.ConfigDigest, &n.Notes, &n.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

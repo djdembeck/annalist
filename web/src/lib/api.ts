@@ -65,6 +65,11 @@ export type GenerateResult = {
   notes: string;
   release_id: string | null;
   published: boolean;
+  profile: string;
+  display_version: string;
+  from_tag: string;
+  to_tag: string;
+  config_digest: string;
 };
 
 export type GenerateRequest = {
@@ -72,6 +77,9 @@ export type GenerateRequest = {
   from_tag?: string | null;
   force?: boolean;
   publish?: boolean;
+  mode?: string;
+  profile?: string;
+  display_version?: string | null;
 };
 
 export type Settings = {
