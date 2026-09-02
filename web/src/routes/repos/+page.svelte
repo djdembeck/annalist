@@ -130,9 +130,7 @@
   // Per-repo release list for the Generate panel, fetched when the panel
   // opens. A failure is shown as an alert line; it never blocks the panel.
   let releases = $state<Record<string, Release[]>>({});
-  let releasesState = $state<
-    Record<string, "idle" | "loading" | "success" | "error">
-  >({});
+  let releasesState = $state<Record<string, "loading" | "success" | "error">>({});
   let releasesError = $state<Record<string, string | null>>({});
 
   function loadReleases(r: Repo, force = false): void {
@@ -803,7 +801,7 @@
                       >Refresh</button>
                     {/if}
                   </div>
-                  {#if releasesState[key] === "loading" || releasesState[key] === "idle"}
+                  {#if releasesState[key] === "loading"}
                     <div class="skeleton mt-2 h-12 w-full"></div>
                     <div class="skeleton mt-2 h-12 w-full"></div>
                   {:else if releasesState[key] === "error"}

@@ -501,19 +501,20 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		publish = *req.Publish
 	}
 
-	releaseID := "manual:" + platform + "/" + owner + "/" + repo + "@" + req.ToTag
 	var fromTag string
 	if req.FromTag != nil {
 		fromTag = *req.FromTag
 	}
 
+	// ReleaseID is left empty so GenerateNotes auto-resolves the
+	// platform-qualified "platform:<id>" key — the same key webhooks store
+	// under — and dedupes against webhook-generated notes.
 	notes, err := a.pip.GenerateNotes(r.Context(), pipeline.Spec{
-		Platform:  platform,
-		Owner:     owner,
-		Repo:      repo,
-		ToTag:     req.ToTag,
-		FromTag:   fromTag,
-		ReleaseID: releaseID,
+		Platform: platform,
+		Owner:    owner,
+		Repo:     repo,
+		ToTag:    req.ToTag,
+		FromTag:  fromTag,
 	}, pipeline.Options{Force: req.Force, Publish: publish, Mode: req.Mode})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -521,9 +522,8 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"notes":      notes,
-		"release_id": releaseID,
-		"published":  publish,
+		"notes":     notes,
+		"published": publish,
 	})
 }
 

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"time"
 
 	gogithub "github.com/google/go-github/v89/github"
@@ -246,20 +245,7 @@ func (c *Client) ListReleases(ctx context.Context, owner, repo string) ([]pipeli
 			PublishedAt: at,
 		})
 	}
-	sort.SliceStable(rel, func(i, j int) bool {
-		if rel[i].Draft != rel[j].Draft {
-			return !rel[i].Draft
-		}
-		t := rel[i].PublishedAt
-		if t == nil {
-			t = &rel[i].CreatedAt
-		}
-		u := rel[j].PublishedAt
-		if u == nil {
-			u = &rel[j].CreatedAt
-		}
-		return t.After(*u)
-	})
+	pipeline.SortReleases(rel)
 	return rel, nil
 }
 

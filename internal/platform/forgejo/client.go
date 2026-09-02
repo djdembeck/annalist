@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -246,20 +245,7 @@ func (c *Client) ListReleases(ctx context.Context, owner, repo string) ([]pipeli
 		}
 		page++
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Draft != out[j].Draft {
-			return !out[i].Draft
-		}
-		t := out[i].PublishedAt
-		if t == nil {
-			t = &out[i].CreatedAt
-		}
-		u := out[j].PublishedAt
-		if u == nil {
-			u = &out[j].CreatedAt
-		}
-		return t.After(*u)
-	})
+	pipeline.SortReleases(out)
 	return out, nil
 }
 

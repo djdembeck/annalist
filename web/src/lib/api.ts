@@ -57,7 +57,6 @@ export type RepoSettingUpdate = {
 
 export type GenerateResult = {
   notes: string;
-  release_id: string | null;
   published: boolean;
 };
 

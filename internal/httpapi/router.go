@@ -19,21 +19,21 @@ import (
 	"github.com/djdembeck/annalist/web"
 )
 
-// ghClient is the subset of the GitHub platform client the HTTP API needs.
-type ghClient interface {
+// platformClient is the subset of a platform client the HTTP API needs. Both
+// platform clients keep a shared surface, so a signature change in one forces
+// the other to match at compile time.
+type platformClient interface {
 	WebhookHandler(p *pipeline.Pipeline) http.Handler
 	ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error)
 	ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error)
 	ListReleases(ctx context.Context, owner, repo string) ([]pipeline.Release, error)
 }
 
-// fjClient is the subset of the Forgejo platform client the HTTP API needs.
-type fjClient interface {
-	WebhookHandler(p *pipeline.Pipeline) http.Handler
-	ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error)
-	ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error)
-	ListReleases(ctx context.Context, owner, repo string) ([]pipeline.Release, error)
-}
+// ghClient is an alias of platformClient for the api.gh field.
+type ghClient = platformClient
+
+// fjClient is an alias of platformClient for the api.fj field.
+type fjClient = platformClient
 
 // pipService is the subset of the pipeline the HTTP API needs, so handlers can
 // be unit-tested with a fake. *pipeline.Pipeline satisfies it.

@@ -910,8 +910,11 @@ func TestHandleGenerate(t *testing.T) {
 		if spec.ToTag != "v1.0.0" || spec.FromTag != "v0.9.0" || spec.Platform != "github" {
 			t.Errorf("spec = %+v", spec)
 		}
-		if want := "manual:github/o/r@v1.0.0"; spec.ReleaseID != want {
-			t.Errorf("release_id = %q, want %q", spec.ReleaseID, want)
+		// ReleaseID is left empty so the pipeline auto-resolves the
+		// platform-qualified key (platform:<id>) and dedupes against
+		// webhook-generated notes.
+		if spec.ReleaseID != "" {
+			t.Errorf("release_id = %q, want empty for auto-resolve", spec.ReleaseID)
 		}
 		if !pip.opts[0].Force || !pip.opts[0].Publish {
 			t.Errorf("opts = %+v, want force+publish", pip.opts[0])
@@ -1394,6 +1397,38 @@ func TestHandleListReleasesNilClient(t *testing.T) {
 	w := do(a.handleListReleases, r)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleListReleasesInvalidPlatform(t *testing.T) {
+	a, _, _ := testAPI(t, &config.Config{}, nil)
+	r := newReq(http.MethodGet, "/api/repos/gitlab/o/r/releases", "", map[string]string{
+		"platform": "gitlab",
+		"owner":    "o",
+		"repo":     "r",
+	})
+	w := do(a.handleListReleases, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleListReleasesNilForgejoClient(t *testing.T) {
+	cfg := &config.Config{Forgejo: config.ForgejoConfig{Token: "t"}}
+	a, _, _ := testAPI(t, cfg, nil)
+	a.fj = nil // explicitly nil
+
+	r := newReq(http.MethodGet, "/api/repos/forgejo/fjuser/repo/releases", "", map[string]string{
+		"platform": "forgejo",
+		"owner":    "fjuser",
+		"repo":     "repo",
+	})
+	w := do(a.handleListReleases, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "forgejo client not configured") {
+		t.Errorf("body = %q, want 'forgejo client not configured'", w.Body.String())
 	}
 }
 

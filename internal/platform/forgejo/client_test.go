@@ -325,7 +325,7 @@ func TestCloneInfoNoToken(t *testing.T) {
 	}
 }
 
-// releaseFixture returns a map of release JSON objects for the list endpoint.
+// releaseFixture returns a single release JSON object (map) for the list endpoint.
 func releaseFixture(id int64, tag, body string, draft bool, published bool) map[string]any {
 	rel := map[string]any{
 		"id":         id,
@@ -437,5 +437,58 @@ func TestListReleasesSinglePage(t *testing.T) {
 	}
 	if got[0].PublishedAt == nil || got[0].PublishedAt.Year() != 2026 {
 		t.Errorf("published_at = %v, want 2026", got[0].PublishedAt)
+	}
+}
+
+// TestListReleasesDistinctTimes pins the ListReleases ordering contract with
+// distinct timestamps (the shared releaseFixture hardcodes identical times, so
+// ordering by time is otherwise never asserted): published releases come first
+// in descending published_at order, then drafts in descending created_at order.
+func TestListReleasesDistinctTimes(t *testing.T) {
+	// API-ordered deliberately the reverse of the wanted order so a failure to
+	// sort (rather than a sort that happens to match input order) is caught.
+	rows := []map[string]any{
+		// Drafts: newer created_at must sort before older created_at.
+		{"id": 4, "tag_name": "draft-old", "body": "", "draft": true, "created_at": "2026-01-01T00:00:00Z"},
+		{"id": 3, "tag_name": "draft-new", "body": "", "draft": true, "created_at": "2026-02-01T00:00:00Z"},
+		// Published: newer published_at must sort first.
+		{"id": 1, "tag_name": "pub-old", "body": "", "draft": false, "created_at": "2025-12-30T00:00:00Z", "published_at": "2025-12-31T00:00:00Z"},
+		{"id": 2, "tag_name": "pub-new", "body": "", "draft": false, "created_at": "2026-01-30T00:00:00Z", "published_at": "2026-01-31T00:00:00Z"},
+	}
+	_, client, _ := forgejoServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Path; got != "/api/v1/repos/owner/repo/releases" {
+			t.Errorf("path = %q, want /api/v1/repos/owner/repo/releases", got)
+		}
+		okJSON(w, 200, rows)
+	})
+
+	got, err := client.ListReleases(context.Background(), "owner", "repo")
+	if err != nil {
+		t.Fatalf("ListReleases: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("got %d releases, want 4", len(got))
+	}
+	// Published descending by published_at, then drafts descending by created_at.
+	want := []struct {
+		tag   string
+		draft bool
+	}{
+		{"pub-new", false},
+		{"pub-old", false},
+		{"draft-new", true},
+		{"draft-old", true},
+	}
+	for i, w := range want {
+		if got[i].Tag != w.tag || got[i].Draft != w.draft {
+			t.Errorf("got[%d] = %s draft=%v, want %s draft=%v", i, got[i].Tag, got[i].Draft, w.tag, w.draft)
+		}
+	}
+	// Drafts carry a nil PublishedAt; published releases do not.
+	if got[2].PublishedAt != nil || got[3].PublishedAt != nil {
+		t.Errorf("drafts carry PublishedAt = (%v, %v), want nil", got[2].PublishedAt, got[3].PublishedAt)
+	}
+	if got[0].PublishedAt == nil || got[1].PublishedAt == nil {
+		t.Errorf("published releases carry nil PublishedAt: %+v", got[:2])
 	}
 }

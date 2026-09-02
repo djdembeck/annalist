@@ -12,7 +12,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
@@ -231,6 +234,30 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
+}
+
+// buildOriginThree creates a three-commit origin tagged v0.1.0, v0.2.0, v0.3.0
+// so two distinct tags (v0.1.0 and v0.2.0) each have a non-empty commit log —
+// required to drive both runs into the LLM call in the concurrency test.
+func buildOriginThree(t *testing.T, dir string) string {
+	t.Helper()
+	origin := filepath.Join(dir, "origin")
+	if err := os.MkdirAll(origin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitNoAsk(t, origin, "init", "-q")
+	commit := func(subject, tag string) {
+		if err := os.WriteFile(filepath.Join(origin, "f.txt"), []byte(subject), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitNoAsk(t, origin, "add", "-A")
+		gitNoAsk(t, origin, "commit", "-q", "-m", subject)
+		gitNoAsk(t, origin, "tag", tag)
+	}
+	commit("first: scaffolding", "v0.1.0")
+	commit("feat: feature x", "v0.2.0")
+	commit("feat: feature y", "v0.3.0")
+	return origin
 }
 
 // sharedStandardOrigin returns the origin built once in TestMain.
@@ -1054,4 +1081,269 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 			t.Fatalf("err = %v, want edit-release-body error", err)
 		}
 	})
+}
+
+// TestSortReleases pins the display ordering shared by the github and forgejo
+// clients: published releases first (descending publication time), drafts last
+// (descending creation time). A nil PublishedAt (draft) falls back to the
+// creation time; equal keys keep stable input order.
+func TestSortReleases(t *testing.T) {
+	now := time.Date(2026, 1, 10, 12, 0, 0, 0, time.UTC)
+	at := func(daysAgo int) *time.Time {
+		tt := now.AddDate(0, 0, -daysAgo)
+		return &tt
+	}
+	created := func(daysAgo int) time.Time { return now.AddDate(0, 0, -daysAgo) }
+
+	// Input order deliberately scrambled relative to the wanted order.
+	got := []Release{
+		{ID: 1, Tag: "draft-old", Draft: true, CreatedAt: created(30)},
+		{ID: 2, Tag: "pub-old", PublishedAt: at(20)},
+		{ID: 3, Tag: "draft-new", Draft: true, CreatedAt: created(2)},
+		{ID: 4, Tag: "pub-new", PublishedAt: at(1)},
+		{ID: 5, Tag: "pub-mid", PublishedAt: at(10)},
+	}
+	SortReleases(got)
+
+	var gotTags []string
+	for _, r := range got {
+		gotTags = append(gotTags, r.Tag)
+	}
+	// Published descending by published_at, then drafts descending by created_at.
+	want := []string{"pub-new", "pub-mid", "pub-old", "draft-new", "draft-old"}
+	if strings.Join(gotTags, ",") != strings.Join(want, ",") {
+		t.Errorf("order = %v, want %v", gotTags, want)
+	}
+	// The draft must carry a nil PublishedAt and fall back to its creation time.
+	if got[3].PublishedAt != nil || !got[3].CreatedAt.Equal(created(2)) {
+		t.Errorf("draft-new = %+v, want PublishedAt nil, CreatedAt %v", got[3], created(2))
+	}
+}
+
+// TestGenerateNotesAutoResolveMissingTag verifies that a manual generation
+// (empty ReleaseID) whose tag resolves to no release fails before any clone or
+// LLM work: the missing release must be reported as ErrNotFound and nothing
+// may be spent or recorded.
+func TestGenerateNotesAutoResolveMissingTag(t *testing.T) {
+	// Empty releases map -> GetReleaseByTag returns ErrNotFound.
+	pip, stub, f, _ := fixture(t, nil, map[string]*Release{})
+	// A sentinel clone error proves the clone was never attempted: if the
+	// pipeline had proceeded past the missing release, CloneInfo would surface
+	// this error instead of the fetch-release error.
+	f.cloneErr = errors.New("clone sentinel (must not be reached)")
+
+	_, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", ""), Options{})
+	if err == nil || !strings.Contains(err.Error(), "pipeline: fetch release") {
+		t.Fatalf("err = %v, want wrapped fetch-release error", err)
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want errors.Is(err, ErrNotFound)", err)
+	}
+	if strings.Contains(err.Error(), "clone sentinel") {
+		t.Fatalf("clone was attempted despite a missing release: %v", err)
+	}
+	if stub.calls != 0 {
+		t.Errorf("LLM called %d times, want 0 (missing release must fail before spend)", stub.calls)
+	}
+	if f.edited != "" {
+		t.Errorf("release body was edited despite a missing release: %q", f.edited)
+	}
+}
+
+// runOrigin is a fakePlatform whose CloneInfo points each run at a fresh copy
+// of the shared origin. Concurrent runs of the same origin would otherwise
+// collide on the identical derived clone workdir (git clone refuses to write
+// into a non-empty dir), so a per-run destination is what lets genuinely
+// concurrent generations proceed to the LLM. The copied origins land under
+// dir, which the owning test registers as a t.TempDir cleanup.
+type runOrigin struct {
+	*fakePlatform
+	base string
+	dir  string
+	mu   sync.Mutex
+	next int
+}
+
+func newRunOrigin(f *fakePlatform, base, dir string) *runOrigin {
+	return &runOrigin{fakePlatform: f, base: base, dir: dir}
+}
+
+func (r *runOrigin) CloneInfo(ctx context.Context, owner, repo string) (string, string, error) {
+	r.mu.Lock()
+	idx := r.next
+	r.next++
+	r.mu.Unlock()
+	dst := filepath.Join(r.dir, fmt.Sprintf("origin-%d", idx))
+	if err := copyDir(r.base, dst); err != nil {
+		return "", "", fmt.Errorf("copy origin: %w", err)
+	}
+	return dst, "Bearer test-token", nil
+}
+
+// copyDir recursively copies a directory tree. git stores .git and some of its
+// internals with restrictive modes (e.g. 0500 lock dirs) that a subsequent
+// clone into the copy would refuse to write; the copy is a disposable test
+// fixture, so dirs and files are normalized to writable modes.
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+}
+
+// blockingStub is an LLM stub that counts concurrent in-flight chat requests
+// and holds each one open (no response written) until the test releases it.
+// The LLM call sits *behind* the per-(platform, releaseID) inflight lock, so
+// the number of requests held open at once is exactly the number of distinct
+// keys allowed to proceed in parallel. `peak` records the maximum concurrent
+// in-flight count the server ever observed, which a test can assert on.
+type blockingStub struct {
+	srv      *httptest.Server
+	inFlight atomic.Int32  // requests currently held at the gate
+	peak     atomic.Int32  // max in-flight count ever observed
+	total    atomic.Int32  // total requests served
+	release  chan struct{} // closed by the test to let the held requests finish
+}
+
+func newBlockingStub() *blockingStub {
+	b := &blockingStub{release: make(chan struct{})}
+	b.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		b.total.Add(1)
+		n := b.inFlight.Add(1)
+		// Record the peak concurrent in-flight count.
+		for {
+			p := b.peak.Load()
+			if n <= p || b.peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
+		<-b.release // hold the response open until the test releases this stub
+		b.inFlight.Add(-1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"choices":[{"message":{"content":"FLOWING PROSE"}}]}`)
+	}))
+	return b
+}
+
+func (b *blockingStub) close() { b.srv.Close() }
+
+func (b *blockingStub) inFlightNow() int { return int(b.inFlight.Load()) }
+
+func (b *blockingStub) peakNow() int { return int(b.peak.Load()) }
+
+func (b *blockingStub) totalNow() int { return int(b.total.Load()) }
+
+// TestGenerateNotesInflightKeyIsResolved pins the resolve-before-lock reorder:
+// a manual run (empty ReleaseID) must acquire the inflight lock on the
+// *resolved* (platform:releaseID) key, not a platform-wide key.
+//
+// (a) Two runs for DIFFERENT tags must not block each other on the lock. If
+// the lock were platform-wide, the first run would hold the whole platform and
+// the second could not even proceed while the first is in flight, so at most
+// one run would reach the LLM at a time. The gate proves both distinct runs
+// reach the LLM together, which is only possible if each resolved a distinct
+// key.
+//
+// (b) Two runs that resolve to the SAME release must serialize on the shared
+// key: the second cannot enter the LLM call while the first is in it, so the
+// peak concurrent LLM calls for the same key stays at 1 (no double spend).
+func TestGenerateNotesInflightKeyIsResolved(t *testing.T) {
+	t.Run("distinct releases proceed concurrently", func(t *testing.T) {
+		b := newBlockingStub()
+		t.Cleanup(b.close)
+		pip, _, f, _ := fixture(t, nil, map[string]*Release{
+			"v0.1.0": {ID: 1, Body: ""},
+			"v0.2.0": {ID: 2, Body: ""},
+		})
+		// A 3-commit origin so both distinct tags yield a non-empty log and
+		// drive their run into the LLM call.
+		f.origin = buildOriginThree(t, t.TempDir())
+		pip.GitHub = newRunOrigin(f, f.origin, t.TempDir())
+		// Point the LLM client at the blocking stub (the fixture stub is unused).
+		pip.Cfg.LLM.BaseURL = b.srv.URL
+
+		var wg sync.WaitGroup
+		for _, tag := range []string{"v0.1.0", "v0.2.0"} {
+			wg.Add(1)
+			go func(tag string) {
+				defer wg.Done()
+				_, _ = pip.GenerateNotes(context.Background(), genSpec(tag, ""), Options{Force: true})
+			}(tag)
+		}
+		// Both distinct-release runs must reach the LLM together (peak == 2).
+		// This is the reorder discriminator: if the inflight lock were acquired
+		// BEFORE the ReleaseID was resolved (a platform-wide key), the second
+		// run could not even pass the lock while the first holds the whole
+		// platform, so at most one would be in flight.
+		waitFor(t, func() bool { return b.peakNow() == 2 }, "both distinct-release runs in flight together (no platform-wide lock)")
+		close(b.release)
+		wg.Wait()
+	})
+
+	t.Run("same release serializes on the shared key", func(t *testing.T) {
+		b := newBlockingStub()
+		t.Cleanup(b.close)
+		pip, _, f, _ := fixture(t, nil, map[string]*Release{
+			"v0.2.0": {ID: 1, Body: ""},
+		})
+		pip.GitHub = newRunOrigin(f, f.origin, t.TempDir())
+		pip.Cfg.LLM.BaseURL = b.srv.URL
+
+		done := make(chan struct{})
+		go func() {
+			_, _ = pip.GenerateNotes(context.Background(), genSpec("v0.2.0", ""), Options{Force: true})
+			close(done)
+		}()
+		// The first run holds its resolved key and is in the LLM call.
+		waitFor(t, func() bool { return b.inFlightNow() == 1 }, "first same-key run in the LLM call")
+
+		// A second run for the SAME release must block on the shared inflight
+		// key, so the second cannot enter the LLM call while the first is in it
+		// — at most one same-key run may be in flight at once (no double spend).
+		done2 := make(chan struct{})
+		go func() {
+			_, _ = pip.GenerateNotes(context.Background(), genSpec("v0.2.0", ""), Options{Force: true})
+			close(done2)
+		}()
+		// Release the held LLM calls; both runs finish in turn.
+		close(b.release)
+		<-done
+		<-done2
+		// Both same-key runs generated (each spent the LLM once), but never ran
+		// concurrently: the peak in-flight count stayed at 1.
+		if got := b.totalNow(); got != 2 {
+			t.Errorf("total LLM calls = %d, want 2 (each same-key run must generate)", got)
+		}
+		if got := b.peakNow(); got != 1 {
+			t.Errorf("peak concurrent LLM calls = %d, want 1 (same-key runs must serialize)", got)
+		}
+	})
+}
+
+// waitFor polls until f() is true or the test's generous deadline elapses,
+// failing the test with msg if it never does.
+func waitFor(t *testing.T, f func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !f() {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for " + msg)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
