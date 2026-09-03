@@ -112,11 +112,16 @@ type Pipeline struct {
 	// generation contract: range, profile, display version, config digest) so
 	// concurrent identical requests cannot double-spend the LLM. Different
 	// profiles of the same release use different keys and run concurrently.
-	generationInflight sync.Map // key: cache_key -> *sync.Mutex
+	// Keyed locks are removed once the last participant exits, so long-running
+	// services do not accumulate one lock per unique contract.
+	generationInflight     *keyedLock
+	generationInflightOnce sync.Once
 
-	// publishInflight serializes release-body replacement per release so two
+	// publishInflight serializes release-body replacement per release
+	// identity (platform/owner/repo@tag) across all request surfaces, so two
 	// profile publishes cannot interleave fetch/edit (last-write-wins).
-	publishInflight sync.Map // key: platform + "/" + releaseID -> *sync.Mutex
+	publishInflight     *keyedLock
+	publishInflightOnce sync.Once
 
 	// genSem bounds concurrent generations (clone + LLM + publish) so a burst
 	// of signed deliveries cannot exhaust CPU, disk, or LLM budget.
@@ -129,6 +134,99 @@ type Pipeline struct {
 func (p *Pipeline) sem() chan struct{} {
 	p.genSemOnce.Do(func() { p.genSem = make(chan struct{}, 4) })
 	return p.genSem
+}
+
+// genInflight returns the keyed lock that serializes generation per cache key,
+// initializing it lazily so tests can construct a Pipeline literal without
+// going through New.
+func (p *Pipeline) genInflight() *keyedLock {
+	p.generationInflightOnce.Do(func() { p.generationInflight = newKeyedLock() })
+	return p.generationInflight
+}
+
+// pubInflight returns the keyed lock that serializes release-body replacement
+// per release identity, initializing it lazily.
+func (p *Pipeline) pubInflight() *keyedLock {
+	p.publishInflightOnce.Do(func() { p.publishInflight = newKeyedLock() })
+	return p.publishInflight
+}
+
+// keyedLock is a map of per-key mutexes whose entries are reaped once the
+// last participant for a key leaves. Reaping is safe because every change to
+// a state's participant count and every map insert/delete happens under the
+// table mutex (kl.mu); the state mutex (st.mu) protects only the critical
+// section and is never held while touching the count or the map:
+//
+//   - Lock bumps the count under kl.mu, then takes st.mu for the section.
+//   - Unlock drops the count under kl.mu, deletes the entry if the count
+//     reached zero, and releases st.mu while still holding kl.mu.
+//
+// The increment and the last decrement are therefore mutually exclusive, and
+// the count is never zero while a participant is alive or waiting: a late
+// arrival that races the reaper either takes kl.mu before the departing
+// holder (bumps the still-live state and is serialized behind it on st.mu)
+// or takes it only after the holder has fully left the critical section
+// (finds the key reaped and creates a fresh state). Two live participants
+// for the same key can never hold different mutexes.
+type keyedLock struct {
+	mu    sync.Mutex
+	locks map[string]*lockState
+}
+
+// lockState is the per-key participant count (guarded by the table mutex) and
+// the mutex shared by every participant that holds that key.
+type lockState struct {
+	count int
+	mu    sync.Mutex
+}
+
+func newKeyedLock() *keyedLock { return &keyedLock{locks: make(map[string]*lockState)} }
+
+// Lock acquires the mutex for key. Callers must pair it with Unlock(key) on
+// the same keyedLock.
+func (kl *keyedLock) Lock(key string) {
+	kl.mu.Lock()
+	st, ok := kl.locks[key]
+	if !ok {
+		st = &lockState{}
+		kl.locks[key] = st
+	}
+	st.count++
+	kl.mu.Unlock()
+
+	st.mu.Lock()
+}
+
+// Unlock releases the mutex for key and reaps the entry once the last
+// participant leaves. It holds the table mutex through the release of the
+// state mutex, so a concurrent Lock(key) either takes the table mutex first
+// (bumps the still-live state and blocks on the state mutex behind this
+// holder) or takes it only after this holder has fully left the critical
+// section (finds the key reaped and creates a fresh state).
+func (kl *keyedLock) Unlock(key string) {
+	kl.mu.Lock()
+	st := kl.locks[key]
+	st.count--
+	if st.count == 0 {
+		delete(kl.locks, key)
+	}
+	st.mu.Unlock()
+	kl.mu.Unlock()
+}
+
+// count returns the number of live keys; used by tests to assert reaping.
+func (kl *keyedLock) count() int {
+	kl.mu.Lock()
+	defer kl.mu.Unlock()
+	return len(kl.locks)
+}
+
+// state returns the live state for key, or nil if reaped; used by tests to
+// verify reaping handshakes.
+func (kl *keyedLock) state(key string) *lockState {
+	kl.mu.Lock()
+	defer kl.mu.Unlock()
+	return kl.locks[key]
 }
 
 // marker is written at the end of every release body this app publishes, so
@@ -391,10 +489,9 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	// Acquire the per-contract generation lock, then recheck the cache: the
 	// key already encodes the resolved range and prompt identity, and the
 	// lock makes the check-then-generate atomic for identical requests.
-	mu, _ := p.generationInflight.LoadOrStore(cacheKey, &sync.Mutex{})
-	m := mu.(*sync.Mutex)
-	m.Lock()
-	defer m.Unlock()
+	gi := p.genInflight()
+	gi.Lock(cacheKey)
+	defer gi.Unlock(cacheKey)
 
 	if !opts.Force {
 		existing, err := p.DB.GetGenerated(cacheKey)
@@ -526,15 +623,28 @@ func (p *Pipeline) cacheKey(spec Spec, fromTag, configDigest string) string {
 
 // Publish writes result.Notes into the release body for spec, honoring the
 // don't-clobber guard unless force is set, then records the generated note.
-// The release-body replacement is serialized per release (fetch/
-// don't-clobber/edit/mark happen under one lock), so concurrent profile
-// publishes cannot interleave: they are last-write-wins by design, because
-// each publish asks Annalist to replace the same owned body.
+// The release-body replacement is serialized per release identity —
+// platform/owner/repo@tag, the same identity a release resolves to from any
+// request surface (webhook, manual API, CLI) — so fetch/don't-clobber/edit/
+// mark happen under one lock regardless of which surface issued the publish.
+// Concurrent profile publishes therefore cannot interleave: they are
+// last-write-wins by design, because each publish asks Annalist to replace the
+// same owned body.
+// publishLockKey is the surface-independent identity of a release:
+// platform/owner/repo@tag. ReleaseID namespaces differ per request surface
+// (webhook numeric id, "manual:…", "cli:…"), so keying the publish lock on it
+// would only serialize within one surface; platform/owner/repo@tag is the same
+// identity a release resolves to from any surface, so it is the correct
+// serialization key.
+func publishLockKey(spec Spec) string {
+	return spec.Platform + "/" + spec.Owner + "/" + spec.Repo + "@" + spec.ToTag
+}
+
 func (p *Pipeline) Publish(ctx context.Context, result Result, spec Spec, platform Platform, force bool) error {
-	mu, _ := p.publishInflight.LoadOrStore(spec.Platform+"/"+spec.ReleaseID, &sync.Mutex{})
-	m := mu.(*sync.Mutex)
-	m.Lock()
-	defer m.Unlock()
+	pub := p.pubInflight()
+	lockKey := publishLockKey(spec)
+	pub.Lock(lockKey)
+	defer pub.Unlock(lockKey)
 
 	release, err := platform.GetReleaseByTag(ctx, spec.Owner, spec.Repo, spec.ToTag)
 	if err != nil {

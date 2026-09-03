@@ -1597,3 +1597,96 @@ profiles:
 		t.Errorf("stored rows = %d, want 2", n)
 	}
 }
+
+// TestKeyedLockReaping verifies that keyed lock entries are removed once the
+// last participant leaves, and that a key re-acquired after full release still
+// serializes with the in-flight user that raced the reaper (never a fresh,
+// unsynchronized lock).
+func TestKeyedLockReaping(t *testing.T) {
+	t.Run("many unique keys are reaped", func(t *testing.T) {
+		kl := newKeyedLock()
+		const n = 25
+		for i := range n {
+			key := fmt.Sprintf("key-%d", i)
+			kl.Lock(key)
+			kl.Unlock(key)
+		}
+		if got := kl.count(); got != 0 {
+			t.Errorf("keys after %d acquire/release cycles = %d, want 0", n, got)
+		}
+	})
+
+	t.Run("re-acquired key serializes with in-flight user", func(t *testing.T) {
+		kl := newKeyedLock()
+		const key = "key"
+
+		kl.Lock(key)
+		kl.Unlock(key)
+		if got := kl.count(); got != 0 {
+			t.Fatalf("key not reaped after first release: %d", got)
+		}
+
+		// The first user keeps the key until main has the second user's
+		// Lock in flight, so the second user's Lock genuinely races the
+		// first user's final Unlock — the reaper boundary. All handshakes
+		// are channels; no assertion depends on scheduling or sleeps.
+		inside := make(chan struct{}) // first user is inside its critical section
+		hold := make(chan struct{})   // first user may start its final Unlock
+		done := make(chan struct{})   // first user's Unlock has returned
+
+		go func() {
+			kl.Lock(key)
+			close(inside)
+			<-hold // hold the key until the second user is in flight
+			kl.Unlock(key)
+			close(done)
+		}()
+		<-inside
+		firstState := kl.state(key) // the state the first user holds
+
+		entered := make(chan struct{})
+		secondDone := make(chan struct{})
+		go func() {
+			// This Lock may land while the first user is between reaping
+			// the entry and releasing the state mutex; it must still be
+			// serialized behind the first user, never on a different
+			// mutex.
+			kl.Lock(key)
+			close(entered)
+			if st := kl.state(key); st != firstState {
+				// Fresh state: the first user's entry was already reaped.
+				// Holding a different mutex while the first user still
+				// holds its own is exactly the invariant violation.
+				if !firstState.mu.TryLock() {
+					t.Error("second user holds a fresh state while the first user still holds its state")
+				} else {
+					firstState.mu.Unlock()
+				}
+			}
+			kl.Unlock(key)
+			close(secondDone)
+		}()
+		close(hold)
+
+		<-entered
+		<-done
+		<-secondDone
+		if got := kl.count(); got != 0 {
+			t.Errorf("keys after all releases = %d, want 0", got)
+		}
+	})
+}
+
+// TestPublishLockKey pins the publish lock's key format: it must be the
+// surface-independent release identity platform/owner/repo@tag, not the
+// surface-scoped ReleaseID (webhook numeric id, "manual:…", "cli:…").
+func TestPublishLockKey(t *testing.T) {
+	got := publishLockKey(Spec{Platform: "github", Owner: "o", Repo: "r", ToTag: "v1.2.3", ReleaseID: "github:123"})
+	want := "github/o/r@v1.2.3"
+	if got != want {
+		t.Errorf("publishLockKey = %q, want %q", got, want)
+	}
+	if strings.Contains(publishLockKey(Spec{ReleaseID: "github:123"}), "github:123") {
+		t.Error("publish lock key must not embed the surface-scoped ReleaseID")
+	}
+}
