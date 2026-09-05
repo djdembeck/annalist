@@ -552,11 +552,13 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ToTag   string  `json:"to_tag"`
-		FromTag *string `json:"from_tag"`
-		Force   bool    `json:"force"`
-		Publish *bool   `json:"publish"`
-		Mode    string  `json:"mode"`
+		ToTag          string  `json:"to_tag"`
+		FromTag        *string `json:"from_tag"`
+		Force          bool    `json:"force"`
+		Publish        *bool   `json:"publish"`
+		Mode           string  `json:"mode"`
+		Profile        string  `json:"profile"`
+		DisplayVersion *string `json:"display_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		badJSON(w, err)
@@ -576,29 +578,54 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		publish = *req.Publish
 	}
 
+	// A present but blank display_version is rejected; omission leaves it
+	// empty for the Spec.ToTag fallback.
+	var displayVersion string
+	if req.DisplayVersion != nil {
+		if strings.TrimSpace(*req.DisplayVersion) == "" {
+			writeErr(w, http.StatusBadRequest, "display_version must be non-empty when present")
+			return
+		}
+		displayVersion = *req.DisplayVersion
+	}
+
 	releaseID := "manual:" + platform + "/" + owner + "/" + repo + "@" + req.ToTag
 	var fromTag string
 	if req.FromTag != nil {
 		fromTag = *req.FromTag
 	}
 
-	notes, err := a.pip.GenerateNotes(r.Context(), pipeline.Spec{
-		Platform:  platform,
-		Owner:     owner,
-		Repo:      repo,
-		ToTag:     req.ToTag,
-		FromTag:   fromTag,
-		ReleaseID: releaseID,
+	result, err := a.pip.GenerateNotes(r.Context(), pipeline.Spec{
+		Platform:       platform,
+		Owner:          owner,
+		Repo:           repo,
+		ToTag:          req.ToTag,
+		FromTag:        fromTag,
+		ReleaseID:      releaseID,
+		Profile:        req.Profile,
+		DisplayVersion: displayVersion,
 	}, pipeline.Options{Force: req.Force, Publish: publish, Mode: req.Mode})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		switch {
+		case errors.Is(err, pipeline.ErrInvalidProfile), errors.Is(err, pipeline.ErrInvalidDisplayVersion):
+			writeErr(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, pipeline.ErrProfileConfig):
+			writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		default:
+			writeErr(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"notes":      notes,
-		"release_id": releaseID,
-		"published":  publish,
+		"notes":           result.Notes,
+		"release_id":      releaseID,
+		"published":       publish,
+		"profile":         result.Profile,
+		"display_version": result.DisplayVersion,
+		"from_tag":        result.FromTag,
+		"to_tag":          result.ToTag,
+		"config_digest":   result.ConfigDigest,
 	})
 }
 
@@ -626,13 +653,15 @@ func (a *api) handleInRepoInstructions(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusServiceUnavailable, "forgejo client not configured")
 			return
 		}
-		content, readErr = a.fj.ReadRepoFile(r.Context(), owner, repo, instPath)
+		// The dashboard preview intentionally shows the current
+		// default-branch file: ref == "" reads the default branch.
+		content, readErr = a.fj.ReadRepoFile(r.Context(), owner, repo, instPath, "")
 	} else {
 		if a.gh == nil {
 			writeErr(w, http.StatusServiceUnavailable, "github client not configured")
 			return
 		}
-		content, readErr = a.gh.ReadRepoFile(r.Context(), owner, repo, instPath)
+		content, readErr = a.gh.ReadRepoFile(r.Context(), owner, repo, instPath, "")
 	}
 
 	if readErr != nil {

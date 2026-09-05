@@ -15,6 +15,10 @@ Node/Deno/Bun web app, a Rust CLI, a static site, or anything else unchanged.
 | `config.yaml` | Annotated annalist configuration (env var per key) | `config.yaml` next to the `annalist` binary (e.g. `/etc/annalist/config.yaml`), or as env vars |
 | `docker-compose.yml` | Deploy annalist via Docker Compose (with healthcheck + data volume) | your infrastructure repo / `docker compose up -d` |
 | `prompt.md` | Release-notes instructions consumed by annalist (the "system prompt") | `.forgejo/release-notes.md` (Forgejo) or `.github/release-notes-instructions.md` (GitHub) |
+| `release-notes.yaml` | Named release-note profile manifest (three example profiles) | `.annalist/release-notes.yaml` in the consuming repo |
+| `prompts/maintainer.md` | Technical-audience profile prompt (example) | `.annalist/prompts/maintainer.md` in the consuming repo |
+| `prompts/customer.md` | End-user-audience profile prompt (example) | `.annalist/prompts/customer.md` in the consuming repo |
+| `prompts/compact.md` | Compact changelog-style profile prompt (example) | `.annalist/prompts/compact.md` in the consuming repo |
 | `workflows/forgejo-release.yml` | Generate-first release workflow for Forgejo / Gitea | `.forgejo/workflows/release.yml` in the consuming repo |
 | `workflows/github-release.yml` | Generate-first release workflow for GitHub | `.github/workflows/release.yml` in the consuming repo |
 
@@ -48,6 +52,39 @@ branch bumps the version from conventional commits (`BREAKING CHANGE` /
 (`version`, `bump`) for manual control. Re-runs are idempotent — a re-dispatch
 after a partial failure reuses the existing tag and only completes the missing
 release.
+
+## Named release-note profiles
+
+The default workflow above does **not** use profiles: it stays a single
+generate-first call with one note per release. Profiles are an opt-in,
+explicit extension.
+
+A consuming repository defines named profiles in `.annalist/release-notes.yaml`
+(see `release-notes.yaml` here) — a strict manifest mapping each profile name
+to a prompt file. Each prompt file under `.annalist/prompts/` (the three
+examples are in `prompts/` here) is the **entire** system prompt for that
+profile: no built-in persona or the legacy instructions file is layered on
+top.
+
+Behavior:
+
+- A request selects exactly **one** profile per generation call — one
+  request, one profile's output. There is no batch mode and no output
+  composition.
+- No profile requested → legacy behavior, unchanged (the provider-specific
+  in-repo instructions file, or settings/persona fallback).
+- Both the manifest and the selected prompt are read **pinned to the source
+  tag** (`to_tag`), so notes are generated from the prompt at that version.
+- `display_version` may differ from the source tag (e.g. a beta tag shown as
+  a release version); omitted, it resolves to the source tag.
+- Multi-output releases: generate each profile with `publish: false`, compose
+  the body externally, and publish once. Repeated `publish: true` calls for
+  different profiles on the same release replace the same Annalist-owned body
+  last-write-wins.
+
+Both workflow examples include a commented, optional second generate call
+showing a named-profile request. See [docs/release-notes-voices.md](../docs/release-notes-voices.md)
+for the full contract.
 
 ## Adapting
 

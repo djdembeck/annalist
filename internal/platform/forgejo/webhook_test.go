@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
@@ -31,7 +34,7 @@ type fakePlatform struct {
 	releases map[string]*pipeline.Release
 }
 
-func (f *fakePlatform) ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error) {
+func (f *fakePlatform) ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error) {
 	return "", fmt.Errorf("%w: %s", pipeline.ErrNotFound, path)
 }
 func (f *fakePlatform) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*pipeline.Release, error) {
@@ -82,7 +85,7 @@ func makeOrigin(t *testing.T) string {
 	return origin
 }
 
-func makePipeline(t *testing.T, baseURL string) (*pipeline.Pipeline, *db.Store) {
+func makePipeline(t *testing.T, baseURL string) (*pipeline.Pipeline, *db.Store, string) {
 	t.Helper()
 	dataDir := filepath.Join(t.TempDir(), "data")
 	store, err := db.New(dataDir)
@@ -98,7 +101,41 @@ func makePipeline(t *testing.T, baseURL string) (*pipeline.Pipeline, *db.Store) 
 		},
 	}
 	f := &fakePlatform{origin: makeOrigin(t), releases: map[string]*pipeline.Release{"v0.2.0": {ID: 42, Body: ""}}}
-	return pipeline.New(cfg, store, llm.New(cfg.LLM), nil, f), store
+	return pipeline.New(cfg, store, llm.New(cfg.LLM), nil, f), store, dataDir
+}
+
+// generatedByReleaseID looks up the generated record by release_id. The
+// contract cache key is an opaque digest the test cannot compute, so the poll
+// queries the table column directly.
+func generatedByReleaseID(dataDir, releaseID string) (*db.GeneratedNote, error) {
+	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "app.db"))
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	var n db.GeneratedNote
+	err = conn.QueryRow(
+		`SELECT cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes, created_at
+		 FROM generated_notes WHERE release_id = ?`, releaseID,
+	).Scan(&n.CacheKey, &n.Platform, &n.Owner, &n.Repo, &n.ReleaseID, &n.FromTag, &n.ToTag, &n.Profile, &n.DisplayVersion, &n.ConfigDigest, &n.Notes, &n.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+func countGenerated(dataDir string) (int, error) {
+	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "app.db"))
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	var n int
+	err = conn.QueryRow(`SELECT COUNT(*) FROM generated_notes`).Scan(&n)
+	return n, err
 }
 
 func llmStub(t *testing.T) *httptest.Server {
@@ -121,18 +158,18 @@ func signForgejo(secret string, body []byte) string {
 // waitForGenerated polls for the async webhook dispatch to land. Webhook
 // generation now runs in a background goroutine, so the generated record is
 // not guaranteed to exist when the HTTP request returns.
-func waitForGenerated(t *testing.T, store *db.Store, platform, releaseID string) *db.GeneratedNote {
+func waitForGenerated(t *testing.T, dataDir, releaseID string) *db.GeneratedNote {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		gn, err := store.GetGenerated(platform, releaseID)
+		gn, err := generatedByReleaseID(dataDir, releaseID)
 		if err == nil && gn != nil {
 			return gn
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	gn, err := store.GetGenerated(platform, releaseID)
-	t.Fatalf("timed out waiting for generated record (%s/%s): %+v (err=%v)", platform, releaseID, gn, err)
+	gn, err := generatedByReleaseID(dataDir, releaseID)
+	t.Fatalf("timed out waiting for generated record (%s): %+v (err=%v)", releaseID, gn, err)
 	return nil
 }
 
@@ -141,7 +178,7 @@ const forgejoPayload = `{"action":"created","release":{"id":42,"tag_name":"v0.2.
 func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 	const secret = "forgejo-secret"
 	stub := llmStub(t)
-	pip, store := makePipeline(t, stub.URL)
+	pip, _, dataDir := makePipeline(t, stub.URL)
 	handler := New(config.ForgejoConfig{URL: "https://git.example.invalid", Token: "tok", WebhookSecret: secret}).WebhookHandler(pip)
 
 	post := func(t *testing.T, body []byte, sigs map[string]string, event string) *httptest.ResponseRecorder {
@@ -165,8 +202,8 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", rec.Code)
 		}
-		if gn, err := store.GetGenerated("forgejo", "forgejo:42"); err != nil || gn != nil {
-			t.Fatalf("generated record exists after rejected request: %+v, %v", gn, err)
+		if n, err := countGenerated(dataDir); err != nil || n != 0 {
+			t.Fatalf("generated record exists after rejected request: count=%d (err=%v)", n, err)
 		}
 	})
 
@@ -175,8 +212,8 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 		}
-		gn := waitForGenerated(t, store, "forgejo", "forgejo:42")
-		if gn.Tag != "v0.2.0" || gn.Owner != "djdembeck" || gn.Repo != "annalist" {
+		gn := waitForGenerated(t, dataDir, "forgejo:42")
+		if gn.ToTag != "v0.2.0" || gn.Owner != "djdembeck" || gn.Repo != "annalist" {
 			t.Errorf("generated record = %+v", gn)
 		}
 		if !strings.Contains(gn.Notes, "WEBHOOK NOTES") {
@@ -191,7 +228,7 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
-		_ = waitForGenerated(t, store, "forgejo", "forgejo:43")
+		_ = waitForGenerated(t, dataDir, "forgejo:43")
 	})
 
 	t.Run("draft or non-release action is ignored", func(t *testing.T) {
@@ -202,7 +239,7 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("draft status = %d, want 200", rec.Code)
 		}
-		if gn, _ := store.GetGenerated("forgejo", "forgejo:99"); gn != nil {
+		if gn, _ := generatedByReleaseID(dataDir, "forgejo:99"); gn != nil {
 			t.Error("draft release must not be generated")
 		}
 
@@ -213,7 +250,7 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 		if rec2.Code != http.StatusOK {
 			t.Fatalf("deleted status = %d, want 200", rec2.Code)
 		}
-		if gn, _ := store.GetGenerated("forgejo", "100"); gn != nil {
+		if gn, _ := generatedByReleaseID(dataDir, "100"); gn != nil {
 			t.Error("non-created/updated action must not be generated")
 		}
 	})

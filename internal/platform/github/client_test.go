@@ -2,10 +2,18 @@ package github
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	gogithub "github.com/google/go-github/v89/github"
@@ -110,7 +118,7 @@ func TestListReposNoCreds(t *testing.T) {
 
 func TestReadRepoFileNoCreds(t *testing.T) {
 	c := New(config.GitHubConfig{})
-	_, err := c.ReadRepoFile(context.Background(), "owner", "repo", "path")
+	_, err := c.ReadRepoFile(context.Background(), "owner", "repo", "path", "")
 	assertCredsError(t, err)
 }
 
@@ -171,4 +179,100 @@ func TestPartialCredsStillGuards(t *testing.T) {
 		t.Errorf("missing key should not surface ErrNotFound, got %v", err)
 	}
 	assertCredsError(t, err)
+}
+
+// testAppKeyPEM generates a throwaway RSA private key in the "PRIVATE KEY"
+// (PKCS#1) form GitHub App credentials use, written to a temp file.
+func testAppKeyPEM(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	path := filepath.Join(t.TempDir(), "key.pem")
+	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// fakeGitHubRT is a full HTTP.RoundTripper that serves canned GitHub API
+// responses and records the RequestURI of every request it handles. The
+// ghinstallation transport routes every request (installation lookup, JWT
+// access-token exchange, and the proxied contents call) through the base
+// transport, so injecting this as http.DefaultTransport captures the exact
+// wire URL the go-github client builds.
+type fakeGitHubRT struct {
+	mu   sync.Mutex
+	recs []string
+}
+
+func (f *fakeGitHubRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	f.mu.Lock()
+	f.recs = append(f.recs, req.URL.RequestURI())
+	f.mu.Unlock()
+
+	var body string
+	status := http.StatusOK
+	switch req.URL.Path {
+	case "/repos/o/r/installation":
+		body = `{"id": 99, "app_id": 1}`
+	case "/app/installations/99/access_tokens":
+		body = `{"token": "inst-token", "expires_at": "2030-01-01T00:00:00Z"}`
+	case "/repos/o/r/contents/f.md":
+		body = `{"type":"file","encoding":"base64","content":"aGVsbG8="}`
+	default:
+		body = `{"message":"Not Found"}`
+		status = http.StatusNotFound
+	}
+	return &http.Response{
+		StatusCode: status, Status: http.StatusText(status), Proto: "HTTP/1.1", Request: req,
+		Header: http.Header{"Content-Type": []string{"application/json"}},
+		Body:   io.NopCloser(strings.NewReader(body)),
+	}, nil
+}
+
+func (f *fakeGitHubRT) lastContents() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.recs) - 1; i >= 0; i-- {
+		if strings.Contains(f.recs[i], "contents/f.md") {
+			return f.recs[i]
+		}
+	}
+	return ""
+}
+
+// TestReadRepoFilePinsRef proves the contents request carries the exact
+// requested ref in the ?ref= query and omits it for an empty ref (default
+// branch).
+func TestReadRepoFilePinsRef(t *testing.T) {
+	fake := &fakeGitHubRT{}
+	orig := http.DefaultTransport
+	http.DefaultTransport = fake
+	t.Cleanup(func() { http.DefaultTransport = orig })
+
+	c := New(config.GitHubConfig{AppID: 1, AppPrivateKeyFile: testAppKeyPEM(t)})
+
+	t.Run("non-empty ref is sent", func(t *testing.T) {
+		if _, err := c.ReadRepoFile(context.Background(), "o", "r", "f.md", "v1.2.3"); err != nil {
+			t.Fatalf("ReadRepoFile: %v", err)
+		}
+		if got := fake.lastContents(); !strings.HasSuffix(got, "/repos/o/r/contents/f.md?ref=v1.2.3") {
+			t.Errorf("wire URI = %q, want .../contents/f.md?ref=v1.2.3", got)
+		}
+	})
+
+	t.Run("empty ref omits the query", func(t *testing.T) {
+		fake.mu.Lock()
+		fake.recs = nil
+		fake.mu.Unlock()
+		if _, err := c.ReadRepoFile(context.Background(), "o", "r", "f.md", ""); err != nil {
+			t.Fatalf("ReadRepoFile: %v", err)
+		}
+		if got := fake.lastContents(); strings.Contains(got, "?") {
+			t.Errorf("wire URI = %q, want no query for empty ref", got)
+		}
+	})
 }

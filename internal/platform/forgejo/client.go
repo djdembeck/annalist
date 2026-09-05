@@ -168,9 +168,10 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 	return out, nil
 }
 
-// ReadRepoFile reads a file's content from a repository via the contents API.
+// ReadRepoFile reads a file's content from a repository via the contents API,
+// pinned to ref when it is non-empty (ref == "" reads the default branch).
 // A 404 is surfaced as pipeline.ErrNotFound.
-func (c *Client) ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error) {
+func (c *Client) ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error) {
 	var resp struct {
 		Content  string `json:"content"`
 		Encoding string `json:"encoding"`
@@ -180,6 +181,9 @@ func (c *Client) ReadRepoFile(ctx context.Context, owner, repo, path string) (st
 		segments[i] = apiPath(s)
 	}
 	p := "/repos/" + apiPath(owner) + "/" + apiPath(repo) + "/contents/" + strings.Join(segments, "/")
+	if ref != "" {
+		p += "?ref=" + url.QueryEscape(ref)
+	}
 	if err := c.do(ctx, http.MethodGet, p, nil, &resp); err != nil {
 		return "", err
 	}

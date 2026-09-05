@@ -1,0 +1,8 @@
+version: 1
+profiles:
+  maintainer:
+    prompt: .annalist/prompts/maintainer.md
+  customer:
+    prompt: .annalist/prompts/customer.md
+  compact:
+    prompt: .annalist/prompts/compact.md

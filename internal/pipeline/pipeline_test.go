@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	_ "modernc.org/sqlite"
 
 	"github.com/djdembeck/annalist/internal/config"
 	"github.com/djdembeck/annalist/internal/db"
@@ -31,9 +35,20 @@ type fakePlatform struct {
 	editErr    error // if set, EditReleaseBody returns it
 	readErr    error // if set, ReadRepoFile returns it (before checking files)
 	releaseErr error // if set, GetReleaseByTag returns it (before checking releases)
+	readMu     sync.Mutex
+	reads      []readRec // (path, ref) of every ReadRepoFile call, in order
 }
 
-func (f *fakePlatform) ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error) {
+// readRec records a single repo-file read so tests can assert tag-pinning.
+type readRec struct {
+	path string
+	ref  string
+}
+
+func (f *fakePlatform) ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error) {
+	f.readMu.Lock()
+	f.reads = append(f.reads, readRec{path: path, ref: ref})
+	f.readMu.Unlock()
 	if f.readErr != nil {
 		return "", f.readErr
 	}
@@ -41,6 +56,30 @@ func (f *fakePlatform) ReadRepoFile(ctx context.Context, owner, repo, path strin
 		return c, nil
 	}
 	return "", fmt.Errorf("%w: %s", ErrNotFound, path)
+}
+
+// readPaths returns the set of paths ReadRepoFile was called for.
+func (f *fakePlatform) readPaths() map[string]bool {
+	f.readMu.Lock()
+	defer f.readMu.Unlock()
+	out := make(map[string]bool)
+	for _, r := range f.reads {
+		out[r.path] = true
+	}
+	return out
+}
+
+// readsFor returns the refs recorded for path (empty if never read).
+func (f *fakePlatform) readsFor(path string) []string {
+	f.readMu.Lock()
+	defer f.readMu.Unlock()
+	var out []string
+	for _, r := range f.reads {
+		if r.path == path {
+			out = append(out, r.ref)
+		}
+	}
+	return out
 }
 
 func (f *fakePlatform) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*Release, error) {
@@ -69,7 +108,10 @@ func (f *fakePlatform) CloneInfo(ctx context.Context, owner, repo string) (strin
 }
 
 // llmStub records every chat request and returns a fixed, non-empty answer.
+// Concurrent generation calls (e.g. two profiles in flight) hit the handler
+// at once, so the recording fields are mutex-guarded.
 type llmStub struct {
+	mu        sync.Mutex
 	srv       *httptest.Server
 	body      []byte
 	calls     int
@@ -80,33 +122,30 @@ type llmStub struct {
 func newStub(answer string) *llmStub {
 	s := &llmStub{answer: answer}
 	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.body, _ = io.ReadAll(r.Body)
+		raw, _ := io.ReadAll(r.Body)
+		s.mu.Lock()
+		s.body = raw
 		s.calls++
-		if s.errStatus > 0 {
-			w.WriteHeader(s.errStatus)
+		errStatus := s.errStatus
+		answer := s.answer
+		s.mu.Unlock()
+		if errStatus > 0 {
+			w.WriteHeader(errStatus)
 			_, _ = fmt.Fprint(w, "boom")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%q}}]}`, s.answer)
+		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%q}}]}`, answer)
 	}))
 	return s
 }
 
 func (s *llmStub) close() { s.srv.Close() }
 
-type wireReq struct {
-	Model    string `json:"model"`
-	Messages []struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	} `json:"messages"`
-	Temperature     float64 `json:"temperature"`
-	MaxTokens       int     `json:"max_tokens"`
-	ReasoningEffort string  `json:"reasoning_effort"`
-}
-
+// request returns a snapshot of the most recent chat request.
 func (s *llmStub) request() (wireReq, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var r wireReq
 	err := json.Unmarshal(s.body, &r)
 	return r, err
@@ -126,6 +165,17 @@ func (s *llmStub) user() string {
 		return ""
 	}
 	return r.Messages[1].Content
+}
+
+type wireReq struct {
+	Model    string `json:"model"`
+	Messages []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	} `json:"messages"`
+	Temperature     float64 `json:"temperature"`
+	MaxTokens       int     `json:"max_tokens"`
+	ReasoningEffort string  `json:"reasoning_effort"`
 }
 
 // gitRun executes git in dir without a *testing.T, for use in TestMain.
@@ -273,6 +323,31 @@ func fixtureWithStub(t *testing.T, stub *llmStub, files map[string]string, relea
 
 func genSpec(tag, releaseID string) Spec {
 	return Spec{Platform: "github", Owner: "djdembeck", Repo: "annalist", ToTag: tag, ReleaseID: releaseID}
+}
+
+// generatedByReleaseID looks up a stored generated note by release_id. The
+// contract cache key is an opaque digest the tests cannot recompute, so
+// assertions that need the row open the database file directly and query the
+// column.
+func generatedByReleaseID(t *testing.T, dataDir, releaseID string) (*db.GeneratedNote, error) {
+	t.Helper()
+	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "app.db"))
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	var n db.GeneratedNote
+	err = conn.QueryRow(
+		`SELECT cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes, created_at
+		 FROM generated_notes WHERE release_id = ?`, releaseID,
+	).Scan(&n.CacheKey, &n.Platform, &n.Owner, &n.Repo, &n.ReleaseID, &n.FromTag, &n.ToTag, &n.Profile, &n.DisplayVersion, &n.ConfigDigest, &n.Notes, &n.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
 }
 
 // TestResolvePrecedence covers the resolution chain per field:
@@ -712,12 +787,12 @@ func TestGenerateNotesOffWire(t *testing.T) {
 func TestGenerateNotesDeepMode(t *testing.T) {
 	t.Run("deep mode includes the diff in the prompt", func(t *testing.T) {
 		pip, stub, _, _ := fixture(t, nil, nil)
-		notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-deep"), Options{Mode: "deep"})
+		res, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-deep"), Options{Mode: "deep"})
 		if err != nil {
 			t.Fatalf("GenerateNotes deep: %v", err)
 		}
-		if notes != "FLOWING PROSE" {
-			t.Errorf("notes = %q, want FLOWING PROSE", notes)
+		if res.Notes != "FLOWING PROSE" {
+			t.Errorf("notes = %q, want FLOWING PROSE", res.Notes)
 		}
 		if stub.calls != 1 {
 			t.Fatalf("stub calls = %d, want 1", stub.calls)
@@ -815,12 +890,12 @@ func TestInstructionsPrecedence(t *testing.T) {
 			}
 		}
 
-		notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-"+wantContains), Options{})
+		res, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-"+wantContains), Options{})
 		if err != nil {
 			t.Fatalf("GenerateNotes: %v", err)
 		}
-		if notes != "FLOWING PROSE" {
-			t.Errorf("notes = %q", notes)
+		if res.Notes != "FLOWING PROSE" {
+			t.Errorf("notes = %q", res.Notes)
 		}
 		sys := stub.system()
 		if wantContains != "" && !strings.Contains(sys, wantContains) {
@@ -877,12 +952,12 @@ func TestGenerateNotesEmptyLog(t *testing.T) {
 	// Swap the fake platform's origin to the empty-range repo.
 	f.origin = origin
 
-	notes, err := pip.GenerateNotes(context.Background(), genSpec("v1.1.0", "rel-empty"), Options{})
+	res, err := pip.GenerateNotes(context.Background(), genSpec("v1.1.0", "rel-empty"), Options{})
 	if err != nil {
 		t.Fatalf("GenerateNotes: %v", err)
 	}
-	if notes != "No changes documented." {
-		t.Errorf("notes = %q, want %q", notes, "No changes documented.")
+	if res.Notes != "No changes documented." {
+		t.Errorf("notes = %q, want %q", res.Notes, "No changes documented.")
 	}
 	if stub.calls != 0 {
 		t.Errorf("LLM called %d times for empty log, want 0", stub.calls)
@@ -942,7 +1017,7 @@ func TestGenerateNotesCommitTypeFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	notes, err := pip.GenerateNotes(context.Background(), genSpec("v1.1.0", "rel-filter"), Options{})
+	res, err := pip.GenerateNotes(context.Background(), genSpec("v1.1.0", "rel-filter"), Options{})
 	if err != nil {
 		t.Fatalf("GenerateNotes: %v", err)
 	}
@@ -962,8 +1037,8 @@ func TestGenerateNotesCommitTypeFilter(t *testing.T) {
 		}
 	}
 	// Notes are returned (LLM returned "FLOWING PROSE")
-	if notes != "FLOWING PROSE" {
-		t.Errorf("notes = %q, want FLOWING PROSE", notes)
+	if res.Notes != "FLOWING PROSE" {
+		t.Errorf("notes = %q, want FLOWING PROSE", res.Notes)
 	}
 }
 
@@ -989,12 +1064,12 @@ func TestGenerateNotesFilterEmptyLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	notes, err := pip.GenerateNotes(context.Background(), genSpec("v1.1.0", "rel-filtered"), Options{})
+	res, err := pip.GenerateNotes(context.Background(), genSpec("v1.1.0", "rel-filtered"), Options{})
 	if err != nil {
 		t.Fatalf("GenerateNotes: %v", err)
 	}
-	if notes != "No changes documented." {
-		t.Errorf("notes = %q, want %q", notes, "No changes documented.")
+	if res.Notes != "No changes documented." {
+		t.Errorf("notes = %q, want %q", res.Notes, "No changes documented.")
 	}
 	if stub.calls != 0 {
 		t.Errorf("LLM called %d times when all commits filtered, want 0", stub.calls)
@@ -1007,7 +1082,7 @@ func TestGenerateNotesFilterEmptyLog(t *testing.T) {
 func TestGenerateNotesIdempotentAndPublishGuard(t *testing.T) {
 	t.Run("human-edited body is not clobbered", func(t *testing.T) {
 		pip, stub, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written notes"}})
-		notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-human"), Options{Publish: true})
+		_, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-human"), Options{Publish: true})
 		if err != nil {
 			t.Fatalf("GenerateNotes: %v", err)
 		}
@@ -1017,28 +1092,27 @@ func TestGenerateNotesIdempotentAndPublishGuard(t *testing.T) {
 		if stub.calls != 1 {
 			t.Errorf("LLM calls = %d, want 1", stub.calls)
 		}
-		_ = notes
 	})
 
 	t.Run("publish writes and marks generated, repeat is idempotent", func(t *testing.T) {
-		pip, stub, f, store := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+		pip, stub, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
 
-		notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-1"), Options{Publish: true})
+		res, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-1"), Options{Publish: true})
 		if err != nil {
 			t.Fatalf("first GenerateNotes: %v", err)
 		}
-		if !strings.HasSuffix(notes, "FLOWING PROSE") {
-			t.Errorf("notes = %q", notes)
+		if !strings.HasSuffix(res.Notes, "FLOWING PROSE") {
+			t.Errorf("notes = %q", res.Notes)
 		}
 		wantBody := "FLOWING PROSE\n<!-- generated by annalist -->"
 		if f.edited != wantBody {
 			t.Errorf("published body = %q, want %q", f.edited, wantBody)
 		}
-		gn, err := store.GetGenerated("github", "rel-1")
+		gn, err := generatedByReleaseID(t, pip.Cfg.Data.Dir, "rel-1")
 		if err != nil || gn == nil {
 			t.Fatalf("expected generated record, got %v (err=%v)", gn, err)
 		}
-		if gn.Tag != "v0.2.0" || gn.Owner != "djdembeck" || gn.Repo != "annalist" {
+		if gn.ToTag != "v0.2.0" || gn.Owner != "djdembeck" || gn.Repo != "annalist" || gn.Notes != res.Notes {
 			t.Errorf("generated record = %+v", gn)
 		}
 		if stub.calls != 1 {
@@ -1050,8 +1124,8 @@ func TestGenerateNotesIdempotentAndPublishGuard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("second GenerateNotes: %v", err)
 		}
-		if again != notes {
-			t.Errorf("idempotent run returned %q, want %q", again, notes)
+		if again.Notes != res.Notes {
+			t.Errorf("idempotent run returned %q, want %q", again.Notes, res.Notes)
 		}
 		if stub.calls != 1 {
 			t.Errorf("LLM called %d times after idempotent run, want 1 (stored note returned)", stub.calls)
@@ -1107,12 +1181,12 @@ func TestGenerateNotesCloneInfoError(t *testing.T) {
 	pip, stub, f, _ := fixture(t, nil, nil)
 	f.cloneErr = errors.New("boom")
 
-	notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-clone"), Options{})
+	res, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-clone"), Options{})
 	if err == nil || !strings.Contains(err.Error(), "pipeline: clone info") || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err = %v, want wrapped clone-info error", err)
 	}
-	if notes != "" {
-		t.Errorf("notes = %q, want empty on CloneInfo error", notes)
+	if res.Notes != "" {
+		t.Errorf("notes = %q, want empty on CloneInfo error", res.Notes)
 	}
 	if stub.calls != 0 {
 		t.Errorf("LLM called %d times, want 0 (clone aborted before LLM)", stub.calls)
@@ -1126,12 +1200,12 @@ func TestGenerateNotesReadRepoFileErrorDrop(t *testing.T) {
 	pip, _, f, _ := fixture(t, nil, nil)
 	f.readErr = errors.New("file api down")
 
-	notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-read"), Options{})
+	res, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-read"), Options{})
 	if err != nil {
 		t.Fatalf("GenerateNotes: expected in-repo file error to be dropped, got %v", err)
 	}
-	if notes != "FLOWING PROSE" {
-		t.Errorf("notes = %q, want %q", notes, "FLOWING PROSE")
+	if res.Notes != "FLOWING PROSE" {
+		t.Errorf("notes = %q, want %q", res.Notes, "FLOWING PROSE")
 	}
 }
 
@@ -1139,37 +1213,41 @@ func TestGenerateNotesReadRepoFileErrorDrop(t *testing.T) {
 // fallback text and nothing is published or recorded.
 func TestGenerateNotesLLMError(t *testing.T) {
 	stub := newStub("FLOWING PROSE")
-	pip, stub2, f, store := fixtureWithStub(t, stub, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+	pip, stub2, f, _ := fixtureWithStub(t, stub, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
 	stub2.errStatus = http.StatusInternalServerError
 
-	notes, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-llmfail"), Options{Publish: true})
+	res, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-llmfail"), Options{Publish: true})
 	if err == nil || !strings.Contains(err.Error(), "llm: unexpected status") {
 		t.Fatalf("err = %v, want llm status error", err)
 	}
-	if notes != "" {
-		t.Errorf("notes = %q, want empty (no fallback text)", notes)
+	if res.Notes != "" {
+		t.Errorf("notes = %q, want empty (no fallback text)", res.Notes)
 	}
 	if f.edited != "" {
 		t.Errorf("release body was edited despite LLM failure: %q", f.edited)
 	}
-	if gn, _ := store.GetGenerated("github", "rel-llmfail"); gn != nil {
-		t.Errorf("generated record written despite LLM failure: %+v", gn)
+	if gn, err := generatedByReleaseID(t, pip.Cfg.Data.Dir, "rel-llmfail"); err != nil || gn != nil {
+		t.Errorf("generated record written despite LLM failure: %+v (err=%v)", gn, err)
 	}
 }
 
 // TestPublishErrorsAndGuard covers Publish error branches and the
 // don't-clobber guard directly.
 func TestPublishErrorsAndGuard(t *testing.T) {
+	published := func(notes, from string) Result {
+		return Result{Notes: notes, FromTag: from, ToTag: "v0.2.0", ConfigDigest: "d"}
+	}
+
 	t.Run("fetch release error propagates", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, nil) // no releases map -> tag missing
-		err := pip.Publish(context.Background(), genSpec("v0.2.0", "rel-fetch"), f, "notes", false)
+		err := pip.Publish(context.Background(), published("notes", "v0.1.0"), genSpec("v0.2.0", "rel-fetch"), f, false)
 		if err == nil || !strings.Contains(err.Error(), "pipeline: fetch release") {
 			t.Fatalf("err = %v, want fetch-release error", err)
 		}
 	})
 	t.Run("human-edited body not clobbered without force", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
-		err := pip.Publish(context.Background(), genSpec("v0.2.0", "rel-x"), f, "NEW NOTES", false)
+		err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
 		if err != nil {
 			t.Fatalf("Publish: %v", err)
 		}
@@ -1179,7 +1257,7 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 	})
 	t.Run("force overrides don't-clobber guard", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
-		err := pip.Publish(context.Background(), genSpec("v0.2.0", "rel-x"), f, "NEW NOTES", true)
+		err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, true)
 		if err != nil {
 			t.Fatalf("Publish: %v", err)
 		}
@@ -1191,9 +1269,434 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 	t.Run("edit release body error propagates", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
 		f.editErr = errors.New("api down")
-		err := pip.Publish(context.Background(), genSpec("v0.2.0", "rel-x"), f, "NEW NOTES", false)
+		err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
 		if err == nil || !strings.Contains(err.Error(), "pipeline: edit release body") {
 			t.Fatalf("err = %v, want edit-release-body error", err)
 		}
 	})
+}
+
+// countGeneratedByReleaseID counts stored rows for a release_id.
+func countGeneratedByReleaseID(t *testing.T, dataDir, releaseID string) int {
+	t.Helper()
+	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	var n int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM generated_notes WHERE release_id = ?`, releaseID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// TestGenerateNotesProfileEndToEnd drives the full pipeline (real temp git
+// repo + HTTP LLM stub, no mocked engine): the selected tag-pinned profile
+// prompt becomes the exact LLM system message, the user message carries both
+// presentation and source identities, the structured result matches, reads
+// are pinned to the source tag, cache reuse works, and distinct profiles get
+// distinct cache keys.
+func TestGenerateNotesProfileEndToEnd(t *testing.T) {
+	files := map[string]string{
+		profileManifestPath: `version: 1
+profiles:
+  customer:
+    prompt: .annalist/prompts/customer.md
+  maintainer:
+    prompt: .annalist/prompts/maintainer.md
+`,
+		".annalist/prompts/customer.md":   "CUSTOMER PROFILE PROMPT",
+		".annalist/prompts/maintainer.md": "MAINTAINER PROFILE PROMPT",
+	}
+	pip, stub, f, _ := fixture(t, files, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+
+	spec := genSpec("v0.2.0", "rel-profile")
+	spec.Profile = "customer"
+	spec.DisplayVersion = "2.0"
+	spec.FromTag = "v0.1.0"
+
+	res, err := pip.GenerateNotes(context.Background(), spec, Options{Publish: true})
+	if err != nil {
+		t.Fatalf("GenerateNotes: %v", err)
+	}
+
+	// The selected profile prompt is the entire system message.
+	if got := stub.system(); got != "CUSTOMER PROFILE PROMPT" {
+		t.Errorf("system = %q, want the exact selected profile prompt", got)
+	}
+	// Both identities appear in the user message.
+	user := stub.user()
+	if want := "Generate release notes for version 2.0. (source tag v0.2.0; changes since v0.1.0)"; !strings.HasPrefix(user, want) {
+		t.Errorf("user message = %q, want prefix %q", user, want)
+	}
+	// Structured result matches the request contract.
+	if res.Profile != "customer" || res.DisplayVersion != "2.0" || res.FromTag != "v0.1.0" || res.ToTag != "v0.2.0" {
+		t.Errorf("result identity = %+v", res)
+	}
+	if res.ConfigDigest == "" {
+		t.Error("config digest should be populated")
+	}
+	if res.Notes != "FLOWING PROSE" {
+		t.Errorf("notes = %q", res.Notes)
+	}
+	// Both the manifest and the prompt were read pinned to the source tag.
+	if refs := f.readsFor(profileManifestPath); len(refs) != 1 || refs[0] != "v0.2.0" {
+		t.Errorf("manifest read refs = %v, want [v0.2.0]", refs)
+	}
+	if refs := f.readsFor(".annalist/prompts/customer.md"); len(refs) != 1 || refs[0] != "v0.2.0" {
+		t.Errorf("prompt read refs = %v, want [v0.2.0]", refs)
+	}
+	// The provider-specific legacy instructions file must NOT be read when a
+	// profile is selected.
+	if f.readPaths()[".github/release-notes-instructions.md"] {
+		t.Error("legacy instructions file must not be read for a named profile")
+	}
+
+	// Cache reuse: the identical request is served from the store, no LLM.
+	if _, err := pip.GenerateNotes(context.Background(), spec, Options{}); err != nil {
+		t.Fatalf("repeat GenerateNotes: %v", err)
+	}
+	if stub.calls != 1 {
+		t.Errorf("LLM calls after identical repeat = %d, want 1 (cache reuse)", stub.calls)
+	}
+}
+
+// TestGenerateNotesTwoProfilesDistinctKeys proves two profiles for the same
+// source release generate independently (two LLM calls, distinct cache keys,
+// serialized last-write-wins publish) and that a changed prompt text or mode
+// changes the config digest and regenerates.
+func TestGenerateNotesTwoProfilesDistinctKeys(t *testing.T) {
+	files := map[string]string{
+		profileManifestPath: `version: 1
+profiles:
+  customer:
+    prompt: .annalist/prompts/customer.md
+  maintainer:
+    prompt: .annalist/prompts/maintainer.md
+`,
+		".annalist/prompts/customer.md":   "CUSTOMER PROFILE PROMPT",
+		".annalist/prompts/maintainer.md": "MAINTAINER PROFILE PROMPT",
+	}
+	pip, stub, f, _ := fixture(t, files, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+
+	cust := genSpec("v0.2.0", "rel-two")
+	cust.Profile = "customer"
+	maint := genSpec("v0.2.0", "rel-two")
+	maint.Profile = "maintainer"
+
+	resCust, err := pip.GenerateNotes(context.Background(), cust, Options{Publish: true})
+	if err != nil {
+		t.Fatalf("customer GenerateNotes: %v", err)
+	}
+	resMaint, err := pip.GenerateNotes(context.Background(), maint, Options{Publish: true})
+	if err != nil {
+		t.Fatalf("maintainer GenerateNotes: %v", err)
+	}
+	if stub.calls != 2 {
+		t.Errorf("LLM calls = %d, want 2 (one per profile)", stub.calls)
+	}
+	if resCust.ConfigDigest == resMaint.ConfigDigest {
+		t.Error("distinct profiles must have distinct config digests")
+	}
+	if n := countGeneratedByReleaseID(t, pip.Cfg.Data.Dir, "rel-two"); n != 2 {
+		t.Errorf("stored rows for release = %d, want 2 (distinct cache keys)", n)
+	}
+	// Both published: the release body holds one last-write-wins profile.
+	if !strings.Contains(f.edited, "FLOWING PROSE") || !strings.HasSuffix(f.edited, marker) {
+		t.Errorf("published body = %q", f.edited)
+	}
+
+	// Repeat of the identical (published) request: stored note, no LLM.
+	if _, err := pip.GenerateNotes(context.Background(), cust, Options{Publish: true}); err != nil {
+		t.Fatalf("repeat customer: %v", err)
+	}
+	if stub.calls != 2 {
+		t.Errorf("LLM calls after identical repeat = %d, want 2 (stored note returned)", stub.calls)
+	}
+
+	// Changed prompt text: new config digest, regeneration.
+	f.files[".annalist/prompts/customer.md"] = "CUSTOMER PROFILE PROMPT v2"
+	resChanged, err := pip.GenerateNotes(context.Background(), cust, Options{})
+	if err != nil {
+		t.Fatalf("changed-prompt GenerateNotes: %v", err)
+	}
+	if stub.calls != 3 {
+		t.Errorf("LLM calls after prompt change = %d, want 3 (regenerated)", stub.calls)
+	}
+	if resChanged.ConfigDigest == resCust.ConfigDigest {
+		t.Error("prompt text change must change the config digest")
+	}
+
+	// Changed mode (same prompt): also a different config digest.
+	f.files[".annalist/prompts/customer.md"] = "CUSTOMER PROFILE PROMPT"
+	resDeep, err := pip.GenerateNotes(context.Background(), cust, Options{Mode: "deep"})
+	if err != nil {
+		t.Fatalf("deep GenerateNotes: %v", err)
+	}
+	if stub.calls != 4 {
+		t.Errorf("LLM calls after mode change = %d, want 4 (regenerated)", stub.calls)
+	}
+	if resDeep.ConfigDigest == resCust.ConfigDigest {
+		t.Error("mode change must change the config digest")
+	}
+}
+
+// TestGenerateNotesEmptyProfileLegacyPath verifies the no-profile fallback:
+// the provider-specific in-repo file is the system prompt, an absent or
+// unreadable file falls back to the resolved instructions, and no manifest is
+// read at all.
+func TestGenerateNotesEmptyProfileLegacyPath(t *testing.T) {
+	pip, stub, f, store := fixture(t, map[string]string{
+		".github/release-notes-instructions.md": "LEGACY IN-REPO PROMPT",
+	}, nil)
+	if err := store.UpsertSettings(db.Settings{Instructions: "SETTINGS INSTRUCTIONS"}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-legacy"), Options{})
+	if err != nil {
+		t.Fatalf("GenerateNotes: %v", err)
+	}
+	if got := stub.system(); got != "LEGACY IN-REPO PROMPT" {
+		t.Errorf("system = %q, want the legacy in-repo prompt", got)
+	}
+	if res.Profile != "" || res.DisplayVersion != "v0.2.0" {
+		t.Errorf("result identity = %+v, want empty profile / tag fallback", res)
+	}
+	// Tag-pinned read, no manifest read.
+	if refs := f.readsFor(".github/release-notes-instructions.md"); len(refs) != 1 || refs[0] != "v0.2.0" {
+		t.Errorf("legacy read refs = %v, want [v0.2.0]", refs)
+	}
+	if f.readPaths()[profileManifestPath] {
+		t.Error("manifest must not be read for an empty profile")
+	}
+	if f.readPaths()[".annalist/prompts/customer.md"] {
+		t.Error("no profile prompt may be read for an empty profile")
+	}
+
+	// Unreadable legacy file: fail-open to the settings instructions.
+	f2pip, stub2, f2, _ := fixture(t, nil, nil)
+	if err := f2pip.DB.UpsertSettings(db.Settings{Instructions: "SETTINGS INSTRUCTIONS"}); err != nil {
+		t.Fatal(err)
+	}
+	f2.readErr = errors.New("file api down")
+	if _, err := f2pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "rel-legacy-fail"), Options{}); err != nil {
+		t.Fatalf("GenerateNotes with failed legacy read: %v", err)
+	}
+	if got := stub2.system(); !strings.Contains(got, "SETTINGS INSTRUCTIONS") {
+		t.Errorf("system = %q, want the settings-instructions fallback", got)
+	}
+}
+
+// TestGenerateNotesProfileConfigFailure verifies that an explicit profile
+// whose manifest/prompt lookup fails is a hard error (ErrProfileConfig) with
+// zero LLM calls and nothing published.
+func TestGenerateNotesProfileConfigFailure(t *testing.T) {
+	for name, files := range map[string]map[string]string{
+		"missing manifest": {},
+		"missing prompt": {
+			profileManifestPath: "version: 1\nprofiles:\n  customer:\n    prompt: .annalist/prompts/customer.md\n",
+		},
+		"malformed manifest": {
+			profileManifestPath: "version: 2\nprofiles:\n  customer:\n    prompt: x.md\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pip, stub, f, _ := fixture(t, files, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+			spec := genSpec("v0.2.0", "rel-bad-profile")
+			spec.Profile = "customer"
+			_, err := pip.GenerateNotes(context.Background(), spec, Options{Publish: true})
+			if err == nil || !errors.Is(err, ErrProfileConfig) {
+				t.Fatalf("err = %v, want ErrProfileConfig", err)
+			}
+			if stub.calls != 0 {
+				t.Errorf("LLM calls = %d, want 0 on profile config failure", stub.calls)
+			}
+			if f.edited != "" {
+				t.Errorf("release body edited despite config failure: %q", f.edited)
+			}
+		})
+	}
+}
+
+// TestGenerateNotesInvalidRequestValues verifies the shared request
+// validation: an invalid profile name and an invalid display version fail
+// before any work happens.
+func TestGenerateNotesInvalidRequestValues(t *testing.T) {
+	pip, stub, _, _ := fixture(t, nil, nil)
+
+	spec := genSpec("v0.2.0", "rel-invalid")
+	spec.Profile = "Bad Name"
+	if _, err := pip.GenerateNotes(context.Background(), spec, Options{}); err == nil || !errors.Is(err, ErrInvalidProfile) {
+		t.Errorf("bad profile: err = %v, want ErrInvalidProfile", err)
+	}
+	spec = genSpec("v0.2.0", "rel-invalid")
+	spec.DisplayVersion = strings.Repeat("x", 200)
+	if _, err := pip.GenerateNotes(context.Background(), spec, Options{}); err == nil || !errors.Is(err, ErrInvalidDisplayVersion) {
+		t.Errorf("long display version: err = %v, want ErrInvalidDisplayVersion", err)
+	}
+	spec = genSpec("v0.2.0", "rel-invalid")
+	spec.DisplayVersion = "bad\x01byte"
+	if _, err := pip.GenerateNotes(context.Background(), spec, Options{}); err == nil || !errors.Is(err, ErrInvalidDisplayVersion) {
+		t.Errorf("control-byte display version: err = %v, want ErrInvalidDisplayVersion", err)
+	}
+	if stub.calls != 0 {
+		t.Errorf("LLM calls = %d, want 0 for invalid request values", stub.calls)
+	}
+}
+
+// TestGenerateNotesConcurrentProfiles verifies that two preview profiles of
+// the same release generate independently (different generation locks) and
+// that two concurrent publishes serialize into a single coherent last-write
+// without a race.
+func TestGenerateNotesConcurrentProfiles(t *testing.T) {
+	files := map[string]string{
+		profileManifestPath: `version: 1
+profiles:
+  customer:
+    prompt: .annalist/prompts/customer.md
+  maintainer:
+    prompt: .annalist/prompts/maintainer.md
+`,
+		".annalist/prompts/customer.md":   "CUSTOMER PROFILE PROMPT",
+		".annalist/prompts/maintainer.md": "MAINTAINER PROFILE PROMPT",
+	}
+	pip, stub, _, _ := fixture(t, files, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+
+	specs := [2]Spec{
+		{Platform: "github", Owner: "djdembeck", Repo: "annalist", ToTag: "v0.2.0", ReleaseID: "rel-conc", Profile: "customer"},
+		{Platform: "github", Owner: "djdembeck", Repo: "annalist", ToTag: "v0.2.0", ReleaseID: "rel-conc", Profile: "maintainer"},
+	}
+
+	// Preview profiles: independent completion, no mutual blocking.
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range specs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = pip.GenerateNotes(context.Background(), specs[i], Options{})
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent preview %d: %v", i, err)
+		}
+	}
+	if stub.calls != 2 {
+		t.Errorf("LLM calls = %d, want 2 (both profiles generated)", stub.calls)
+	}
+
+	// Publish: serialized last-write-wins on the shared release body.
+	pip2, _, f2, _ := fixture(t, files, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
+	var wg2 sync.WaitGroup
+	for i := range specs {
+		wg2.Add(1)
+		go func(i int) {
+			defer wg2.Done()
+			_, _ = pip2.GenerateNotes(context.Background(), specs[i], Options{Publish: true})
+		}(i)
+	}
+	wg2.Wait()
+	if !strings.HasSuffix(f2.edited, marker) {
+		t.Errorf("published body = %q, want annalist marker", f2.edited)
+	}
+	if n := countGeneratedByReleaseID(t, pip2.Cfg.Data.Dir, "rel-conc"); n != 2 {
+		t.Errorf("stored rows = %d, want 2", n)
+	}
+}
+
+// TestKeyedLockReaping verifies that keyed lock entries are removed once the
+// last participant leaves, and that a key re-acquired after full release still
+// serializes with the in-flight user that raced the reaper (never a fresh,
+// unsynchronized lock).
+func TestKeyedLockReaping(t *testing.T) {
+	t.Run("many unique keys are reaped", func(t *testing.T) {
+		kl := newKeyedLock()
+		const n = 25
+		for i := range n {
+			key := fmt.Sprintf("key-%d", i)
+			kl.Lock(key)
+			kl.Unlock(key)
+		}
+		if got := kl.count(); got != 0 {
+			t.Errorf("keys after %d acquire/release cycles = %d, want 0", n, got)
+		}
+	})
+
+	t.Run("re-acquired key serializes with in-flight user", func(t *testing.T) {
+		kl := newKeyedLock()
+		const key = "key"
+
+		kl.Lock(key)
+		kl.Unlock(key)
+		if got := kl.count(); got != 0 {
+			t.Fatalf("key not reaped after first release: %d", got)
+		}
+
+		// The first user keeps the key until main has the second user's
+		// Lock in flight, so the second user's Lock genuinely races the
+		// first user's final Unlock — the reaper boundary. All handshakes
+		// are channels; no assertion depends on scheduling or sleeps.
+		inside := make(chan struct{}) // first user is inside its critical section
+		hold := make(chan struct{})   // first user may start its final Unlock
+		done := make(chan struct{})   // first user's Unlock has returned
+
+		go func() {
+			kl.Lock(key)
+			close(inside)
+			<-hold // hold the key until the second user is in flight
+			kl.Unlock(key)
+			close(done)
+		}()
+		<-inside
+		firstState := kl.state(key) // the state the first user holds
+
+		entered := make(chan struct{})
+		secondDone := make(chan struct{})
+		go func() {
+			// This Lock may land while the first user is between reaping
+			// the entry and releasing the state mutex; it must still be
+			// serialized behind the first user, never on a different
+			// mutex.
+			kl.Lock(key)
+			close(entered)
+			if st := kl.state(key); st != firstState {
+				// Fresh state: the first user's entry was already reaped.
+				// Holding a different mutex while the first user still
+				// holds its own is exactly the invariant violation.
+				if !firstState.mu.TryLock() {
+					t.Error("second user holds a fresh state while the first user still holds its state")
+				} else {
+					firstState.mu.Unlock()
+				}
+			}
+			kl.Unlock(key)
+			close(secondDone)
+		}()
+		close(hold)
+
+		<-entered
+		<-done
+		<-secondDone
+		if got := kl.count(); got != 0 {
+			t.Errorf("keys after all releases = %d, want 0", got)
+		}
+	})
+}
+
+// TestPublishLockKey pins the publish lock's key format: it must be the
+// surface-independent release identity platform/owner/repo@tag, not the
+// surface-scoped ReleaseID (webhook numeric id, "manual:…", "cli:…").
+func TestPublishLockKey(t *testing.T) {
+	got := publishLockKey(Spec{Platform: "github", Owner: "o", Repo: "r", ToTag: "v1.2.3", ReleaseID: "github:123"})
+	want := "github/o/r@v1.2.3"
+	if got != want {
+		t.Errorf("publishLockKey = %q, want %q", got, want)
+	}
+	if strings.Contains(publishLockKey(Spec{ReleaseID: "github:123"}), "github:123") {
+		t.Error("publish lock key must not embed the surface-scoped ReleaseID")
+	}
 }

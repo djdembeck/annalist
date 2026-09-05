@@ -23,21 +23,21 @@ import (
 type ghClient interface {
 	WebhookHandler(p *pipeline.Pipeline) http.Handler
 	ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error)
-	ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error)
+	ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error)
 }
 
 // fjClient is the subset of the Forgejo platform client the HTTP API needs.
 type fjClient interface {
 	WebhookHandler(p *pipeline.Pipeline) http.Handler
 	ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error)
-	ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error)
+	ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error)
 }
 
 // pipService is the subset of the pipeline the HTTP API needs, so handlers can
 // be unit-tested with a fake. *pipeline.Pipeline satisfies it.
 type pipService interface {
 	Resolve(ctx context.Context, platform, owner, repo string) (bool, pipeline.Effective, engine.Resolved, error)
-	GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pipeline.Options) (string, error)
+	GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pipeline.Options) (pipeline.Result, error)
 }
 
 // api carries the dependencies shared by every HTTP handler.

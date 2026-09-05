@@ -43,20 +43,15 @@ func CloneTo(ctx context.Context, dataDir, platform, cloneURL, header string) (w
 	return dir, cleanup, nil
 }
 
-// cloneDir computes {dataDir}/clones/{platform}/{shortHash} where shortHash is
-// the first 16 hex chars of sha256(cloneURL), or that hash plus a random suffix
-// if the resulting directory already exists.
+// cloneDir computes a unique clone workdir under {dataDir}/clones/{platform}
+// named after the first 16 hex chars of sha256(cloneURL) plus a random
+// suffix. The suffix is always present — not only on collision — because
+// concurrent clones of the same URL (e.g. two profiles of one release
+// generating in parallel) must never share a workdir.
 func cloneDir(dataDir, platform, cloneURL string) string {
 	sum := sha256.Sum256([]byte(cloneURL))
 	shortHash := hex.EncodeToString(sum[:])[:16]
-
-	dir := filepath.Join(dataDir, "clones", platform, shortHash)
-	if _, err := os.Stat(dir); err == nil {
-		// Collision (or stale clone from a prior run): disambiguate with a
-		// random 8-char suffix so concurrent clones never share a workdir.
-		dir = filepath.Join(dataDir, "clones", platform, shortHash+randomSuffix())
-	}
-	return dir
+	return filepath.Join(dataDir, "clones", platform, shortHash+randomSuffix())
 }
 
 func randomSuffix() string {

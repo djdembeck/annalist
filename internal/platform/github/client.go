@@ -165,15 +165,20 @@ func (c *Client) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error) {
 	return repos, nil
 }
 
-// ReadRepoFile returns the UTF-8 content of a file in the repository. A missing
+// ReadRepoFile returns the UTF-8 content of a file in the repository, pinned
+// to ref when it is non-empty (ref == "" reads the default branch). A missing
 // file, a directory, or any other 404 is reported as pipeline.ErrNotFound so
 // the pipeline treats it as "no instructions file".
-func (c *Client) ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error) {
+func (c *Client) ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error) {
 	client, err := c.repoClient(ctx, owner, repo)
 	if err != nil {
 		return "", err
 	}
-	file, _, _, err := client.Repositories.GetContents(ctx, owner, repo, path, nil)
+	var opts *gogithub.RepositoryContentGetOptions
+	if ref != "" {
+		opts = &gogithub.RepositoryContentGetOptions{Ref: ref}
+	}
+	file, _, _, err := client.Repositories.GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
 		if isNotFound(err) {
 			return "", fmt.Errorf("%w: github file %s", pipeline.ErrNotFound, path)

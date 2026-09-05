@@ -450,8 +450,8 @@ func TestOpenLegacySchema(t *testing.T) {
 func TestGeneratedNotesRoundTrip(t *testing.T) {
 	s := newTestStore(t)
 
-	t.Run("missing release returns nil,nil", func(t *testing.T) {
-		got, err := s.GetGenerated("github", "release-absent")
+	t.Run("missing key returns nil,nil", func(t *testing.T) {
+		got, err := s.GetGenerated("cache-key-absent")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -460,36 +460,159 @@ func TestGeneratedNotesRoundTrip(t *testing.T) {
 		}
 	})
 
-	if err := s.MarkGenerated("github", "djdembeck", "annalist", "rel-1", "v1.0.0", "Notes one"); err != nil {
+	if err := s.MarkGenerated(GeneratedNote{
+		CacheKey: "key-1", Platform: "github", Owner: "djdembeck", Repo: "annalist",
+		ReleaseID: "rel-1", FromTag: "v0.9.0", ToTag: "v1.0.0",
+		Profile: "customer", DisplayVersion: "1.0", ConfigDigest: "d1",
+		Notes: "Notes one",
+	}); err != nil {
 		t.Fatalf("MarkGenerated: %v", err)
 	}
 
-	got, err := s.GetGenerated("github", "rel-1")
+	got, err := s.GetGenerated("key-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got == nil {
 		t.Fatal("expected a generated note")
 	}
-	if got.ReleaseID != "rel-1" || got.Tag != "v1.0.0" || got.Notes != "Notes one" {
+	if got.ReleaseID != "rel-1" || got.ToTag != "v1.0.0" || got.Notes != "Notes one" {
 		t.Errorf("note mismatch: %+v", got)
 	}
 	if got.Owner != "djdembeck" || got.Repo != "annalist" || got.Platform != "github" {
 		t.Errorf("note key fields mismatch: %+v", got)
 	}
+	if got.FromTag != "v0.9.0" || got.Profile != "customer" || got.DisplayVersion != "1.0" || got.ConfigDigest != "d1" {
+		t.Errorf("note contract fields mismatch: %+v", got)
+	}
 	if got.CreatedAt == "" {
 		t.Error("created_at should be populated")
 	}
 
-	// MarkGenerated is idempotent per release_id: overwrites prior note.
-	if err := s.MarkGenerated("github", "djdembeck", "annalist", "rel-1", "v2.0.0", "Notes two"); err != nil {
+	// MarkGenerated is idempotent per cache key: overwrites the prior note.
+	if err := s.MarkGenerated(GeneratedNote{
+		CacheKey: "key-1", Platform: "github", Owner: "djdembeck", Repo: "annalist",
+		ReleaseID: "rel-1", ToTag: "v2.0.0",
+		Profile: "customer", DisplayVersion: "2.0", ConfigDigest: "d2",
+		Notes: "Notes two",
+	}); err != nil {
 		t.Fatalf("MarkGenerated overwrite: %v", err)
 	}
-	got, err = s.GetGenerated("github", "rel-1")
+	got, err = s.GetGenerated("key-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Tag != "v2.0.0" || got.Notes != "Notes two" {
+	if got.ToTag != "v2.0.0" || got.Notes != "Notes two" || got.ConfigDigest != "d2" {
 		t.Errorf("overwrite semantics wrong: %+v", got)
+	}
+	// A different cache key for the same release coexists.
+	if err := s.MarkGenerated(GeneratedNote{
+		CacheKey: "key-maintainer", Platform: "github", Owner: "djdembeck", Repo: "annalist",
+		ReleaseID: "rel-1", ToTag: "v2.0.0", Profile: "maintainer",
+		DisplayVersion: "2.0", Notes: "Maintainer notes",
+	}); err != nil {
+		t.Fatalf("MarkGenerated second key: %v", err)
+	}
+	if got, err := s.GetGenerated("key-maintainer"); err != nil || got == nil || got.Profile != "maintainer" {
+		t.Errorf("second profile key missing: %+v (err=%v)", got, err)
+	}
+	if got, err := s.GetGenerated("key-1"); err != nil || got == nil || got.Notes != "Notes two" {
+		t.Errorf("first key clobbered by second: %+v (err=%v)", got, err)
+	}
+}
+
+// TestOpenLegacyGeneratedNotes verifies the generated_notes upgrade: a
+// database created with the legacy release-id-keyed schema migrates to the
+// contract-keyed schema in one go — every legacy row is preserved with legacy
+// metadata (derived legacy cache key, empty from_tag/profile/config_digest,
+// tag as to_tag and display_version), reopening is a no-op, and new
+// profile rows coexist without collision.
+func TestOpenLegacyGeneratedNotes(t *testing.T) {
+	dataDir := t.TempDir()
+
+	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := `CREATE TABLE IF NOT EXISTS generated_notes (
+		platform TEXT NOT NULL,
+		owner TEXT NOT NULL,
+		repo TEXT NOT NULL,
+		release_id TEXT NOT NULL,
+		tag TEXT NOT NULL,
+		notes TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY (release_id)
+	)`
+	if _, err := conn.Exec(legacy); err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`INSERT INTO generated_notes (platform, owner, repo, release_id, tag, notes, created_at)
+		VALUES ('github', 'o1', 'r1', 'rel-a', 'v1.0.0', 'Note A', '2025-01-01 00:00:00'),
+		       ('forgejo', 'o2', 'r2', 'rel-b', 'v2.0.0-beta.1', 'Note B', '2025-01-02 00:00:00')`); err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// First open: migration must preserve every legacy row with legacy
+	// metadata.
+	s, err := New(dataDir)
+	if err != nil {
+		t.Fatalf("New on legacy db: %v", err)
+	}
+	gotA, err := s.GetGenerated("legacy:github:rel-a")
+	if err != nil || gotA == nil {
+		t.Fatalf("legacy row A missing: %v (err=%v)", gotA, err)
+	}
+	if gotA.Notes != "Note A" || gotA.ToTag != "v1.0.0" || gotA.DisplayVersion != "v1.0.0" ||
+		gotA.FromTag != "" || gotA.Profile != "" || gotA.ConfigDigest != "" ||
+		gotA.CreatedAt != "2025-01-01 00:00:00" {
+		t.Errorf("legacy row A metadata wrong: %+v", gotA)
+	}
+	gotB, err := s.GetGenerated("legacy:forgejo:rel-b")
+	if err != nil || gotB == nil {
+		t.Fatalf("legacy row B missing: %v (err=%v)", gotB, err)
+	}
+	if gotB.Notes != "Note B" || gotB.ToTag != "v2.0.0-beta.1" || gotB.DisplayVersion != "v2.0.0-beta.1" {
+		t.Errorf("legacy row B metadata wrong: %+v", gotB)
+	}
+	// The legacy release-id key no longer resolves.
+	if got, err := s.GetGenerated("rel-a"); err != nil || got != nil {
+		t.Errorf("legacy release-id key should not resolve: %+v (err=%v)", got, err)
+	}
+
+	// A new profile row coexists without colliding with legacy keys.
+	if err := s.MarkGenerated(GeneratedNote{
+		CacheKey: "new-contract-key", Platform: "github", Owner: "o1", Repo: "r1",
+		ReleaseID: "rel-a", ToTag: "v1.0.0", Profile: "maintainer",
+		DisplayVersion: "1.0", Notes: "New note",
+	}); err != nil {
+		t.Fatalf("MarkGenerated new row: %v", err)
+	}
+	if got, err := s.GetGenerated("new-contract-key"); err != nil || got == nil || got.Notes != "New note" {
+		t.Errorf("new row missing: %+v (err=%v)", got, err)
+	}
+	if got, err := s.GetGenerated("legacy:github:rel-a"); err != nil || got == nil || got.Notes != "Note A" {
+		t.Errorf("legacy row clobbered by new row: %+v (err=%v)", got, err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopen: the migration must be a no-op on an already-migrated db.
+	s2, err := New(dataDir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s2.Close()
+	if got, err := s2.GetGenerated("legacy:github:rel-a"); err != nil || got == nil || got.Notes != "Note A" {
+		t.Errorf("legacy row lost after reopen: %+v (err=%v)", got, err)
+	}
+	if got, err := s2.GetGenerated("new-contract-key"); err != nil || got == nil || got.Notes != "New note" {
+		t.Errorf("new row lost after reopen: %+v (err=%v)", got, err)
 	}
 }

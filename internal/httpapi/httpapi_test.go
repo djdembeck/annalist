@@ -50,13 +50,20 @@ func (f *fakePip) Resolve(ctx context.Context, platform, owner, repo string) (bo
 	return true, eff, f.eff, nil
 }
 
-func (f *fakePip) GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pipeline.Options) (string, error) {
+func (f *fakePip) GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pipeline.Options) (pipeline.Result, error) {
 	f.calls = append(f.calls, spec)
 	f.opts = append(f.opts, opts)
 	if f.err != nil {
-		return "", f.err
+		return pipeline.Result{}, f.err
 	}
-	return f.notes, nil
+	return pipeline.Result{
+		Notes:          f.notes,
+		Profile:        spec.Profile,
+		DisplayVersion: spec.DisplayVersion,
+		FromTag:        spec.FromTag,
+		ToTag:          spec.ToTag,
+		ConfigDigest:   "test-digest",
+	}, nil
 }
 
 // fakeClient is a controllable ghClient/fjClient double.
@@ -77,7 +84,7 @@ func (f *fakeClient) ListRepos(ctx context.Context) ([]pipeline.OwnerRepo, error
 	return f.repos, nil
 }
 
-func (f *fakeClient) ReadRepoFile(ctx context.Context, owner, repo, path string) (string, error) {
+func (f *fakeClient) ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error) {
 	if f.err != nil {
 		return "", f.err
 	}
@@ -1152,6 +1159,80 @@ func TestHandleGenerate(t *testing.T) {
 		}
 		if len(pip.calls) != 1 || pip.opts[0].Publish || pip.opts[0].Force {
 			t.Errorf("opts = %+v, want publish=false, force=false", pip.opts[0])
+		}
+	})
+
+	t.Run("profile and display_version pass through", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v2.0.0-beta.3","from_tag":"v1.0.0","profile":"customer","display_version":"2.0","publish":false}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("bad json: %v", err)
+		}
+		if body["profile"] != "customer" || body["display_version"] != "2.0" ||
+			body["from_tag"] != "v1.0.0" || body["to_tag"] != "v2.0.0-beta.3" || body["config_digest"] != "test-digest" {
+			t.Errorf("result metadata = %v", body)
+		}
+		if len(pip.calls) != 1 {
+			t.Fatalf("GenerateNotes called %d times, want 1", len(pip.calls))
+		}
+		spec := pip.calls[0]
+		if spec.Profile != "customer" || spec.DisplayVersion != "2.0" || spec.ToTag != "v2.0.0-beta.3" || spec.FromTag != "v1.0.0" {
+			t.Errorf("spec = %+v", spec)
+		}
+	})
+
+	t.Run("blank display_version rejected with 400", func(t *testing.T) {
+		pip.calls = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0","display_version":"   "}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+		if len(pip.calls) != 0 {
+			t.Errorf("GenerateNotes called %d times, want 0", len(pip.calls))
+		}
+	})
+
+	t.Run("invalid profile maps to 400", func(t *testing.T) {
+		pip.err = pipeline.ErrInvalidProfile
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0","profile":"Bad Name"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+	})
+
+	t.Run("invalid display version maps to 400", func(t *testing.T) {
+		pip.err = pipeline.ErrInvalidDisplayVersion
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0","display_version":"bad"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+	})
+
+	t.Run("profile config error maps to 422", func(t *testing.T) {
+		pip.err = pipeline.ErrProfileConfig
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0","profile":"customer"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422", w.Code)
 		}
 	})
 

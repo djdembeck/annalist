@@ -1026,11 +1026,12 @@ func TestCloneToLocal(t *testing.T) {
 		t.Errorf("cloned workdir missing f.txt: %v", statErr)
 	}
 
-	// Deterministic clone dir = sha256(URL)[:16].
+	// Clone dir = sha256(URL)[:16] plus a unique random suffix (always
+	// present so concurrent clones of the same URL never share a workdir).
 	sum := sha256Hex(src)
-	wantDir := filepath.Join(dataDir, "clones", "testplat", sum)
-	if workdir != wantDir {
-		t.Errorf("workdir = %q, want %q", workdir, wantDir)
+	wantPrefix := filepath.Join(dataDir, "clones", "testplat", sum+"-")
+	if !strings.HasPrefix(workdir, wantPrefix) {
+		t.Errorf("workdir = %q, want prefix %q", workdir, wantPrefix)
 	}
 
 	cleanup()

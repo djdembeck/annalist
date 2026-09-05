@@ -172,6 +172,18 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"to_tag\":\"${VERSION}\",\"from_tag\":\"${PREV}\",\"publish\":false}" | jq -r .notes)
 
+          # Optional: a named release-note profile. Define profiles in the repo at
+          # .annalist/release-notes.yaml (prompt file per profile), then request
+          # one profile per call — no profile means the default legacy behavior.
+          # One request generates ONE profile's notes, so a multi-audience release
+          # generates each with publish=false, composes the body externally, and
+          # publishes once (repeated publish=true replaces the same body last-write-wins).
+          #
+          # NOTES_CUSTOMER=$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/forgejo/${OWNER}/${REPO}/generate" \
+          #   -H "Authorization: Bearer ${ANNALIST_ADMIN_TOKEN}" \
+          #   -H "Content-Type: application/json" \
+          #   -d "{\"to_tag\":\"${VERSION}\",\"from_tag\":\"${PREV}\",\"profile\":\"customer\",\"display_version\":\"${VERSION#v}\",\"publish\":false}" | jq -r .notes)
+
           # Create the release once, with the full body.
           curl -fsS -X POST "${REPO_API}/releases" \
             -H "Authorization: token ${FORGEJO_TOKEN}" \
