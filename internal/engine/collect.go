@@ -108,11 +108,34 @@ func parseVersion(tag string) (version, bool) {
 	return version{major: major, minor: minor, patch: patch}, true
 }
 
+// splitPrefixedTag splits a prefixed release tag (<prefix>/vX.Y.Z, e.g.
+// "ggsimpleads/v1.0.2") into its prefix — including the trailing "/" — and its
+// version part. ok is false for tags without a prefix or whose trailing segment
+// is not a v?X.Y.Z version.
+func splitPrefixedTag(tag string) (prefix, ver string, ok bool) {
+	i := strings.LastIndex(tag, "/")
+	if i < 0 || i == len(tag)-1 {
+		return "", "", false
+	}
+	p, v := tag[:i+1], tag[i+1:]
+	if _, ok := parseVersion(v); !ok {
+		return "", "", false
+	}
+	return p, v, true
+}
+
 // ResolvePrevTag returns the greatest valid semver-ish tag strictly less than
 // current in workdir, using numeric comparison so v1.10.0 > v1.9.0. Returns ""
 // when no strictly-less candidate exists (first release). On git failure, or if
 // current is not a parseable v?X.Y.Z, it still compares eligible candidates and
 // returns the greatest one ("" when none).
+//
+// For a prefixed tag (<prefix>/vX.Y.Z, one release stream per artifact) the
+// candidates are restricted to tags of the SAME prefix: the previous release of
+// that stream, never an unrelated tag from another stream or the repo-wide
+// stream. A prefixed tag with no earlier tag of its prefix is the first release
+// of its stream and resolves to "" (an empty range), matching the scope rule
+// that a stream's first release documents no changes to its artifact.
 func ResolvePrevTag(ctx context.Context, workdir, current string) string {
 	cmd := exec.CommandContext(ctx, "git", "tag", "--sort=version:refname")
 	cmd.Dir = workdir
@@ -121,11 +144,37 @@ func ResolvePrevTag(ctx context.Context, workdir, current string) string {
 		return ""
 	}
 
-	cur, curOK := parseVersion(current)
-
 	var bestTag string
 	var best version
 	haveBest := false
+
+	if prefix, ver, ok := splitPrefixedTag(current); ok {
+		// Same-prefix comparison: only this stream's tags are candidates.
+		cur, _ := parseVersion(ver)
+		for _, line := range strings.Split(string(out), "\n") {
+			tag := strings.TrimSpace(line)
+			if tag == "" {
+				continue
+			}
+			p, v, ok := splitPrefixedTag(tag)
+			if !ok || p != prefix {
+				continue
+			}
+			pv, _ := parseVersion(v)
+			if pv.compare(cur) >= 0 {
+				continue
+			}
+			if !haveBest || pv.compare(best) > 0 {
+				best, bestTag, haveBest = pv, tag, true
+			}
+		}
+		if !haveBest {
+			return ""
+		}
+		return bestTag
+	}
+
+	cur, curOK := parseVersion(current)
 	for _, line := range strings.Split(string(out), "\n") {
 		tag := strings.TrimSpace(line)
 		if tag == "" {

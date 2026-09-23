@@ -224,6 +224,48 @@ func TestResolvePrevTag(t *testing.T) {
 	}
 }
 
+// TestResolvePrevTagPrefixed covers per-artifact release streams: a prefixed
+// tag (<prefix>/vX.Y.Z) resolves the previous tag of the SAME prefix, never an
+// unrelated stream or the repo-wide stream, and a prefix's first tag resolves
+// to "" (its stream's first release).
+func TestResolvePrevTagPrefixed(t *testing.T) {
+	dir := t.TempDir()
+	plan := []struct {
+		subject string
+		tag     string
+	}{
+		{subject: "repo zero", tag: "v0.1.0"},
+		{subject: "ads first", tag: "ggsimpleads/v1.0.0"},
+		{subject: "block first", tag: "customfblock/v1.0.0"},
+		{subject: "ads second", tag: "ggsimpleads/v1.0.1"},
+		{subject: "ads tenth", tag: "ggsimpleads/v1.0.10"}, // numeric order beats recency
+		{subject: "repo nine", tag: "v9.9.9"},
+	}
+	makeTaggedRepo(t, dir, plan)
+
+	ctx := context.Background()
+	cases := []struct {
+		name    string
+		current string
+		want    string
+	}{
+		{name: "previous of same stream", current: "ggsimpleads/v1.0.1", want: "ggsimpleads/v1.0.0"},
+		{name: "numeric order within stream", current: "ggsimpleads/v1.0.10", want: "ggsimpleads/v1.0.1"},
+		{name: "first of stream ignores repo-wide tags", current: "ggsimpleads/v1.0.0", want: ""},
+		{name: "first of another stream", current: "customfblock/v1.0.0", want: ""},
+		{name: "next of another stream", current: "customfblock/v1.0.1", want: "customfblock/v1.0.0"},
+		{name: "unknown stream has no predecessor", current: "luascan/v1.0.0", want: ""},
+		{name: "unprefixed unchanged", current: "v9.9.9", want: "v0.1.0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ResolvePrevTag(ctx, dir, tc.current); got != tc.want {
+				t.Errorf("ResolvePrevTag(%q) = %q, want %q", tc.current, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolvePrevTagNoTags(t *testing.T) {
 	dir := t.TempDir()
 	gitTa(t, dir, "init", "-q")
