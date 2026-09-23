@@ -108,6 +108,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 		"the artifact that prefix names",
 		"No changes to this artifact in this range.",
 		"shared tooling, CI, release automation, repository-wide documentation",
+		"never appear as bullets in a prefixed tag's notes",
 		"Every in-scope commit in the provided log must become exactly one bullet",
 	} {
 		if !strings.Contains(prompt, want) {
