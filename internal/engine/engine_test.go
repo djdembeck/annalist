@@ -30,7 +30,8 @@ func TestBuildSystemPrompt(t *testing.T) {
 			tone: "",
 			wantContains: []string{
 				"You write release notes in a neutral, factual voice",
-				"Every commit in the provided log must become exactly one bullet",
+				"When the release tag has the form <prefix>/vX.Y.Z",
+				"Every in-scope commit in the provided log must become exactly one bullet",
 			},
 		},
 		{
@@ -62,7 +63,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 			tone: "custom freeform persona text",
 			wantContains: []string{
 				"custom freeform persona text",
-				"Every commit in the provided log must become exactly one bullet",
+				"Every in-scope commit in the provided log must become exactly one bullet",
 			},
 		},
 	}
@@ -103,6 +104,10 @@ func TestBuildSystemPrompt(t *testing.T) {
 		"Features",
 		"Output ONLY the release notes text",
 		"**Breaking:**",
+		"Scope filter (highest rule)",
+		"the artifact that prefix names",
+		"No changes to this artifact in this range.",
+		"Every in-scope commit in the provided log must become exactly one bullet",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("default prompt missing %q", want)

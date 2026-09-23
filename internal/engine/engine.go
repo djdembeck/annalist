@@ -33,6 +33,7 @@ type Resolved struct {
 // rulesBlock defines the default release-notes structure (prose lead +
 // categorized bullets), emitted verbatim.
 const rulesBlock = `Rules:
+- Scope filter (highest rule): when the release tag has the form <prefix>/vX.Y.Z, the notes document ONLY the commits whose changes belong to the artifact that prefix names. The commit log may contain work on other artifacts from the same window; those belong to those artifacts' own releases — omit every such commit entirely, even though it sits in the range. When the range contains no commit that changes the tagged artifact, say so plainly in the lead (for example "No changes to this artifact in this range.") instead of padding the notes with other work. For a tag with no prefix, every commit in the range belongs to the release.
 - Begin with a short prose section (2-4 sentences) that summarizes the headline changes in this release and why they matter
 - Then list the individual changes as bullet points, grouped into sections by category (for example Features, Fixes, Improvements)
 - Use a Markdown heading (## ...) for each category, followed by one "- " bullet per change
@@ -40,13 +41,13 @@ const rulesBlock = `Rules:
 - Keep the tone and style consistent with the persona above
 - If any commit is a breaking change (its subject has ! after the type or scope, or its body contains a BREAKING CHANGE: line), list those changes first within their category, each bullet starting with **Breaking:**. Never omit a breaking change and never render it without the **Breaking:** prefix
 - Output ONLY the release notes text: the prose section and the categorized bullet sections. No preamble, no meta-commentary
-- Every commit in the provided log must become exactly one bullet. Never omit a commit.
-- Never merge two distinct commits into a single bullet.
+- Every in-scope commit in the provided log must become exactly one bullet. Never omit an in-scope commit.
+- Never merge two distinct commits into a single bullet. The one-bullet-per-commit rule applies only to in-scope commits.
 - Never invent a change, component, or behavior that is not present in the commit log.`
 
 // neutralPersona is the default voice used when the resolved tone is empty.
 func neutralPersona() string {
-	return `You write release notes in a neutral, factual voice for software users and developers. Report every commit in the log exactly once, as one bullet per commit, never omitting, merging, or inventing.`
+	return `You write release notes in a neutral, factual voice for software users and developers. When the release tag has the form <prefix>/vX.Y.Z, cover only the commits that change the artifact that prefix names; commits belonging to other artifacts in the same range are out of scope and omitted. Report every in-scope commit in the log exactly once, as one bullet per commit, never omitting, merging, or inventing.`
 }
 
 // BuildSystemPrompt assembles the system prompt for a resolved configuration.
