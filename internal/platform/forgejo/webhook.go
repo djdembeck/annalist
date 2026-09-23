@@ -83,7 +83,11 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 			return
 		}
 
-		if payload.Action != "created" && payload.Action != "updated" {
+		// Forgejo/Gitea announce a normal (non-draft) release with
+		// action "published"; "created" fires for a draft and "updated" for a
+		// later edit of an already-published release. All three are release
+		// notifications; anything else ("deleted", ...) is ignored.
+		if payload.Action != "published" && payload.Action != "created" && payload.Action != "updated" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}

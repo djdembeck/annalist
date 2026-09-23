@@ -231,6 +231,20 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 		_ = waitForGenerated(t, dataDir, "forgejo:43")
 	})
 
+	t.Run("published action dispatches (Forgejo release event)", func(t *testing.T) {
+		published := strings.Replace(forgejoPayload, `"id":42`, `"id":44`, 1)
+		published = strings.Replace(published, `"action":"created"`, `"action":"published"`, 1)
+		body := []byte(published)
+		rec := post(t, body, map[string]string{"X-Forgejo-Signature": signForgejo(secret, body)}, "release")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		gn := waitForGenerated(t, dataDir, "forgejo:44")
+		if gn.ToTag != "v0.2.0" {
+			t.Errorf("generated record = %+v", gn)
+		}
+	})
+
 	t.Run("draft or non-release action is ignored", func(t *testing.T) {
 		draft := strings.Replace(forgejoPayload, `"id":42`, `"id":99`, 1)
 		draft = strings.Replace(draft, `"draft":false`, `"draft":true`, 1)
@@ -251,7 +265,7 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 			t.Fatalf("deleted status = %d, want 200", rec2.Code)
 		}
 		if gn, _ := generatedByReleaseID(dataDir, "100"); gn != nil {
-			t.Error("non-created/updated action must not be generated")
+			t.Error("deleted action must not be generated")
 		}
 	})
 }
@@ -357,7 +371,7 @@ func TestForgejoWebhookPreDispatchRejections(t *testing.T) {
 		}
 	})
 
-	t.Run("non-created/updated action is ignored with 200", func(t *testing.T) {
+	t.Run("deleted action is ignored with 200", func(t *testing.T) {
 		deleted := bytes.Replace(good, []byte(`"action":"created"`), []byte(`"action":"deleted"`), 1)
 		rec := post(t, deleted, map[string]string{"X-Gitea-Signature": signForgejo(secret, deleted)}, "release")
 		if rec.Code != http.StatusOK {
