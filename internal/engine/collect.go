@@ -343,8 +343,11 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 
 // CollectCommitLog collects the commit log between fromTag and toTag. With
 // fromTag == "" it uses `git log --pretty=format:- %s%n%b%x00 --no-merges
-// --reverse HEAD`; otherwise `git log --pretty=format:- %s%n%b%x00 --no-merges
-// <from>..<to>`. The raw
+// --reverse <toTag>` — the whole history reachable from the release's own tag,
+// not from the clone's default-branch HEAD, so a first release never picks up
+// commits that landed after it. An empty toTag (not expected; production
+// callers always supply one) falls back to HEAD. Otherwise it uses
+// `<from>..<to>`. The raw
 // output consists of NUL-delimited records: each record holds a commit subject
 // prefixed with "- " followed by the commit body. The records are then passed
 // through FilterCommitLog, which applies conventional-commit type filtering
@@ -369,7 +372,16 @@ func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, inclu
 	// merge-only text is dropped.
 	var args []string
 	if fromTag == "" {
-		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--no-merges", "--reverse", "HEAD"}
+		// A release with no predecessor covers the artifact's whole history,
+		// bounded at the release's own tag: the clone's HEAD is the default
+		// branch tip, which may already contain later releases' commits, so
+		// using toTag keeps a stream's first release from documenting work
+		// that landed after it. An empty toTag (unexpected) falls back to HEAD.
+		end := toTag
+		if end == "" {
+			end = "HEAD"
+		}
+		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--no-merges", "--reverse", end}
 	} else {
 		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--no-merges", fromTag + ".." + toTag}
 	}

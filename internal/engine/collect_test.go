@@ -309,6 +309,12 @@ func TestCollectCommitLog(t *testing.T) {
 	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.1.0", nil); got != "" {
 		t.Errorf("CollectCommitLog(equal) = %q, want empty", got)
 	}
+	// First release (empty from): the range is bounded at the release's own
+	// tag, not at the clone's HEAD, so commits that landed after the tag are
+	// excluded.
+	if got := CollectCommitLog(ctx, dir, "", "v0.1.0", nil); got != "- first\n- second" {
+		t.Errorf("CollectCommitLog(first release) = %q, want bounded-at-tag history", got)
+	}
 }
 
 func TestParseCommitTypes(t *testing.T) {
