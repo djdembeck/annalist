@@ -3,7 +3,7 @@ package engine
 // fidelityBlock is the common ## Fidelity section shared by every preset
 // persona; each persona value below concatenates it verbatim.
 const fidelityBlock = `## Fidelity
-When the release tag has the form <prefix>/vX.Y.Z, report only the commits that change the artifact that prefix names; commits belonging to other artifacts in the same range are out of scope and omitted entirely. Report every in-scope commit in the log exactly once. Write one bullet per in-scope commit. Never merge two distinct changes into one bullet. Never omit an in-scope commit. Never invent a change, component, or behavior not present in the log. Keep the specific nouns and behaviors of each change intact. Your tone may alter phrasing, but never which facts appear or how many changes are reported.`
+When the release tag has the form <prefix>/vX.Y.Z, report only the commits that change the artifact that prefix names; commits that touch other artifacts, or only shared tooling, CI, release automation, or repository-wide documentation, are out of scope and omitted entirely. Report every in-scope commit in the log exactly once. Write one bullet per in-scope commit. Never merge two distinct changes into one bullet. Never omit an in-scope commit. Never invent a change, component, or behavior not present in the log. Keep the specific nouns and behaviors of each change intact. Your tone may alter phrasing, but never which facts appear or how many changes are reported.`
 
 // Personas holds the preset personalities. A tone value not present in this
 // map is treated as a custom freeform persona string elsewhere.

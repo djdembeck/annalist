@@ -107,6 +107,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 		"Scope filter (highest rule)",
 		"the artifact that prefix names",
 		"No changes to this artifact in this range.",
+		"shared tooling, CI, release automation, repository-wide documentation",
 		"Every in-scope commit in the provided log must become exactly one bullet",
 	} {
 		if !strings.Contains(prompt, want) {

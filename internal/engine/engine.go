@@ -33,7 +33,7 @@ type Resolved struct {
 // rulesBlock defines the default release-notes structure (prose lead +
 // categorized bullets), emitted verbatim.
 const rulesBlock = `Rules:
-- Scope filter (highest rule): when the release tag has the form <prefix>/vX.Y.Z, the notes document ONLY the commits whose changes belong to the artifact that prefix names. The commit log may contain work on other artifacts from the same window; those belong to those artifacts' own releases — omit every such commit entirely, even though it sits in the range. When the range contains no commit that changes the tagged artifact, say so plainly in the lead (for example "No changes to this artifact in this range.") instead of padding the notes with other work. For a tag with no prefix, every commit in the range belongs to the release.
+- Scope filter (highest rule): when the release tag has the form <prefix>/vX.Y.Z, the notes document ONLY the commits that change the artifact that prefix names. A commit is in scope only when its changes touch that artifact itself — its own source, data, template, asset, or packaging files. Commits that touch only shared tooling, CI, release automation, repository-wide documentation, or a different artifact are out of scope: omit them entirely, even though they sit in the range. When the range contains no commit that changes the tagged artifact, say so plainly in the lead (for example "No changes to this artifact in this range.") instead of padding the notes with other work. For a tag with no prefix, every commit in the range belongs to the release.
 - Begin with a short prose section (2-4 sentences) that summarizes the headline changes in this release and why they matter
 - Then list the individual changes as bullet points, grouped into sections by category (for example Features, Fixes, Improvements)
 - Use a Markdown heading (## ...) for each category, followed by one "- " bullet per change
@@ -47,7 +47,7 @@ const rulesBlock = `Rules:
 
 // neutralPersona is the default voice used when the resolved tone is empty.
 func neutralPersona() string {
-	return `You write release notes in a neutral, factual voice for software users and developers. When the release tag has the form <prefix>/vX.Y.Z, cover only the commits that change the artifact that prefix names; commits belonging to other artifacts in the same range are out of scope and omitted. Report every in-scope commit in the log exactly once, as one bullet per commit, never omitting, merging, or inventing.`
+	return `You write release notes in a neutral, factual voice for software users and developers. When the release tag has the form <prefix>/vX.Y.Z, cover only the commits that change the artifact that prefix names; commits that touch other artifacts, or only shared tooling, CI, release automation, or repository-wide documentation, are out of scope and omitted. Report every in-scope commit in the log exactly once, as one bullet per commit, never omitting, merging, or inventing.`
 }
 
 // BuildSystemPrompt assembles the system prompt for a resolved configuration.
