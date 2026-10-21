@@ -32,7 +32,7 @@ Operators typically run it on their own server next to the CI that ships their r
 
 - Generation from release webhooks (GitHub App + Forgejo), deduplicated by event hash; regenerated notes carry a marker so repeated deliveries are idempotent.
 - On-demand generation from the CLI on any platform, with optional publish-back.
-- Tone control: a global or per-repo `tone`, three built-in presets (`chronicler`, `engineer`, `launch`), any arbitrary string treated as a custom system prompt, plus per-repo markdown instructions.
+- Tone control: a global or per-repo `tone`, three built-in presets (`chronicler`, `engineer`, `launch`), any other string used as a custom freeform persona layered over the shared release-note rules, plus per-repo markdown instructions (which replace the defaults entirely).
 - Configurable LLM endpoint, model, temperature, token limit, and timeout against any OpenAI-compatible API (default model `qwen3.5-397b-a17b`).
 - Single admin bearer token, single-operator model: one account protects all `/api/*` and dashboard actions.
 - Data model: SQLite for settings/state, working clones for commit history.

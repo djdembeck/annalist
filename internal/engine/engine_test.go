@@ -25,6 +25,56 @@ func TestInstructionsOverrideIsWholeSystemPrompt(t *testing.T) {
 	}
 }
 
+// TestBuildSystemPromptShape asserts the structural contract of prompt
+// assembly without pinning prose wording: an empty tone uses the neutral
+// persona, a preset persona and a custom freeform tone are each passed
+// through, and every default prompt ends with the shared Rules block (scope
+// filter included). A repo-provided prompt must skip all of it (covered by
+// TestInstructionsOverrideIsWholeSystemPrompt).
+func TestBuildSystemPromptShape(t *testing.T) {
+	eng := &Engine{}
+
+	cases := []struct {
+		name         string
+		tone         string
+		wantContains []string
+	}{
+		{
+			name:         "empty tone uses neutral persona",
+			tone:         "",
+			wantContains: []string{"You write release notes in a neutral, factual voice"},
+		},
+		{
+			name:         "preset persona passes through",
+			tone:         "chronicler",
+			wantContains: []string{"You are a chronicler"},
+		},
+		{
+			name:         "custom tone passes through verbatim",
+			tone:         "a pirate historian",
+			wantContains: []string{"a pirate historian"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prompt := eng.BuildSystemPrompt(Resolved{Tone: tc.tone})
+			for _, want := range tc.wantContains {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("prompt missing %q; got:\n%s", want, prompt)
+				}
+			}
+			for _, want := range []string{"Rules:", "Scope filter", "no code fences"} {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("prompt missing shared rule marker %q; got:\n%s", want, prompt)
+				}
+			}
+			if pi := strings.Index(prompt, tc.wantContains[0]); pi == -1 || pi > strings.Index(prompt, "Rules:") {
+				t.Errorf("persona must appear before the shared rules; got:\n%s", prompt)
+			}
+		})
+	}
+}
+
 // llmWireRequest mirrors the JSON this client encodes for chat completions.
 type llmWireRequest struct {
 	Model    string `json:"model"`
