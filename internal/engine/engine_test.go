@@ -63,7 +63,7 @@ func TestBuildSystemPromptShape(t *testing.T) {
 					t.Errorf("prompt missing %q; got:\n%s", want, prompt)
 				}
 			}
-			for _, want := range []string{"Rules:", "Scope filter", "no code fences"} {
+			for _, want := range []string{"Rules:", "Scope filter", "no code fences", "BREAKING CHANGE:", "**Breaking:**"} {
 				if !strings.Contains(prompt, want) {
 					t.Errorf("prompt missing shared rule marker %q; got:\n%s", want, prompt)
 				}
