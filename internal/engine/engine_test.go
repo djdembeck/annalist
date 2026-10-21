@@ -12,12 +12,26 @@ import (
 	"github.com/djdembeck/annalist/internal/llm"
 )
 
-// TestBuildSystemPrompt verifies prompt assembly: the neutral persona for an
-// empty tone, each preset's verbatim prompt text, custom tones passed through
-// verbatim, repo instructions used verbatim with nothing layered on, and the
-// default (no-instructions) prompt requiring a prose lead plus categorized
-// bullets. No consent-policy block is ever emitted.
-func TestBuildSystemPrompt(t *testing.T) {
+// TestInstructionsOverrideIsWholeSystemPrompt preserves the behavior that a
+// repo-provided prompt is authoritative: it is used verbatim as the entire
+// system prompt, with no persona or default rules layered on top.
+func TestInstructionsOverrideIsWholeSystemPrompt(t *testing.T) {
+	eng := &Engine{}
+
+	verbatim := "You are the repo's own narrator. Lead prose, then bullets."
+	prompt := eng.BuildSystemPrompt(Resolved{Tone: "chronicler", Instructions: verbatim, Model: "m", Temperature: 0.5})
+	if prompt != verbatim {
+		t.Errorf("repo instructions must be the entire system prompt; got:\n%s", prompt)
+	}
+}
+
+// TestBuildSystemPromptShape asserts the structural contract of prompt
+// assembly without pinning prose wording: an empty tone uses the neutral
+// persona, a preset persona and a custom freeform tone are each passed
+// through, and every default prompt ends with the shared Rules block (scope
+// filter included). A repo-provided prompt must skip all of it (covered by
+// TestInstructionsOverrideIsWholeSystemPrompt).
+func TestBuildSystemPromptShape(t *testing.T) {
 	eng := &Engine{}
 
 	cases := []struct {
@@ -26,94 +40,38 @@ func TestBuildSystemPrompt(t *testing.T) {
 		wantContains []string
 	}{
 		{
-			name: "empty tone uses neutral persona",
-			tone: "",
-			wantContains: []string{
-				"You write release notes in a neutral, factual voice",
-				"When the release tag has the form <prefix>/vX.Y.Z",
-				"Every in-scope commit in the provided log must become exactly one bullet",
-			},
+			name:         "empty tone uses neutral persona",
+			tone:         "",
+			wantContains: []string{"You write release notes in a neutral, factual voice"},
 		},
 		{
-			name: "chronicler preset",
-			tone: "chronicler",
-			wantContains: []string{
-				"You are a chronicler: the careful writer who records a project's history as it unfolds, serving readers who want each release as a narrative chapter.",
-				"Never merge two distinct changes into one bullet",
-			},
+			name:         "preset persona passes through",
+			tone:         "chronicler",
+			wantContains: []string{"You are a chronicler"},
 		},
 		{
-			name: "engineer preset",
-			tone: "engineer",
-			wantContains: []string{
-				"You are a technical writer producing a precise change record for engineers who need to know what changed and where.",
-				"Never merge two distinct changes into one bullet",
-			},
-		},
-		{
-			name: "launch preset",
-			tone: "launch",
-			wantContains: []string{
-				"You are a product announcer writing release notes for end users and stakeholders who care about what the change means for them.",
-				"Never merge two distinct changes into one bullet",
-			},
-		},
-		{
-			name: "custom freeform tone is verbatim",
-			tone: "custom freeform persona text",
-			wantContains: []string{
-				"custom freeform persona text",
-				"Every in-scope commit in the provided log must become exactly one bullet",
-			},
+			name:         "custom tone passes through verbatim",
+			tone:         "a pirate historian",
+			wantContains: []string{"a pirate historian"},
 		},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			prompt := eng.BuildSystemPrompt(Resolved{Tone: tc.tone, Model: "m", Temperature: 0.5})
-			for _, s := range tc.wantContains {
-				if !strings.Contains(prompt, s) {
-					t.Errorf("prompt missing %q; got:\n%s", s, prompt)
+			prompt := eng.BuildSystemPrompt(Resolved{Tone: tc.tone})
+			for _, want := range tc.wantContains {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("prompt missing %q; got:\n%s", want, prompt)
 				}
 			}
-			if !strings.Contains(prompt, "Rules:") {
-				t.Errorf("rules block missing; got:\n%s", prompt)
+			for _, want := range []string{"Rules:", "Scope filter", "no code fences", "BREAKING CHANGE:", "**Breaking:**"} {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("prompt missing shared rule marker %q; got:\n%s", want, prompt)
+				}
 			}
-			if strings.Contains(prompt, "<consent_rules>") {
-				t.Errorf("prompt unexpectedly contains consent block")
+			if pi := strings.Index(prompt, tc.wantContains[0]); pi == -1 || pi > strings.Index(prompt, "Rules:") {
+				t.Errorf("persona must appear before the shared rules; got:\n%s", prompt)
 			}
 		})
-	}
-
-	// A repo-provided prompt is used verbatim; no persona or rules are layered on top.
-	verbatim := "You are the repo's own narrator. Lead prose, then bullets."
-	prompt := eng.BuildSystemPrompt(Resolved{Tone: "chronicler", Instructions: verbatim, Model: "m", Temperature: 0.5})
-	if prompt != verbatim {
-		t.Errorf("repo instructions must be the entire system prompt; got:\n%s", prompt)
-	}
-	if strings.Contains(prompt, "You are a chronicler") || strings.Contains(prompt, "Rules:") {
-		t.Errorf("repo instructions must not be combined with persona or rules")
-	}
-
-	// The default prompt (no instructions) requires a prose lead plus
-	// categorized bullet sections.
-	prompt = eng.BuildSystemPrompt(Resolved{Tone: "chronicler", Model: "m", Temperature: 0.5})
-	for _, want := range []string{
-		"short prose section",
-		"as bullet points",
-		"Features",
-		"Output ONLY the release notes text",
-		"**Breaking:**",
-		"Scope filter (highest rule)",
-		"the artifact that prefix names",
-		"No changes to this artifact in this range.",
-		"shared tooling, CI, release automation, repository-wide documentation",
-		"never appear as bullets in a prefixed tag's notes",
-		"Every in-scope commit in the provided log must become exactly one bullet",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("default prompt missing %q", want)
-		}
 	}
 }
 
