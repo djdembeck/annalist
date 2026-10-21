@@ -42,40 +42,53 @@
     {
       tone: "chronicler",
       blurb: "The project's historian — every change, framed as the story so far.",
-      notes: `## v1.4.0 — circuit breaker & staleness fixes
+      notes: `v1.4.0 opens with a circuit breaker on the gateway, and the chapter continues with a rate-limit counter reset, consolidated histogram labels, and webhook authentication docs.
 
-### Added
-- Circuit-breaker middleware on the gateway (deduped by event hash).
+## Features
+- The gateway now carries circuit-breaker middleware.
 
-### Fixed
-- Rate-limit counters now reset on configuration reload.
+## Fixes
+- Rate-limit counters reset when the configuration reloads.
 
-### Notes
-- Webhook auth headers documented. No breaking changes.`,
+## Improvements
+- Histogram labels in the metrics collector are consolidated.
+
+## Documentation
+- Webhook authentication headers are now described.`,
     },
     {
       tone: "engineer",
-      blurb: "The diff-accurate record — component, behavior, caveats.",
-      notes: `# v1.4.0
+      blurb: "The precise record — each change and its behavior, fact-first.",
+      notes: `v1.4.0 adds gateway circuit breaking, resets rate-limit counters on reload, consolidates histogram labels, and documents webhook auth headers.
 
-- gateway: circuit-breaker middleware; cascade-safe.
-- rate-limit: reset counter on config reload (#128).
-- metrics: squash histogram label cardinality.
-- docs: webhook auth headers.`,
+## Features
+- Add circuit-breaker middleware to the gateway.
+
+## Fixes
+- Reset rate-limit counters on configuration reload.
+
+## Improvements
+- Consolidate histogram labels in the metrics collector.
+
+## Documentation
+- Describe webhook authentication headers.`,
     },
     {
       tone: "launch",
       blurb: "The outward announcement — every change, framed by what it means for the user.",
-      notes: `# v1.4.0 is here
+      notes: `v1.4.0 gives your gateway circuit-breaker middleware, keeps rate-limit counters in step with configuration reloads, consolidates histogram labels, and puts webhook authentication docs in hand.
 
-A more resilient, more honest release.
+## Features
+- Your gateway now ships with circuit-breaker middleware.
 
-- **Smarter under pressure.** Circuit breaking stops one outage from becoming five.
-- **Fresh quotas, fast.** Rate limits reset the instant you change your config.
-- **Cleaner numbers.** Healthier histogram labels in your metrics collector.
-- **Webhook auth documented.** Everything you need to verify incoming events is now in the docs.
+## Fixes
+- Rate-limit counters reset as soon as you reload the configuration.
 
-No breaking changes — just upgrade and ship.`,
+## Improvements
+- Histogram labels in your metrics collector are now consolidated.
+
+## Documentation
+- Webhook authentication headers are documented so you can verify incoming events.`,
     },
   ];
 
@@ -741,7 +754,8 @@ No breaking changes — just upgrade and ship.`,
     padding: 0.25rem 0 0;
   }
 
-  :global(.home-markdown) :global(.prose-forge *) {
+  :global(.home-markdown) :global(.prose-forge *),
+  :global(.home-markdown) :global(.prose-forge p) {
     color: var(--trace-page);
   }
 

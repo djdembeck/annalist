@@ -170,7 +170,7 @@ Run `annalist generate --help` (or `annalist serve` with no config) for a brief 
 
 ### Configurable release-note tone
 
-Annalist treats `tone` as a configuration term for the generated release-note style. Set it globally or per repository. The dashboard provides three built-in presets—`chronicler`, `engineer`, and `launch`; any other `tone` value is treated as a custom freeform system prompt. Additional per-repository Markdown instructions can bind style, length, or terminology.
+Annalist treats `tone` as a configuration term for the generated release-note style. Set it globally or per repository. The dashboard provides three built-in presets—`chronicler`, `engineer`, and `launch`; any other `tone` value is used as a custom freeform persona. All presets and the neutral default share one concise shape: a short versioned opening, then one short sentence per in-scope change under category headings, with breaking, security, and migration information retained where the reader needs it; a custom persona keeps this shared shape. An in-repository instructions file or a named profile prompt is authoritative and replaces these defaults entirely. Additional per-repository Markdown instructions can bind style, length, or terminology.
 
 Repositories can also define **named release-note profiles** in `.annalist/release-notes.yaml`, one prompt per named audience, selected explicitly per generation request with `profile` (API) or `--profile` (CLI). A request with no profile keeps the legacy in-repository instructions behavior unchanged; see [docs/release-notes-voices.md](docs/release-notes-voices.md) for the manifest schema, `display_version` semantics, and publication rules.
 

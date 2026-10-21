@@ -15,7 +15,7 @@ A changelog records what changed in a release, one concern per entry. It is not 
 **Additional fidelity guidance (sourced from [LiteLLM's RELEASE_NOTES_GENERATION_INSTRUCTIONS](https://github.com/BerriAI/litellm/blob/main/cookbook/misc/RELEASE_NOTES_GENERATION_INSTRUCTIONS.md)):**
 
 - Categorize each change before writing it.
-- Preserve the factual content of every commit; tone and phrasing are presentation layers, not filters on the facts.
+- Preserve the factual content of every commit — the identity of each change, and any breaking, security, or migration information the reader must act on. Tone and phrasing are presentation layers, not filters on the facts. Covering every change fully does not mean inventorying every implementation detail behind it.
 
 ## 2. Why LLM release notes lose fidelity
 
@@ -31,16 +31,43 @@ The root cause is that models are trained to be helpful summaries, not faithful 
 
 ## 3. The fidelity contract
 
-Copy-paste this block into any custom release-notes prompt. It is byte-for-byte
-identical to the `fidelityBlock` constant in `internal/engine/personas.go`, which
-every built-in persona emits verbatim; the shared rules block restates the same
-rules. It constrains
-the model to a faithful, verifiable output.
+Every built-in voice — `chronicler`, `engineer`, `launch`, and the neutral
+default — shares one concise output shape and one fidelity contract. The shape
+lives in the shared rules block: a short opening of at most two plain sentences
+(one for a small release) that naturally names the version and states the
+headline changes and their impact, then `## category` headings with one short
+sentence per in-scope change, plus a further short sentence inside a bullet only
+when the reader needs it — migration steps, security notes, or other breaking
+information. Notes use plain text: no code fences, no backtick formatting, and no
+inventory of internal files, functions, or implementation steps. Necessary public
+interface, configuration, and version names may appear as unformatted plain text;
+the **Breaking:** marker remains exact.
+
+The block below is the `## Fidelity` section shared verbatim by every built-in
+persona, and the shared rules restate the same scope and one-bullet-per-in-scope-commit
+coverage inside that concise default. Treat the block as the coverage half of the
+default, not a duplicate of the full prompt. Authoritative full prompts (an
+in-repository instructions file or a named profile's prompt) replace the whole
+system prompt and therefore bypass both the concise default and this block;
+a custom freeform `tone` value is inserted as the persona and still receives the
+shared rules — including their restated coverage — but not this block as its own
+section.
 
 ```
 ## Fidelity
-Report every commit in the log exactly once. Write one bullet per commit. Never merge two distinct changes into one bullet. Never omit a commit. Never invent a change, component, or behavior not present in the log. Keep the specific nouns and behaviors of each change intact. Your tone may alter phrasing, but never which facts appear or how many changes are reported.
+When the release tag has the form <prefix>/vX.Y.Z, report only the commits that change the artifact that prefix names; commits that touch other artifacts, or only shared tooling, CI, release automation, or repository-wide documentation, are out of scope and omitted entirely — including release-pipeline work that cut the tag itself. Report every in-scope commit in the log exactly once. Write one bullet per in-scope commit. Never merge two distinct changes into one bullet. Never omit an in-scope commit. Never invent a change, component, or behavior not present in the log. Keep the identity of each covered change intact — name the feature or behavior it changes; supporting implementation detail within a commit may be summarized inside its bullet. Your tone may alter phrasing, but never the identity of the changes reported or the one-bullet-per-in-scope-commit count.
 ```
+
+Prompts saved from an earlier revision of this page carry the older, shorter
+variant of this block (no `<prefix>/vX.Y.Z` scope sentence, and a closing that
+said the tone may never change "which facts appear"). Re-paste the block above to
+get the current wording.
+
+**What full coverage means.** Every in-scope commit is reported exactly once, so
+no change is lost. That is coverage of the changes, not an inventory of the code
+behind them: a bullet names the feature or behavior a commit changes, and
+supporting implementation detail inside that commit may be summarized rather than
+listed line by line.
 
 **Optional addendum** — not part of the shipped `fidelityBlock`. If your commit
 messages are terse, append this line below the block to keep phrasing honest
@@ -58,29 +85,29 @@ This contract is diff-agnostic: it applies whether the prompt carries only `<com
 
 **Purpose:** Write for readers who want each release as a narrative chapter — the careful writer who records a project's history as it unfolds.
 
-**Personality:** Warm, story-driven, plain-spoken. Frames the release as the next entry in an ongoing story; opens with a prose paragraph that sets the scene — what drove the release and how it advances the project; each bullet reads like a journal entry, not a log line. Avoids breathless hype or vague summaries.
+**Personality:** Warm, story-driven, plain-spoken. Frames the release as the next entry in an ongoing story; the short prose lead carries that warmth — what drove the release and how it advances the project. Each bullet is one short, factual sentence about its change told in that voice, not a journal-length entry. Avoids breathless hype or vague summaries.
 
-**Fidelity:** Bound by the fidelity contract above. The narrative voice applies to phrasing only — every commit still becomes one bullet, and no change is merged, omitted, or invented.
+**Fidelity:** Bound by the fidelity contract above. The narrative voice applies to phrasing only — every in-scope commit still becomes one bullet, and no change is merged, omitted, or invented.
 
 ### engineer
 
 **Purpose:** Write for maintainers, contributors, and technical readers who need precise, unembellished records.
 
-**Personality:** Direct, terse, component-focused. Leads with a short, direct prose statement of what changed and any caveats. Names components, modules, and behaviors; uses exact technical terms; keeps sentences short and factual. No marketing language, no cheerleading.
+**Personality:** Direct, terse, precise. Leads with a short statement of the changes and any caveats. Uses exact technical terms and short factual sentences; names a public interface or configuration only when the commit states it. No marketing language, cheerleading, or technically meaningless adjectives.
 
-**Fidelity:** Bound by the fidelity contract. The technical voice changes nothing about fact coverage — only that the phrasing is dry and specific.
+**Fidelity:** Bound by the fidelity contract. The technical voice changes nothing about change coverage — only that the phrasing is dry and specific.
 
 ### launch
 
 **Purpose:** Write release notes for end users and stakeholders who care about what the change means for them.
 
-**Personality:** Enthusiastic, product-forward, concise. Leads every sentence with the reader's benefit; opens with an energetic prose paragraph highlighting the most user-visible improvement; each bullet starts with what the reader gains, not what the code did. Uses crisp, active voice and short sentences — excited but grounded in specifics, never vague.
+**Personality:** Enthusiastic and product-forward. Opens with an upbeat prose paragraph about the most user-visible improvement, and lets each bullet lead with what the reader gains rather than what the code did. Keeps the energy strictly grounded in the log — no unsupported claims of size, speed, or impact — with crisp, active sentences that never go vague.
 
-**Fidelity:** Bound by the fidelity contract. Enthusiasm applies to tone, not to content. No commit is skipped, merged, or invented.
+**Fidelity:** Bound by the fidelity contract. The benefit-first voice changes no coverage: every in-scope commit is reported once, without merging or inventing changes.
 
 ## 5. Writing your own voice
 
-Use this three-section template. Each section is one short paragraph of concrete instructions. Match the `Purpose / Personality / Fidelity` structure used by the built-in voices.
+Use this three-section template. Each section is one short paragraph of concrete instructions. Match the `Purpose / Personality / Fidelity` structure used by the built-in voices. A freeform custom `tone` is inserted as the persona but still receives the shared concise rules, whose coverage bullets restate the contract in section 3; only an authoritative full prompt (an in-repository instructions file or a named profile's prompt, section 6) bypasses the defaults, so a custom voice that wants a different shape must supply one of those instead.
 
 ```markdown
 ## Purpose
@@ -90,14 +117,14 @@ Write release notes for [audience, e.g. "platform operators and SRE teams"]. Foc
 Tone is [2-3 adjectives, e.g. "authoritative, concise, and action-oriented"]. Prefer [specific phrasing style, e.g. "imperative mood and component-first descriptions"]. Avoid [what to skip, e.g. "marketing language and subjective claims"].
 
 ## Fidelity
-[Paste the fidelity contract from section 3 above, or state: "Bound by the standard fidelity contract: one bullet per commit, never merge/omit/invent, tone changes wording only."]
+[Paste the fidelity contract from section 3 above, or state: "Bound by the standard fidelity contract: one bullet per in-scope commit, never merge/omit/invent, tone changes wording only."]
 ```
 
 **Small-model prompting tips:**
 
 - Use short declarative sentences. Small models follow simple instructions better than compound ones.
-- Write `MUST` and `MUST NOT` rules, not suggestions. "Must preserve component names" is clearer than "try to keep names."
-- Make rules verifiable. "Every commit becomes one bullet" can be checked. "Write clearly" cannot.
+- Write `MUST` and `MUST NOT` rules, not suggestions. "Must preserve the public name a commit states" is clearer than "try to keep names."
+- Make rules verifiable. "Every in-scope commit becomes one bullet" can be checked. "Write clearly" cannot.
 - Avoid vague adjectives doing the work. Instead of "write concisely," say "one sentence per bullet."
 - Place the most critical constraints first — models pay most attention to early instructions.
 
@@ -122,13 +149,13 @@ profiles:
 
 The manifest is strict. `version` must be `1`. At least one profile is required, and **every** entry is validated — not just the one requested: profile names must match `^[a-z0-9][a-z0-9_-]{0,63}$` (lowercase, digits, `_`, and `-`; starts alphanumeric; at most 64 characters), and each `prompt` must be a non-empty, repository-root-relative slash path ending in `.md`. Absolute paths, empty or `.` segments, `..` traversal, unknown fields, and a second YAML document are all rejected. When a profile is selected, its prompt file must exist and be non-empty.
 
-The selected prompt is the **entire** authoritative system prompt for that generation: no built-in persona and no legacy instructions file are layered on top. Write profile prompts as complete instruction sets (the tips in section 5 apply); [`examples/prompts/`](../examples/prompts/) has small, working examples.
+The selected prompt is the **entire** authoritative system prompt for that generation: no built-in persona, no legacy instructions file, and none of the shared concise-default rules from section 3 are layered on top — a named profile therefore defines its own shape, coverage contract, and formatting. Write profile prompts as complete instruction sets (the tips in section 5 apply); [`examples/prompts/`](../examples/prompts/) has small, working examples.
 
 ### Selection
 
 Profile selection is explicit, and **one request generates exactly one profile's output** — there is no batch endpoint and no output composition. There is no default profile: a request with no `profile` (or an empty one) never reads the manifest and follows the legacy path — the provider-specific in-repository instructions file (`.github/release-notes-instructions.md` for GitHub, `.forgejo/release-notes.md` for Forgejo) is still used, with the file read pinned to the source tag like every other generation-time read, and when the file is absent or unreadable Annalist falls back to the configured tone/persona as before. When a profile *is* named, only that profile's prompt is used and the legacy instructions file is intentionally ignored rather than composed. Webhook-driven generation never selects a profile; it always follows the legacy path.
 
-Both the manifest and the selected prompt file are read **pinned to the source tag** — the `to_tag` of the request — so the notes are always generated from the prompt that existed at the version being released.
+Both the manifest and the selected prompt file are read **pinned to the source tag** — the `to_tag` of the request — so the notes are always generated from the prompt that existed at the version being released. The same authority applies on the legacy path: when the in-repository instructions file exists, it is used as the complete system prompt and bypasses the built-in persona and the shared concise defaults of section 3.
 
 ### `display_version`
 

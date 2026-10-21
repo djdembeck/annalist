@@ -29,7 +29,7 @@
     chronicler:
       "The historian — frames each change as part of the project's story.",
     engineer:
-      "The record-keeper — names the component and behavior, fact-first.",
+      "The record-keeper — states each change and its behavior, fact-first.",
     launch:
       "The announcement — leads with what each change means for the user.",
   };
@@ -51,38 +51,45 @@
   ];
 
   const PREVIEW_EXAMPLES: Record<string, string> = {
-    chronicler: `This release hardens the forge. Webhook deliveries now surface a live health check, so you can see at a glance whether GitHub is reaching your instance. Note generation runs faster under load thanks to result caching, and the retired v1 endpoints step aside after a long farewell tour.
+    chronicler: `v1.5.0 opens the next chapter with a health check for webhook deliveries, corrected pagination on release history, cached note generation, and the removal of the v1 endpoints.
 
 ## Features
-- Webhook deliveries now carry a live health check, so you can see at a glance whether GitHub is reaching your instance.
+- Webhook deliveries now carry a health check, so you can see whether your instance is being reached.
 
 ## Fixes
-- Release history pagination is corrected — long lists finally page the way they should.
+- Release history pagination is corrected.
 
 ## Improvements
-- Note generation results are cached, so releases build faster under load.
-- The deprecated v1 endpoints step aside after a long farewell tour.`,
-    engineer: `This release adds a webhook delivery health check, caches note generation output, fixes pagination on the release history, and removes the deprecated v1 endpoints.
+- Note generation results are cached, so regeneration reuses work already done.
+
+## Removed
+- The deprecated v1 endpoints are removed.`,
+    engineer: `v1.5.0 adds a webhook delivery health check, fixes release-history pagination, caches note generation, and removes the v1 endpoints.
 
 ## Features
-- Add webhook delivery health check
+- Add webhook delivery health check.
 
 ## Fixes
-- Fix pagination on release history
+- Fix pagination on release history.
 
 ## Improvements
-- Cache note generation results for faster rebuilds
-- Remove deprecated v1 endpoints`,
-    launch: `Time to shine — this update makes your forge faster and healthier than ever. Webhook health checks keep you in the loop, note generation gets a speed boost, and release history finally scrolls like butter.
+- Cache release note generation results.
+
+## Removed
+- Remove the deprecated v1 endpoints.`,
+    launch: `v1.5.0 gives you a health check on every webhook delivery, corrected release-history pagination, cached note generation, and the retirement of the v1 endpoints.
 
 ## Features
-- Webhook health checks keep you in the loop on every delivery.
+- See your webhook deliveries' health at a glance — no more guessing whether events reached your instance.
 
 ## Fixes
-- Release history scrolls like butter, even with a long history.
+- Release history now pages correctly.
 
 ## Improvements
-- Note generation gets a speed boost when the forge is under load.`,
+- Regenerated notes reuse cached results instead of redoing the work.
+
+## Removed
+- The deprecated v1 endpoints are removed; use the current API.`,
   };
 
   // --- step 1: token ---
@@ -1090,7 +1097,7 @@
                 >Chronicler — frames each change as part of the story</option
               >
               <option value="engineer"
-                >Engineer — names component and behavior, fact-first</option
+                >Engineer — states each change and its behavior, fact-first</option
               >
               <option value="launch"
                 >Launch — leads with what each change means for users</option
