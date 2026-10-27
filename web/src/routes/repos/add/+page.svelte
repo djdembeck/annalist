@@ -34,7 +34,9 @@
   let saving = $state(false);
   let error = $state("");
   let activeSource = $state<Source>("github");
-  let manualPlatform = $state<Source>("github");
+  // Null until a platform is chosen; defaults to the first configured
+  // platform on load, consistent with discovery.
+  let manualPlatform = $state<Source | null>(null);
   let manualOwner = $state<string>("");
   let manualRepo = $state<string>("");
   let search = $state("");
@@ -49,11 +51,17 @@
   async function load(): Promise<void> {
     try {
       status = await getStatus();
-      available = await getAvailableRepos();
-      error = "";
       const enabled = getEnabledSources(status);
       if (enabled.length && !isSourceEnabled(status, activeSource))
         activeSource = enabled[0];
+      // Default the manual entry to the first configured platform, the same
+      // way discovery does — but never overwrite a platform the operator
+      // has already chosen, so an explicit selection survives later async
+      // reloads.
+      if (enabled.length && manualPlatform === null)
+        manualPlatform = enabled[0];
+      available = await getAvailableRepos();
+      error = "";
     } catch (e) {
       if (handleAuthError(e)) return;
       error = formatError(e, "Failed to load available repos");
@@ -90,7 +98,7 @@
     }
     rowResults = results;
 
-    const successCount = await batchAddRepos(targets, results, addRepo);
+    const successCount = await batchAddRepos(targets, rowResults, addRepo);
     const allSuccess = successCount === targets.length;
 
     if (allSuccess) {
@@ -133,7 +141,7 @@
     const successCount = await retryFailedRepos(
       available,
       failedKeys,
-      results,
+      rowResults,
       addRepo,
     );
     const allSuccess = successCount === failedKeys.length;
@@ -157,6 +165,10 @@
     const repo = manualRepo.trim();
     if (!owner || !repo) {
       error = "Owner and repository name are required.";
+      return;
+    }
+    if (!manualPlatform) {
+      error = "Choose a platform before adding.";
       return;
     }
     saving = true;
@@ -253,7 +265,12 @@
           ><span class="field-group__label">Platform</span><select
             bind:value={manualPlatform}
             class="field"
-            >{#each SOURCES as s}<option value={s}>{s}</option>{/each}</select
+            >{#if manualPlatform === null}<option value="" disabled hidden
+                >Select a platform…</option
+              >{/if}{#each SOURCES as s}<option value={s}>{s}{status !== null &&
+              !isSourceEnabled(status, s)
+              ? " (not configured)"
+              : ""}</option>{/each}</select
           ></label
         >
         <label class="field-group"
@@ -533,7 +550,12 @@
           ><span class="field-group__label">Platform</span><select
             bind:value={manualPlatform}
             class="field"
-            >{#each SOURCES as s}<option value={s}>{s}</option>{/each}</select
+            >{#if manualPlatform === null}<option value="" disabled hidden
+                >Select a platform…</option
+              >{/if}{#each SOURCES as s}<option value={s}>{s}{status !== null &&
+              !isSourceEnabled(status, s)
+              ? " (not configured)"
+              : ""}</option>{/each}</select
           ></label
         >
         <label class="field-group"

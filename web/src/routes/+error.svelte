@@ -32,16 +32,23 @@
     {/if}
 
     <div class="flex flex-col gap-3 pt-4 sm:flex-row">
-      <button
-        type="button"
-        onclick={() => ($page.form ? history.back() : location.reload())}
-        class="btn btn-primary w-full sm:w-auto"
-      >
-        Try again
-      </button>
-      <a href="/repos" class="btn btn-secondary w-full sm:w-auto"
-        >View repositories</a
-      >
+      {#if $page.status === 404}
+        <a href="/repos" class="btn btn-primary w-full sm:w-auto"
+          >View repositories</a
+        >
+      {:else}
+        <button
+          type="button"
+          onclick={() =>
+            ($page.form ? history.back() : location.reload())}
+          class="btn btn-primary w-full sm:w-auto"
+        >
+          Try again
+        </button>
+        <a href="/repos" class="btn btn-secondary w-full sm:w-auto"
+          >View repositories</a
+        >
+      {/if}
       {#if !$page.url.pathname.startsWith("/setup")}
         <a href="/setup" class="btn btn-ghost w-full sm:w-auto">Open setup</a>
       {/if}

@@ -257,6 +257,14 @@ The radius ladder is 4px (inline code), 5px (badges, chips), 7px (theme switch),
 - **Ledger mark:** 40px (38px mobile) 40-unit SVG — an open book stroked in text color at 2.3/2px round joins, a center spine, three leader lines, and a copper bookmark stamp. The wordmark beside it is 29px at 650 with -0.035em tracking — the quiet, prominent identity the nav must keep.
 - **Theme switch:** 7px-radius group with a 1px strong border; the pressed side fills with control-hover at weight 650, 50px minimum hit width.
 
+### Workflow and Draft State
+- **Setup:** discovery is explicit. One continuation control remains available with no selection, filtered/empty results, discovery errors, and partial-add errors; pending repository writes block continuation. Platform badges carry configuration status without a repeated subtitle.
+- **Manual entry:** default to a known configured platform without replacing an operator's explicit selection. Unconfigured platforms remain selectable for preconfiguration; unknown status is not labeled unconfigured.
+- **Global settings:** Save commits the draft and establishes its new baseline; Discard restores the saved values. Dirty route exits require confirmation and dirty unloads warn. An expired session preserves the in-memory draft for same-origin reauthentication; Discard clears the preservation notice. Draft credentials never gain a new browser-storage path.
+- **Disclosure:** provider connection, model tuning, and additional commit types use native details. Every existing setting remains available; active uncommon/custom types remain discoverable, and invalid tuning fields are revealed and focused. Restoring the original effective values restores the clean state.
+- **Mobile navigation:** Save/Discard, Form summary, and Back to Save and Discard links keep actions and effective settings reachable without leaving the draft. In-page hash links do not trigger the dirty-route confirmation.
+- **404 recovery:** the primary action returns to Repositories rather than retrying the unavailable address. Preview/raw views and overwrite confirmation retain their publication safeguards.
+
 ### Accessibility and Motion
 Skip link first, then `aria-current` on nav, `aria-pressed` on the theme switch, `role="status"` / `role="alert"` banners (error in the failed tint, warning in the cached tint), and labeled 44px controls. State transitions run 140ms ease — background, border, and color only; nothing moves. `prefers-reduced-motion: reduce` kills all animation, transitions, and smooth scrolling.
 

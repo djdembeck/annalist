@@ -1,4 +1,4 @@
-// Component test for the settings page's commit-type save contract.
+// Component behavior tests for global settings drafts and save contracts.
 //
 // Runs under both `bun test` (jsdom + .svelte client compilation via
 // bunfig.toml preload) and `bunx vitest run` (jsdom + the sveltekit()
@@ -14,7 +14,16 @@ import { fireEvent, screen, waitFor } from "@testing-library/dom";
 import { mount, unmount } from "$lib/svelte-client";
 
 import type { Settings, SettingsUpdate } from "$lib/api";
+import { setToken, getToken } from "$lib/api";
+import { beforeNavigate, goto } from "$app/navigation";
 import SettingsPage from "./+page.svelte";
+
+vi.mock("$app/navigation", () => ({
+  goto: vi.fn(async () => {}),
+  beforeNavigate: vi.fn(),
+}));
+
+let navigationGuard: Parameters<typeof beforeNavigate>[0];
 
 const settingsFixture: Settings = {
   tone: null,
@@ -30,7 +39,7 @@ const settingsFixture: Settings = {
   forgejo: false,
 };
 
-type JsonInit = { method?: string; body?: string };
+type JsonInit = { method?: string; body?: string; headers?: Record<string, string> };
 
 /** A vi.fn() used as the fetch stub; `.mock.calls` carries [input, init]. */
 type FetchMockFn = {
@@ -43,6 +52,10 @@ let putBody: string | null = null;
 let putResolve: ((settings: Settings) => void) | null = null;
 let saveInFlight = false;
 let putCallCount = 0;
+let failPut = false;
+let unauthorizedPut = false;
+let unauthorizedModels = false;
+let loadedSettings: Settings = settingsFixture;
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -56,7 +69,15 @@ function mockSettings(overrides: Partial<Settings> = {}): void {
   putResolve = null;
   saveInFlight = false;
   putCallCount = 0;
+  failPut = false;
+  unauthorizedPut = false;
+  unauthorizedModels = false;
+  setToken("");
   const s = { ...settingsFixture, ...overrides };
+  loadedSettings = s;
+  (beforeNavigate as typeof beforeNavigate & {
+    mockImplementation: (implementation: typeof beforeNavigate) => void;
+  }).mockImplementation((callback) => { navigationGuard = callback; });
   fetchMock = vi.fn(async (input: string, init?: JsonInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
@@ -70,18 +91,21 @@ function mockSettings(overrides: Partial<Settings> = {}): void {
         putResolve = resolve;
       });
       saveInFlight = false;
+      if (unauthorizedPut) return new Response(null, { status: 401 });
+      if (failPut) return new Response(JSON.stringify({ error: "Save rejected" }), { status: 500 });
       return jsonResponse(settings);
     }
     if (method === "GET" && url.endsWith("/api/models")) {
-      return jsonResponse([]);
+      if (unauthorizedModels) return new Response(null, { status: 401 });
+      return jsonResponse(s.model ? [s.model] : []);
     }
     return jsonResponse(s);
   });
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 }
 
-function resolvePutSettings(): void {
-  putResolve?.({ ...settingsFixture });
+function resolvePutSettings(overrides: Partial<Settings> = {}): void {
+  putResolve?.({ ...loadedSettings, ...overrides });
 }
 
 /** Wait until putSettings' request has arrived, then record its body. */
@@ -104,7 +128,9 @@ afterEach(() => {
   }
   container?.remove();
   container = null;
+  setToken("");
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 async function mountPage() {
@@ -170,13 +196,19 @@ describe("settings page commit type contract", () => {
     mockSettings();
     await mountPage();
 
+    await fireEvent.input(screen.getByLabelText(/Instructions/), {
+      target: { value: "pending edit" },
+    });
     await fireEvent.click(
       screen.getByRole("button", { name: /Save settings/ }),
     );
 
-    // The save is still pending (putResolve is not called in this test).
     await waitForPut();
     expect(saveInFlight).toBe(true);
+    expect(screen.getByLabelText(/Instructions/).matches(":disabled")).toBe(true);
+    expect(screen.getByLabelText(/Base URL/).matches(":disabled")).toBe(true);
+    expect(screen.getByLabelText(/API key/).matches(":disabled")).toBe(true);
+    expect(screen.getByLabelText(/Tone/, { selector: "select" }).matches(":disabled")).toBe(true);
 
     // The button shows its saving state and is disabled — the guard
     // against re-entrant saves.
@@ -184,15 +216,8 @@ describe("settings page commit type contract", () => {
     expect(saveButton).toBeInstanceOf(HTMLButtonElement);
     expect((saveButton as HTMLButtonElement).disabled).toBe(true);
 
-    // The commit-type group is disabled via the wrapping
-    // <fieldset disabled={saving}>; the form-disabling semantics make
-    // its inputs non-interactive. (jsdom does not reflect that on each
-    // input's own `disabled` property, so assert the fieldset — the
-    // page's actual contract.)
     const commitTypes = screen.getByRole("checkbox", { name: /fix/i });
-    const fieldset = commitTypes.closest("fieldset");
-    expect(fieldset).toBeInstanceOf(HTMLFieldSetElement);
-    expect((fieldset as HTMLFieldSetElement).disabled).toBe(true);
+    expect(commitTypes.matches(":disabled")).toBe(true);
 
     // Only one request went out despite the in-flight state.
     expect(putCallCount).toBe(1);
@@ -322,11 +347,10 @@ describe("settings page commit type contract", () => {
         screen.getByRole("button", { name: /Save settings/ }),
       );
 
-      // Svelte schedules the re-render as a microtask after the click.
       await waitFor(() => {
-        expect(
-          screen.getByText(/Enter a whole number of 1 or more/),
-        ).toBeInstanceOf(HTMLElement);
+        expect(document.activeElement).toBe(maxTokens);
+        expect(maxTokens.closest("details")?.open).toBe(true);
+        expect(screen.getAllByRole("alert").length).toBeGreaterThan(0);
       });
       expect(putCallCount).toBe(0);
       expect(putBody).toBeNull();
@@ -383,6 +407,430 @@ describe("settings page commit type contract", () => {
       /Thinking level/,
     ) as HTMLSelectElement;
     expect(thinking.value).toBe("");
+    resolvePutSettings();
+  });
+});
+
+function attemptNavigation(willUnload = false, from?: string, to?: string) {
+  const cancel = vi.fn();
+  const target = (path?: string): Parameters<typeof navigationGuard>[0]["from"] => {
+    if (!path) return null;
+    const url = new URL(path, "https://annalist.example");
+    const internal = url.origin === "https://annalist.example";
+    const routeId = internal && url.pathname === "/settings" ? "/settings"
+      : internal && url.pathname === "/setup" ? "/setup"
+      : internal && url.pathname === "/repos" ? "/repos" : null;
+    return {
+      url,
+      params: routeId ? {} : null,
+      route: { id: routeId },
+      scroll: null,
+    };
+  };
+  const navigation: Parameters<typeof navigationGuard>[0] = {
+    type: "goto",
+    willUnload,
+    cancel,
+    complete: willUnload ? Promise.withResolvers<void>().promise : Promise.resolve(),
+    from: target(from),
+    to: target(to),
+  };
+  navigationGuard(navigation);
+  return cancel;
+}
+
+function saveButton(): HTMLButtonElement {
+  return screen.getByRole("button", { name: /Save settings/ }) as HTMLButtonElement;
+}
+
+function unloadIsPrevented(): boolean {
+  const event = new window.Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+describe("settings session recovery", () => {
+  it("discards an unauthorized draft without retaining its preservation notice or restoring expired credentials", async () => {
+    mockSettings({ instructions: "Saved instructions", model: "saved-model", llm: { ...settingsFixture.llm, has_key: true } });
+    setToken("expired-token");
+    await mountPage();
+    const instructions = screen.getByLabelText(/Instructions/) as HTMLTextAreaElement;
+    const key = screen.getByLabelText(/API key/) as HTMLInputElement;
+    await fireEvent.input(instructions, { target: { value: "Unsaved draft" } });
+    await fireEvent.input(key, { target: { value: "unsaved-provider-secret" } });
+    unauthorizedPut = true;
+    await fireEvent.click(saveButton());
+    await waitForPut();
+    resolvePutSettings();
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/session expired/i));
+    expect(getToken()).toBe("");
+    expect(instructions.value).toBe("Unsaved draft");
+    expect(putCallCount).toBe(1);
+
+    await fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    expect(instructions.value).toBe("Saved instructions");
+    expect((screen.getByLabelText(/Model \(/) as HTMLSelectElement).value).toBe("saved-model");
+    expect(key.value).toBe("");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Reauthenticate in setup/ })).toBeNull();
+    expect(unloadIsPrevented()).toBe(false);
+    expect(getToken()).toBe("");
+    expect(goto).not.toHaveBeenCalled();
+    expect(putCallCount).toBe(1);
+  });
+
+  for (const operation of ["save", "model refresh"]) {
+    it(`preserves a dirty draft after unauthorized ${operation} and retries with the reauthenticated token`, async () => {
+      mockSettings();
+      setToken("expired-token");
+      await mountPage();
+      const instructions = screen.getByLabelText(/Instructions/) as HTMLTextAreaElement;
+      const key = screen.getByLabelText(/API key/) as HTMLInputElement;
+      await fireEvent.input(instructions, { target: { value: "Keep my instructions" } });
+      await fireEvent.input(key, { target: { value: "private-provider-key" } });
+      const persist = vi.spyOn(Storage.prototype, "setItem");
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      if (operation === "save") {
+        unauthorizedPut = true;
+        await fireEvent.click(saveButton());
+        await waitForPut();
+        resolvePutSettings();
+      } else {
+        unauthorizedModels = true;
+        (key.closest("details") as HTMLDetailsElement).open = true;
+        await fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
+      }
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/session expired/i));
+      expect(getToken()).toBe("");
+      expect(goto).not.toHaveBeenCalled();
+      expect(confirm).not.toHaveBeenCalled();
+      expect(instructions.value).toBe("Keep my instructions");
+      expect(key.value).toBe("private-provider-key");
+      expect(saveButton().disabled).toBe(false);
+      expect(unloadIsPrevented()).toBe(true);
+      expect(persist).not.toHaveBeenCalled();
+      const recovery = screen.getByRole("link", { name: /Reauthenticate in setup/ });
+      expect(recovery.getAttribute("href")).toBe("/setup");
+      expect(recovery.getAttribute("target")).toBe("_blank");
+      expect(recovery.getAttribute("rel")).toBe("noopener");
+      expect(attemptNavigation(false, "/settings", "/setup")).toHaveBeenCalledOnce();
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(instructions.value).toBe("Keep my instructions");
+
+      // Setup stores the new token in same-origin localStorage; the existing
+      // settings tab must read it on its next request, without remounting.
+      setToken("renewed-token");
+      unauthorizedPut = false;
+      unauthorizedModels = false;
+      if (operation === "save") {
+        putBody = null;
+        await fireEvent.click(saveButton());
+        await waitForPut();
+        expect(JSON.parse(String(putBody)).llm_api_key).toBe("private-provider-key");
+        resolvePutSettings({ instructions: "Keep my instructions", llm: { ...settingsFixture.llm, has_key: true } });
+        await waitFor(() => expect(saveButton().disabled).toBe(true));
+      } else {
+        await fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
+        await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+        expect(instructions.value).toBe("Keep my instructions");
+        expect(key.value).toBe("private-provider-key");
+        expect(unloadIsPrevented()).toBe(true);
+      }
+      const requests = fetchMock.mock.calls.filter(([url, init]) =>
+        operation === "save" ? init?.method === "PUT" : url.endsWith("/api/models"),
+      );
+      expect(requests[requests.length - 1][1]?.headers?.Authorization).toBe("Bearer renewed-token");
+      expect(screen.queryByRole("link", { name: /Reauthenticate in setup/ })).toBeNull();
+    });
+  }
+
+  it("redirects a clean unauthorized model refresh to setup without a draft warning", async () => {
+    mockSettings();
+    await mountPage();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    unauthorizedModels = true;
+    (screen.getByLabelText(/API key/).closest("details") as HTMLDetailsElement).open = true;
+    await fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
+    await waitFor(() => expect(goto).toHaveBeenCalledWith("/setup"));
+    expect(attemptNavigation(false, "/settings", "/setup")).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(unloadIsPrevented()).toBe(false);
+    expect(screen.queryByRole("link", { name: /Reauthenticate in setup/ })).toBeNull();
+  });
+});
+
+describe("settings draft lifecycle", () => {
+  it("allows summary and back hash navigation on the same path and query without prompting", async () => {
+    mockSettings();
+    await mountPage();
+    await fireEvent.input(screen.getByLabelText(/Instructions/), { target: { value: "Keep draft" } });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    for (const name of ["Form summary", "Back to Save and Discard"]) {
+      for (const link of screen.getAllByRole("link", { name })) {
+        const href = link.getAttribute("href");
+        expect(href?.startsWith("#")).toBe(true);
+        expect(attemptNavigation(false, "/settings?view=defaults", `/settings?view=defaults${href}`)).not.toHaveBeenCalled();
+      }
+    }
+    expect(confirm).not.toHaveBeenCalled();
+    expect(unloadIsPrevented()).toBe(true);
+    expect(attemptNavigation(false, "/settings?view=defaults", "/settings?view=other#settings-summary")).toHaveBeenCalledOnce();
+    expect(attemptNavigation(false, "/settings?view=defaults", "/repos?view=defaults#settings-summary")).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses only the browser unload prompt for dirty full-page exits", async () => {
+    mockSettings();
+    await mountPage();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    expect(attemptNavigation(true, "/settings", "https://external.example/")).not.toHaveBeenCalled();
+    expect(unloadIsPrevented()).toBe(false);
+    await fireEvent.input(screen.getByLabelText(/Instructions/), { target: { value: "Unsaved" } });
+    expect(attemptNavigation(true, "/settings", "https://external.example/")).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(unloadIsPrevented()).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+    await fireEvent.input(screen.getByLabelText(/Instructions/), { target: { value: "" } });
+    expect(unloadIsPrevented()).toBe(false);
+  });
+
+  it("becomes clean after restoring every control to its original semantic value", async () => {
+    mockSettings({ model: "original-model", temperature: 0.85, max_tokens: 1200, thinking_level: "medium" });
+    await mountPage();
+    const inputEdits = [
+      { label: /Instructions/, edited: "draft", original: "" },
+      { label: /Base URL/, edited: "https://other.example.com", original: "https://api.example.com" },
+      { label: /API key/, edited: "temporary-secret", original: "" },
+      { label: /Temperature/, edited: "1.25", original: "0.85" },
+      { label: /Max output tokens/, edited: "3000", original: "1200" },
+      { label: /Additional types/, edited: "Security", original: "" },
+    ];
+    for (const edit of inputEdits) {
+      const field = screen.getByLabelText(edit.label);
+      await fireEvent.input(field, { target: { value: edit.edited } });
+      expect(saveButton().disabled).toBe(false);
+      await fireEvent.input(field, { target: { value: edit.original } });
+      await waitFor(() => expect(saveButton().disabled).toBe(true));
+    }
+    for (const edit of [
+      { label: /Model \(/, edited: "", original: "original-model" },
+      { label: /^Mode(?!l)/, edited: "deep", original: "lite" },
+      { label: /Thinking level/, edited: "high", original: "medium" },
+    ]) {
+      const field = screen.getByLabelText(edit.label);
+      await fireEvent.change(field, { target: { value: edit.edited } });
+      expect(saveButton().disabled).toBe(false);
+      await fireEvent.change(field, { target: { value: edit.original } });
+      await waitFor(() => expect(saveButton().disabled).toBe(true));
+    }
+    const tone = screen.getByLabelText(/Tone/, { selector: "select" });
+    await fireEvent.change(tone, { target: { value: "custom" } });
+    await fireEvent.input(screen.getByLabelText(/Custom tone/), { target: { value: "Temporary voice" } });
+    expect(saveButton().disabled).toBe(false);
+    await fireEvent.change(tone, { target: { value: "inherit" } });
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    const refactor = screen.getByRole("checkbox", { name: /refactor/i });
+    await fireEvent.click(refactor);
+    expect(saveButton().disabled).toBe(false);
+    await fireEvent.click(refactor);
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    expect(unloadIsPrevented()).toBe(false);
+  });
+
+  it("tracks provider, model, mode, thinking, and custom-tone edits through discard", async () => {
+    mockSettings({ tone: "Personal voice", model: "saved-model", thinking_level: "medium" });
+    await mountPage();
+    const edits = [
+      { label: /Base URL/, event: "input", value: "https://other.example.com" },
+      { label: /Model \(/, event: "change", value: "" },
+      { label: /^Mode(?!l)/, event: "change", value: "deep" },
+      { label: /Thinking level/, event: "change", value: "high" },
+      { label: /Custom tone/, event: "input", value: "Another voice" },
+      { label: /Max output tokens/, event: "input", value: "8000" },
+    ];
+    for (const edit of edits) {
+      const field = screen.getByLabelText(edit.label);
+      if (edit.event === "input") await fireEvent.input(field, { target: { value: edit.value } });
+      else await fireEvent.change(field, { target: { value: edit.value } });
+      expect(unloadIsPrevented()).toBe(true);
+      await fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+      expect(unloadIsPrevented()).toBe(false);
+      expect(saveButton().disabled).toBe(true);
+    }
+  });
+
+  it("saves an unrelated edit with a precise temperature inside collapsed tuning", async () => {
+    mockSettings({ temperature: 0.85 });
+    await mountPage();
+    const temperature = screen.getByLabelText(/Temperature/) as HTMLInputElement;
+    expect(temperature.closest("details")?.open).toBe(false);
+    await fireEvent.input(screen.getByLabelText(/Instructions/), {
+      target: { value: "Keep the configured provider temperature" },
+    });
+    await fireEvent.click(saveButton());
+    await waitForPut();
+    const payload = JSON.parse(putBody as string) as SettingsUpdate;
+    expect(payload.instructions).toBe("Keep the configured provider temperature");
+    expect(payload.temperature).toBe(0.85);
+    resolvePutSettings({ temperature: 0.85, instructions: "Keep the configured provider temperature" });
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    expect(unloadIsPrevented()).toBe(false);
+  });
+
+  it("saves blank temperature as inherited rather than invalid or zero", async () => {
+    mockSettings({ temperature: 0.8 });
+    await mountPage();
+    await fireEvent.input(screen.getByLabelText(/Temperature/), { target: { value: "" } });
+    await fireEvent.click(saveButton());
+    await waitForPut();
+    expect(JSON.parse(putBody as string).temperature).toBeNull();
+    resolvePutSettings({ temperature: null });
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+  });
+
+  it("retains edits when SPA navigation is cancelled and allows a confirmed discard", async () => {
+    mockSettings();
+    await mountPage();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const input = screen.getByLabelText(/Instructions/) as HTMLTextAreaElement;
+    await fireEvent.input(input, { target: { value: "Keep this draft" } });
+    expect(attemptNavigation()).toHaveBeenCalledOnce();
+    expect(input.value).toBe("Keep this draft");
+    expect(unloadIsPrevented()).toBe(true);
+    confirm.mockReturnValue(true);
+    expect(attemptNavigation()).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns to clean when ordinary edits are restored, including numeric blank inheritance", async () => {
+    mockSettings();
+    await mountPage();
+    const input = screen.getByLabelText(/Instructions/);
+    await fireEvent.input(input, { target: { value: "draft" } });
+    expect(saveButton().disabled).toBe(false);
+    await fireEvent.input(input, { target: { value: "" } });
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    const temperature = screen.getByLabelText(/Temperature/);
+    await fireEvent.input(temperature, { target: { value: "0.7" } });
+    expect(saveButton().disabled).toBe(false);
+    await fireEvent.input(temperature, { target: { value: "" } });
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    expect(unloadIsPrevented()).toBe(false);
+  });
+
+  it("discards back to loaded values and clears pending key edits without saving", async () => {
+    mockSettings({ instructions: "Original", llm: { base_url: "https://api.example.com", api_key: "masked", has_key: true } });
+    await mountPage();
+    const persist = vi.spyOn(Storage.prototype, "setItem");
+    const instructions = screen.getByLabelText(/Instructions/) as HTMLTextAreaElement;
+    const key = screen.getByLabelText(/API key/) as HTMLInputElement;
+    await fireEvent.input(instructions, { target: { value: "Changed" } });
+    await fireEvent.input(key, { target: { value: "temporary-secret" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(instructions.value).toBe("Original");
+    expect(key.value).toBe("");
+    expect(saveButton().disabled).toBe(true);
+    expect(unloadIsPrevented()).toBe(false);
+    expect(putCallCount).toBe(0);
+    expect(document.body.textContent).not.toContain("temporary-secret");
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("baselines a successful save and later discards to that saved value", async () => {
+    mockSettings();
+    await mountPage();
+    const input = screen.getByLabelText(/Instructions/) as HTMLTextAreaElement;
+    await fireEvent.input(input, { target: { value: "Accepted" } });
+    await fireEvent.click(saveButton());
+    await waitForPut();
+    expect(unloadIsPrevented()).toBe(true);
+    resolvePutSettings({ instructions: "Accepted" });
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    expect(unloadIsPrevented()).toBe(false);
+    await fireEvent.input(input, { target: { value: "Another edit" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(input.value).toBe("Accepted");
+    expect(unloadIsPrevented()).toBe(false);
+  });
+
+  it("keeps failed saves dirty and retains the draft for retry", async () => {
+    mockSettings();
+    failPut = true;
+    await mountPage();
+    const input = screen.getByLabelText(/Instructions/) as HTMLTextAreaElement;
+    await fireEvent.input(input, { target: { value: "Retry this" } });
+    await fireEvent.click(saveButton());
+    await waitForPut();
+    resolvePutSettings();
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    expect(input.value).toBe("Retry this");
+    expect(unloadIsPrevented()).toBe(true);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    expect(attemptNavigation()).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("omits an untouched key on an unrelated save", async () => {
+    mockSettings({ llm: { base_url: "https://api.example.com", api_key: "masked", has_key: true } });
+    await mountPage();
+    await fireEvent.input(screen.getByLabelText(/Instructions/), { target: { value: "Edited" } });
+    await fireEvent.click(saveButton());
+    await waitForPut();
+    expect(JSON.parse(putBody as string)).not.toHaveProperty("llm_api_key");
+    expect(JSON.parse(putBody as string)).not.toHaveProperty("llm_base_url");
+    resolvePutSettings();
+  });
+
+  it("sends null for a touched-empty key and clears key edits after save", async () => {
+    mockSettings({ llm: { base_url: "https://api.example.com", api_key: "masked", has_key: true } });
+    await mountPage();
+    const key = screen.getByLabelText(/API key/) as HTMLInputElement;
+    await fireEvent.input(key, { target: { value: "replacement" } });
+    await fireEvent.input(key, { target: { value: "" } });
+    expect(unloadIsPrevented()).toBe(true);
+    await fireEvent.click(saveButton());
+    await waitForPut();
+    expect(JSON.parse(putBody as string).llm_api_key).toBeNull();
+    resolvePutSettings();
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    expect(key.value).toBe("");
+    expect(unloadIsPrevented()).toBe(false);
+  });
+
+  it("retains uncommon and custom types through disclosure collapse and an unrelated save", async () => {
+    mockSettings({ commit_types: "fix,docs,Security" });
+    await mountPage();
+    const custom = screen.getByLabelText(/Additional types/) as HTMLInputElement;
+    const details = custom.closest("details") as HTMLDetailsElement;
+    expect(details.open).toBe(true);
+    const docs = screen.getByRole("checkbox", { name: /docs/i }) as HTMLInputElement;
+    expect(docs.checked).toBe(true);
+    const style = screen.getByRole("checkbox", { name: /style/i });
+    await fireEvent.click(style);
+    details.open = false;
+    await fireEvent(details, new window.Event("toggle"));
+    await fireEvent.input(screen.getByLabelText(/Instructions/), { target: { value: "Edited" } });
+    await fireEvent.click(saveButton());
+    await waitForPut();
+    expect(JSON.parse(putBody as string).commit_types).toBe("fix,docs,style,Security");
+    expect(custom.value).toBe("Security");
+    expect(docs.checked).toBe(true);
+    resolvePutSettings();
+  });
+
+  it("restores a type selection to clean without pinning an inherited filter", async () => {
+    mockSettings();
+    await mountPage();
+    const refactor = screen.getByRole("checkbox", { name: /refactor/i });
+    await fireEvent.click(refactor);
+    expect(saveButton().disabled).toBe(false);
+    await fireEvent.click(refactor);
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
+    await fireEvent.input(screen.getByLabelText(/Instructions/), { target: { value: "Edited" } });
+    await fireEvent.click(saveButton());
+    await waitForPut();
+    expect(JSON.parse(putBody as string).commit_types).toBeNull();
     resolvePutSettings();
   });
 });

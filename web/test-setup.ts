@@ -17,8 +17,8 @@
 //     share one runtime universe.
 //
 // `$lib/...` resolves natively via the SvelteKit-generated tsconfig
-// `paths`; `$app/navigation` (imported only by the auth-error path these
-// tests never hit) is mocked. Vitest (`bunx vitest run`) gets the
+// `paths`; `$app/navigation` is mocked so component tests can register and
+// exercise navigation guards without mounting the SvelteKit router. Vitest (`bunx vitest run`) gets the
 // equivalent setup from the `test` block in vite.config.ts + the
 // sveltekit() plugin, so it does not read this file.
 import { JSDOM } from "jsdom";
@@ -28,6 +28,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>", {
   url: "http://localhost/",
+  pretendToBeVisual: true,
 });
 
 const w = dom.window as unknown as Record<string, unknown>;
@@ -52,6 +53,7 @@ globalThis.requestAnimationFrame = (cb: FrameRequestCallback) =>
 import { mock as bunMock } from "bun:test";
 bunMock.module("$app/navigation", () => ({
   goto: () => Promise.resolve(),
+  beforeNavigate: bunMock(() => {}),
 }));
 
 const webRoot = new URL(".", import.meta.url);

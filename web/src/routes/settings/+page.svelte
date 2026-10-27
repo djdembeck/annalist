@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
+  import { beforeNavigate } from "$app/navigation";
   import {
     parseMaxTokens,
     parseTemperature,
@@ -33,6 +34,7 @@
   let loading = $state(true);
   let saving = $state(false);
   let error = $state("");
+  let sessionExpired = $state(false);
   let saved = $state(false);
   let toneOption = $state("inherit");
   let customTone = $state("");
@@ -44,14 +46,64 @@
   let models = $state<string[]>([]);
   let modelsError = $state("");
   let mode = $state("lite");
-  let temperature = $state("");
+  let temperature = $state<string | number | undefined>("");
   let temperatureError = $state("");
-  let maxTokens = $state<string | null>("");
+  let maxTokens = $state<string | number | null | undefined>("");
   let maxTokensError = $state("");
   let thinkingLevel = $state("");
   let selectedCommitTypes = $state<string[]>(DEFAULT_COMMIT_TYPES);
   let customCommitTypes = $state("");
-  let commitTypesDirty = $state(false);
+  let baseline = $state("");
+  let baselineCommitTypes = $state("");
+  let providerOpen = $state(false);
+  let tuningOpen = $state(false);
+  let form = $state<HTMLFormElement>();
+  let temperatureInput = $state<HTMLInputElement>();
+  let maxTokensInput = $state<HTMLInputElement>();
+  const commitTypeValue = $derived(
+    formatCommitTypes(selectedCommitTypes, customCommitTypes),
+  );
+  const commitTypesDirty = $derived(commitTypeValue !== baselineCommitTypes);
+
+  function snapshot(): string {
+    return JSON.stringify({
+      tone: resolveTone(toneOption, customTone),
+      instructions: instructions.trim() ? instructions : "",
+      model: model.trim(), baseUrl: baseUrl.trim(), mode,
+      temperature: temperature == null || temperature === "" ? "" : String(temperature),
+      maxTokens: maxTokens == null || maxTokens === "" ? "" : String(maxTokens),
+      thinkingLevel, commitTypeValue,
+      apiKeyTouched: apiKeyTouched && (apiKey !== "" || Boolean(settings?.llm.has_key)), apiKey,
+    });
+  }
+  const dirty = $derived(Boolean(baseline) && snapshot() !== baseline);
+
+  beforeNavigate((navigation) => {
+    // Browser exits use beforeunload; SPA transitions use the same dirty state.
+    if (navigation.willUnload || !dirty) return;
+    if (
+      navigation.from?.url.pathname === navigation.to?.url.pathname &&
+      navigation.from?.url.search === navigation.to?.url.search &&
+      navigation.from?.url.hash !== navigation.to?.url.hash
+    ) return;
+    if (!window.confirm("Discard unsaved settings and leave this page?")) {
+      navigation.cancel();
+    }
+  });
+
+  function beforeUnload(event: BeforeUnloadEvent): void {
+    if (!dirty) return;
+    event.preventDefault();
+    event.returnValue = "";
+  }
+
+  function discard(): void {
+    if (!settings || saving) return;
+    applySettings(settings);
+    sessionExpired = false;
+    saved = false;
+    error = "";
+  }
 
   let platformStatus = $derived(
     settings
@@ -66,10 +118,7 @@
   );
   let headerLede = $derived(settings ? platformStatus : undefined);
 
-  async function load(): Promise<void> {
-    try {
-      settings = await getSettings();
-      const s = settings;
+  function applySettings(s: Settings): void {
       const tone = s.tone ?? "";
       toneOption = !tone
         ? "inherit"
@@ -94,11 +143,26 @@
         ? commitTypeSelection.selected
         : [...DEFAULT_COMMIT_TYPES];
       customCommitTypes = commitTypeSelection.custom.join(", ");
-      commitTypesDirty = false;
+      baselineCommitTypes = formatCommitTypes(selectedCommitTypes, customCommitTypes);
       temperatureError = "";
+      maxTokensError = "";
+      baseline = snapshot();
+  }
+
+  function recoverAuth(e: unknown): boolean {
+    return handleAuthError(e, dirty ? () => {
+      sessionExpired = true;
+      saved = false;
+    } : undefined);
+  }
+
+  async function load(): Promise<void> {
+    try {
+      settings = await getSettings();
+      applySettings(settings);
       error = "";
     } catch (e) {
-      if (handleAuthError(e)) return;
+      if (recoverAuth(e)) return;
       error = formatError(
         e,
         "Could not load settings — the server may be unreachable. Check your connection and try refreshing.",
@@ -117,32 +181,44 @@
     modelsError = "";
     try {
       models = await getModels();
+      sessionExpired = false;
     } catch (e) {
-      if (handleAuthError(e)) return;
+      if (recoverAuth(e)) return;
       modelsError = formatError(
         e,
         "Could not load the model list — check the base URL and API key below.",
       );
+      providerOpen = true;
     }
   }
 
   async function save(): Promise<void> {
+    if (saving || !dirty || !form) return;
     saved = false;
+    temperatureError = "";
+    maxTokensError = "";
+    const tempResult = parseTemperature(temperature == null ? "" : String(temperature));
+    const tokensResult = parseMaxTokens(maxTokens ?? null);
+    if (tempResult.error || tokensResult.error) {
+      temperatureError = tempResult.error ?? "";
+      maxTokensError = tokensResult.error ?? "";
+      tuningOpen = true;
+      await tick();
+      (tempResult.error ? temperatureInput : maxTokensInput)?.focus();
+      return;
+    }
+    const invalid = form.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+      "input:invalid, select:invalid, textarea:invalid",
+    );
+    if (invalid) {
+      const disclosure = invalid.closest("details");
+      if (disclosure) disclosure.open = true;
+      invalid.reportValidity();
+      return;
+    }
     saving = true;
     const tone = resolveTone(toneOption, customTone);
     try {
-      const tempResult = parseTemperature(temperature);
-      if (tempResult.error) {
-        temperatureError = tempResult.error;
-        saving = false;
-        return;
-      }
-      const tokensResult = parseMaxTokens(maxTokens);
-      if (tokensResult.error) {
-        maxTokensError = tokensResult.error;
-        saving = false;
-        return;
-      }
       const payload: SettingsUpdate = {
         tone,
         instructions: instructions.trim() ? instructions : null,
@@ -175,15 +251,14 @@
         payload.llm_api_key = apiKey === "" ? null : apiKey;
       }
       settings = await putSettings(payload);
-      commitTypesDirty = false;
-      apiKey = "";
-      apiKeyTouched = false;
+      applySettings(settings);
+      sessionExpired = false;
       saved = true;
       temperatureError = "";
       maxTokensError = "";
       error = "";
     } catch (e) {
-      if (handleAuthError(e)) return;
+      if (recoverAuth(e)) return;
       error = formatError(
         e,
         "Failed to save settings — check your connection and try again.",
@@ -202,12 +277,21 @@
   />
 </svelte:head>
 
+<svelte:window onbeforeunload={beforeUnload} />
+
 <div class="workspace">
   <SectionHead title="Settings" lede={headerLede}>
     {#snippet actions()}
       <a href="/repos" class="btn btn-secondary">Repositories</a>
     {/snippet}
   </SectionHead>
+
+  {#if sessionExpired}
+    <section class="banner banner-error" role="alert">
+      <p>Your session expired. Your unsaved settings are still here. Reauthenticate in setup in a new tab, then return here and retry Save settings or Refresh models. Keep this tab open to preserve your draft.</p>
+      <a href="/setup" target="_blank" rel="noopener" class="btn btn-secondary mt-4">Reauthenticate in setup (new tab)</a>
+    </section>
+  {/if}
 
   {#if error}
     <ErrorBanner message={error} />
@@ -222,69 +306,23 @@
     </section>
   {:else if settings}
     <div class="settings-layout">
-      <section
+      <form
         class="panel settings-form"
         aria-label="Global release note defaults"
+        bind:this={form}
+        novalidate
+        onsubmit={(event) => { event.preventDefault(); save(); }}
       >
-        <SectionHead title="Connection" compact headingLevel="h2">
-          {#snippet actions()}
-            <button class="btn btn-secondary" onclick={loadModels}>
-              Refresh models
-            </button>
-          {/snippet}
-        </SectionHead>
-        {#if modelsError}
-          <ErrorBanner
-            message={modelsError}
-            actionLabel="Retry"
-            onAction={loadModels}
-          />
-        {/if}
-        <div class="grid gap-5 sm:grid-cols-2">
-          <label class="field-group"
-            ><span class="field-group__label">Base URL</span><input
-              bind:value={baseUrl}
-              placeholder="https://llm.example.com (host only, no path)"
-              class="field"
-            /><span class="field-group__hint"
-              >OpenAI-compatible endpoint (scheme://host[:port]). Overrides the
-              LLM_BASE_URL env value while set; clear the field to fall back to
-              env.</span
-            ></label
-          >
-          <label class="field-group"
-            ><span class="field-group__label"
-              >API key
-              {#if settings?.llm.has_key}
-                <span class="field-group__hint"
-                  >(saved or env: {settings.llm.api_key})</span
-                >
-              {:else}
-                <span class="field-group__hint">(none set)</span>
-              {/if}</span
-            ><input
-              bind:value={apiKey}
-              type="password"
-              oninput={() => (apiKeyTouched = true)}
-              placeholder={settings?.llm.has_key
-                ? "Leave blank to keep current key"
-                : "sk-..."}
-              class="field"
-            /><span class="field-group__hint"
-              >Overrides LLM_API_KEY while non-empty; a blanked, saved key is
-              cleared on Save.</span
-            >{#if apiKeyTouched && apiKey === "" && settings?.llm.has_key}
-              <span class="field-group__hint" role="status"
-                >Blank + save = clear the stored key.</span
-              >
-            {/if}</label
-          >
+        <div id="settings-actions" class="settings-actions">
+          <span role="status">{saving ? "Saving settings…" : dirty ? (error ? "Not saved — review the error and try again." : "Unsaved changes") : saved ? "Settings saved" : "No unsaved changes"}</span>
+          <div class="settings-actions__buttons">
+            <button type="button" onclick={discard} disabled={saving || !dirty} class="btn btn-secondary">Discard</button>
+            <button type="submit" disabled={saving || !dirty} class="btn btn-primary">{saving ? "Saving…" : "Save settings"}</button>
+            <a href="#settings-summary" class="btn btn-ghost">Form summary</a>
+          </div>
         </div>
-
+        <fieldset class="settings-fields" disabled={saving}>
         <SectionHead title="Global defaults" compact headingLevel="h2">
-          {#snippet actions()}
-            <span class="status status--healthy">Editable</span>
-          {/snippet}
         </SectionHead>
         <div class="grid gap-5">
           <label class="field-group"
@@ -315,6 +353,66 @@
               instructions. Repository instructions take priority.</span
             ></label
           >
+          <details class="settings-disclosure" bind:open={providerOpen}>
+            <summary>Provider connection and API key</summary>
+        <SectionHead title="Connection" compact headingLevel="h2">
+          {#snippet actions()}
+            <button class="btn btn-secondary" type="button" onclick={loadModels}>
+              Refresh models
+            </button>
+          {/snippet}
+        </SectionHead>
+        {#if modelsError}
+          <ErrorBanner
+            message={modelsError}
+            actionLabel="Retry"
+            onAction={loadModels}
+          />
+        {/if}
+        <div class="grid gap-5 sm:grid-cols-2">
+          <label class="field-group"
+            ><span class="field-group__label">Base URL</span><input
+              bind:value={baseUrl}
+              placeholder="https://llm.example.com (host only, no path)"
+              class="field"
+            /><span class="field-group__hint"
+              >OpenAI-compatible endpoint (scheme://host[:port]). Overrides the
+              LLM_BASE_URL env value while set; clear the field to fall back to
+              env.</span
+            ></label
+          >
+          <label class="field-group"
+            ><span class="field-group__label"
+              >API key
+              {#if settings?.llm.has_key}
+                <span class="field-group__hint"
+                  >(saved or environment key configured)</span
+                >
+              {:else}
+                <span class="field-group__hint">(none set)</span>
+              {/if}</span
+            ><input
+              bind:value={apiKey}
+              type="password"
+              oninput={() => (apiKeyTouched = true)}
+              placeholder={settings?.llm.has_key
+                ? "Leave blank to keep current key"
+                : "sk-..."}
+              class="field"
+            /><span class="field-group__hint"
+              >Overrides LLM_API_KEY while non-empty; a blanked, saved key is
+              cleared on Save.</span
+            >{#if apiKeyTouched && apiKey === "" && settings?.llm.has_key}
+              <span class="field-group__hint" role="status"
+                >Blank + save = clear the stored key.</span
+              >
+            {/if}</label
+          >
+        </div>
+
+          </details>
+          <details class="settings-disclosure" bind:open={tuningOpen}>
+            <summary>Advanced model tuning</summary>
           <div class="grid gap-5 sm:grid-cols-4">
             <label class="field-group"
               ><span class="field-group__label"
@@ -341,9 +439,10 @@
                 ></span
               ><input
                 type="number"
-                step="0.1"
+                step="any"
                 min="0"
                 max="2"
+                bind:this={temperatureInput}
                 bind:value={temperature}
                 class="field"
               /><span class="field-group__hint"
@@ -362,6 +461,7 @@
                 type="number"
                 step="1"
                 min="1"
+                bind:this={maxTokensInput}
                 bind:value={maxTokens}
                 class="field"
               /><span class="field-group__hint"
@@ -386,6 +486,7 @@
               ></label
             >
           </div>
+          </details>
           <label class="field-group"
             ><span class="field-group__label">Mode</span><select
               bind:value={mode}
@@ -411,18 +512,12 @@
                   ? "No filter — all commit types are included."
                   : "Selected types are included in notes."}
               ariaLabel="Global commit types"
-              onDirty={() => (commitTypesDirty = true)}
             />
           </fieldset>
-          <div class="flex flex-wrap items-center gap-3">
-            <button onclick={save} disabled={saving} class="btn btn-primary"
-              >{saving ? "Saving…" : "Save settings"}</button
-            >{#if saved}<span class="status status--healthy" role="status"
-                >Saved</span
-              >{/if}
-          </div>
+          <a href="#settings-actions" class="btn btn-secondary">Back to Save and Discard</a>
         </div>
-      </section>
+        </fieldset>
+      </form>
 
       <aside class="settings-proof">
         <section class="panel panel-soft" aria-label="Server configuration">
@@ -458,9 +553,8 @@
           </dl>
         </section>
 
-        <section class="panel panel-soft" aria-label="Current values">
-          <p class="field-caption">Current values</p>
-          <h2 class="mt-1">Form summary</h2>
+        <section id="settings-summary" class="panel panel-soft" aria-label="Form summary" tabindex="-1">
+          <h2>Form summary</h2>
           <pre class="note-paper mt-4">Tone: {toneOption === "custom"
               ? customTone.trim() || "inherit"
               : toneOption === "inherit"
@@ -468,7 +562,7 @@
                 : toneOption}
 Model: {model.trim() || "server default"}
 Mode: {mode}
-Temperature: {temperature !== "" ? temperature : "server default"}
+Temperature: {temperature != null && temperature !== "" ? temperature : "server default"}
 Max tokens: {maxTokens || "server default"}
 Thinking: {thinkingLevel || "off"}
 Instructions: {instructions.trim() || "No additional instructions."}
@@ -482,6 +576,7 @@ Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()
                     selectedCommitTypes,
                     customCommitTypes,
                   )}</pre>
+          <a href="#settings-actions" class="btn btn-secondary mt-3">Back to Save and Discard</a>
           <p class="mt-3 text-xs text-ink-3">
             This summary reflects the values in the form. Repository-level
             settings can override the global defaults.
@@ -491,3 +586,39 @@ Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()
     </div>
   {/if}
 </div>
+
+<style>
+  .settings-fields {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+  }
+  .settings-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 24px;
+  }
+  .settings-actions__buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .settings-disclosure {
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+  .settings-disclosure > summary {
+    min-height: 44px;
+    padding-block: 10px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .settings-disclosure[open] > summary { margin-bottom: 16px; }
+  #settings-summary { scroll-margin-top: 24px; }
+</style>

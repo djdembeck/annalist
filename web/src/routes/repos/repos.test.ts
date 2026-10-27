@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/dom";
-import { mount, unmount } from "$lib/svelte-client";
+import { fireEvent, screen, waitFor } from "@testing-library/dom";
+import { mount, unmount, tick } from "$lib/svelte-client";
 import type { GenerationRun, Repo } from "$lib/api";
 import RepositoriesPage from "./+page.svelte";
 
@@ -58,36 +58,45 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
 let component: Record<string, unknown> | undefined;
 let container: HTMLElement | undefined;
 
-async function mountPage(): Promise<void> {
+async function mountPage(afterMount?: () => void): Promise<void> {
   container = document.createElement("div");
   document.body.append(container);
   component = mount(RepositoriesPage, { target: container });
-  await vi.waitFor(() =>
+  await tick();
+  afterMount?.();
+  await waitFor(() =>
     expect(
       screen.getByRole("checkbox", { name: "Enable team/app" }),
     ).toBeInstanceOf(HTMLInputElement),
   );
 }
 
-afterEach(() => {
-  if (component) unmount(component);
+afterEach(async () => {
+  if (component) await unmount(component);
   component = undefined;
   container?.remove();
   container = undefined;
-  vi.useRealTimers();
   vi.restoreAllMocks();
-  vi.unstubAllGlobals();
+  if (originalVisibility) {
+    Object.defineProperty(document, "visibilityState", originalVisibility);
+  } else {
+    Reflect.deleteProperty(document, "visibilityState");
+  }
 });
 
 describe("repository operator transitions", () => {
   it("queues a fresh post-write read behind an older poll without losing drafts", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const visibility = vi
-      .spyOn(document, "visibilityState", "get")
-      .mockReturnValue("hidden");
+    let visibility: DocumentVisibilityState = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibility,
+    });
+    let poll: (() => void) | undefined;
+    const interval = vi.spyOn(window, "setInterval");
     let server = repository();
     let repoReads = 0;
     let modelReads = 0;
@@ -95,9 +104,8 @@ describe("repository operator transitions", () => {
     let writes = 0;
     const delayedPoll = Promise.withResolvers<Response>();
     let releasePoll: (() => void) | undefined;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string, init?: RequestInit) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (init?.method === "PUT") {
           writes++;
@@ -124,7 +132,11 @@ describe("repository operator transitions", () => {
         throw new Error(`Unexpected request: ${url}`);
       }),
     );
-    await mountPage();
+    await mountPage(() => {
+      const [handler, , ...args] = interval.mock.calls[0] ?? [];
+      if (typeof handler === "function") poll = () => handler(...args);
+      interval.mockRestore();
+    });
     await fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     const instructions = screen.getByLabelText(
       /Instructions/,
@@ -132,24 +144,24 @@ describe("repository operator transitions", () => {
     await fireEvent.input(instructions, {
       target: { value: "unsaved operator draft" },
     });
-    await vi.waitFor(() => expect(instructionReads).toBe(1));
-    await vi.advanceTimersToNextTimerAsync();
+    await waitFor(() => expect(instructionReads).toBe(1));
+    poll?.();
     expect(repoReads).toBe(1);
-    visibility.mockReturnValue("visible");
-    await vi.advanceTimersToNextTimerAsync();
-    await vi.waitFor(() => expect(repoReads).toBe(2));
+    visibility = "visible";
+    poll?.();
+    await waitFor(() => expect(repoReads).toBe(2));
     expect(modelReads).toBe(1);
     expect(instructionReads).toBe(1);
     const enabled = screen.getByRole("checkbox", {
       name: "Enable team/app",
     }) as HTMLInputElement;
     await fireEvent.click(enabled);
-    await vi.waitFor(() => expect(writes).toBe(1));
+    await waitFor(() => expect(writes).toBe(1));
     expect(server.enabled).toBe(true);
     expect(repoReads).toBe(2);
     expect(enabled.disabled).toBe(true);
     releasePoll?.();
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(repoReads).toBe(3);
       expect(enabled.disabled).toBe(false);
       expect(enabled.checked).toBe(true);
@@ -157,15 +169,14 @@ describe("repository operator transitions", () => {
     expect(screen.getByText("On", { exact: true })).toBeInstanceOf(HTMLElement);
     expect(instructions.value).toBe("unsaved operator draft");
     expect(instructionReads).toBe(1);
-    if (component) unmount(component);
+    if (component) await unmount(component);
     component = undefined;
   });
 
   it("opens retries in preview by default and preserves explicit choices while requiring overwrite confirmation again", async () => {
     const requests: unknown[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string, init?: RequestInit) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.endsWith("/generate")) {
           requests.push(JSON.parse(String(init?.body)));
@@ -197,7 +208,7 @@ describe("repository operator transitions", () => {
     await fireEvent.click(
       screen.getByRole("button", { name: "Yes, overwrite" }),
     );
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(requests).toHaveLength(1);
       expect(screen.getByText(/Generation did not complete/)).toBeInstanceOf(
         HTMLElement,
@@ -240,9 +251,8 @@ describe("repository operator transitions", () => {
   });
 
   it("omits empty legacy profiles but retains named profiles in run history", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.endsWith("/api/repos")) return json([repository(failedRun)]);
         if (url.endsWith("/api/models")) return json([]);
@@ -256,7 +266,7 @@ describe("repository operator transitions", () => {
     );
     await mountPage();
     await fireEvent.click(screen.getByRole("button", { name: "Recent runs" }));
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(screen.getByText("technical", { exact: true })).toBeInstanceOf(
         HTMLElement,
       ),

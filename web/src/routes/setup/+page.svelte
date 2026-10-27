@@ -1,14 +1,14 @@
 <script lang="ts">
-  import {
-    getStatus,
-    setToken,
-    getToken,
-    getAvailableRepos,
-    addRepo,
-    putSettings,
-    type Status,
-    type AvailableRepo,
-  } from "$lib/api";
+import {
+  getStatus,
+  setToken,
+  getToken,
+  getAvailableRepos,
+  addRepo,
+  putSettings,
+  type Status,
+  type AvailableRepo,
+} from "$lib/api";
   import {
     filterAndSortRepos,
     getEnabledSources,
@@ -55,7 +55,7 @@
   $effect(() => {
     const currentStep = step;
     if (typeof window === "undefined") return;
-    window.requestAnimationFrame(() => {
+    const frame = window.requestAnimationFrame(() => {
       if (currentStep !== step) return;
       window.scrollTo({
         top: 0,
@@ -64,6 +64,7 @@
           : "smooth",
       });
     });
+    return () => window.cancelAnimationFrame(frame);
   });
 
   // --- step 2: platforms ---
@@ -189,6 +190,13 @@
     }
   }
 
+  // Persisted forward path to the tone step. Guarded: never advance while
+  // an add is in flight, so a pending save cannot be skipped.
+  function continueToTone(): void {
+    if (saving) return;
+    step = 3;
+  }
+
   async function loadRepos(): Promise<void> {
     if (loading) return;
     loading = true;
@@ -230,7 +238,7 @@
     }
     repoAddResults = results;
 
-    const successCount = await batchAddRepos(targets, results, addRepo, () => {
+    const successCount = await batchAddRepos(targets, repoAddResults, addRepo, () => {
       resetExpiredSession();
       saving = false;
       return true;
@@ -507,9 +515,6 @@
                 <div class="flex items-center gap-3">
                   <div class="min-w-0">
                     <p class="font-medium capitalize text-ink">{source}</p>
-                    <p class="text-sm text-ink-2">
-                      {configured ? "Configured" : "Not configured"}
-                    </p>
                   </div>
                   <span
                     class:status-ok={configured}
@@ -611,12 +616,6 @@
                 >
                   Go back and connect a platform
                 </button>
-                <button
-                  onclick={() => (step = 3)}
-                  class="btn btn-ghost w-full sm:w-auto"
-                >
-                  Continue to tone
-                </button>
               </div>
             </div>
           {:else if !reposVisible}
@@ -631,12 +630,6 @@
                   class="btn btn-primary w-full sm:w-auto"
                 >
                   Load repositories
-                </button>
-                <button
-                  onclick={() => (step = 3)}
-                  class="btn btn-ghost w-full sm:w-auto"
-                >
-                  Skip for now
                 </button>
               </div>
             </div>
@@ -852,14 +845,6 @@
                         >
                           {saving ? "Retrying…" : `Retry ${failed} failed`}
                         </button>
-                        {#if succeeded > 0}
-                          <button
-                            onclick={() => (step = 3)}
-                            class="btn btn-ghost w-full sm:w-auto"
-                          >
-                            Continue to tone
-                          </button>
-                        {/if}
                       </div>
                       {#if succeeded > 0}
                         <p class="status status-error text-xs" role="status">
@@ -868,29 +853,35 @@
                         </p>
                       {/if}
                     {/if}
-                    {#if succeeded > 0 && failed === 0}
-                      <button
-                        onclick={() => (step = 3)}
-                        disabled={saving}
-                        class="btn btn-primary w-full sm:w-auto"
-                      >
-                        Continue to tone
-                      </button>
-                    {/if}
                   </div>
                 {/if}
 
+              {/if}
+
+              <div class="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row">
                 <button
                   onclick={addSelected}
                   disabled={selectedCount === 0 || saving}
                   aria-busy={saving}
                   class="btn btn-primary w-full sm:w-auto"
                 >
-                  {saving ? "Adding…" : `Add ${selectedCount} selected`}
+                  {saving
+                    ? "Adding…"
+                    : `Add ${selectedCount} selected`}
                 </button>
-              {/if}
+              </div>
             {/if}
           {/if}
+
+          <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <button
+              onclick={continueToTone}
+              disabled={saving}
+              class="btn btn-ghost w-full sm:w-auto"
+            >
+              Continue to tone
+            </button>
+          </div>
 
           <aside class="note-paper text-sm text-ink-2">
             <p>
