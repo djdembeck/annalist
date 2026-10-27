@@ -23,7 +23,10 @@
   import EmptyState from "$lib/components/EmptyState.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import SectionHead from "$lib/components/SectionHead.svelte";
-  import { handleAuthError, formatError } from "$lib/composables/useAuthErrorHandler";
+  import {
+    handleAuthError,
+    formatError,
+  } from "$lib/composables/useAuthErrorHandler";
 
   let status = $state<Status | null>(null);
   let available = $state<AvailableRepo[]>([]);
@@ -194,11 +197,10 @@
   />
 </svelte:head>
 
-<div class="trace-wall">
+<div class="workspace">
   <SectionHead
-    label="Operations / source intake"
-    title="Source inventory"
-    lede="Choose connected sources in batches, or place one repository on the wall by hand."
+    title="Add repositories"
+    lede="Choose repositories from a configured platform, or add one by name."
   >
     {#snippet actions()}
       <a href="/repos" class="btn btn-secondary">Back to repositories</a>
@@ -211,7 +213,7 @@
       aria-busy="true"
       aria-label="Loading available repositories"
     >
-      <p class="trace-label">Reading enabled source inventory</p>
+      <p class="field-caption">Reading enabled repositories</p>
       <div class="skeleton mt-4 h-11 w-full"></div>
       <div class="skeleton mt-3 h-16 w-full"></div>
       <div class="skeleton mt-3 h-16 w-full"></div>
@@ -220,9 +222,9 @@
     <section
       class="panel panel--error"
       role="alert"
-      aria-label="Source intake error"
+      aria-label="Repository discovery error"
     >
-      <p class="trace-label">Intake failed</p>
+      <p class="field-caption">Intake failed</p>
       <p class="mt-2 text-sm text-alert">{error}</p>
       <div class="mt-4 flex flex-col gap-3 sm:flex-row">
         <button
@@ -239,8 +241,8 @@
     </section>
     <section class="panel panel-soft manual-source">
       <div>
-        <p class="trace-label">Manual entry</p>
-        <h2 class="mt-1">Place a source directly</h2>
+        <p class="field-caption">Manual entry</p>
+        <h2 class="mt-1">Add a repository by name</h2>
         <p class="mt-2 text-sm text-ink-2">
           Use this when discovery is unavailable or the repository is outside
           the filtered inventory.
@@ -277,38 +279,30 @@
       </div>
     </section>
   {:else if status}
-    <!-- Live summary replaces static 3-step trace -->
     {@const enabled = getEnabledSources(status)}
     <section
       class="panel panel-soft live-summary"
-      aria-label="Source intake summary"
+      aria-label="Repository discovery summary"
     >
       <span class="live-summary__item"
-        ><span
-          class="signal-dot {enabled.length > 0
-            ? 'signal-dot--cyan'
-            : 'signal-dot--muted'}"
-          aria-hidden="true"
-        ></span><span class="trace-label"
-          >{enabled.length} platform{enabled.length !== 1 ? "s" : ""} connected</span
+        ><span class="field-caption"
+          >{enabled.length} platform{enabled.length !== 1 ? "s" : ""} configured</span
         ></span
       >
       <span class="live-summary__item"
-        ><span class="trace-label"
+        ><span class="field-caption"
           >{available.length} repo{available.length !== 1 ? "s" : ""} discoverable</span
         ></span
       >
       {#if selectedCount() > 0}
         <span class="live-summary__item live-summary__item--highlight"
-          ><span class="signal-dot signal-dot--heat" aria-hidden="true"
-          ></span><span class="trace-label"
-            >{selectedCount()} selected for add</span
+          ><span class="field-caption">{selectedCount()} selected for add</span
           ></span
         >
       {/if}
       {#if Object.keys(rowResults).length > 0}
         <span class="live-summary__item live-summary__item--result"
-          ><span class="trace-label">
+          ><span class="field-caption">
             {Object.values(rowResults).filter((r) => r.status === "success")
               .length} added,
             {Object.values(rowResults).filter((r) => r.status === "failure")
@@ -319,19 +313,17 @@
     </section>
 
     {#if error}
-      <ErrorBanner label="Intake needs attention" message={error} />
+      <ErrorBanner message={error} />
     {/if}
 
     {#if enabled.length === 0}
       <EmptyState
-        label="No source signal"
         heading="No platform is configured."
         description="Connect GitHub or Forgejo in server configuration before discovering repositories."
         actionLabel="Open settings"
         href="/settings"
       />
     {:else}
-      <!-- Batch operation results banner -->
       {#if Object.keys(rowResults).length > 0}
         <div
           class="panel panel-soft batch-results"
@@ -339,7 +331,7 @@
           aria-live="polite"
         >
           <div class="batch-results__header">
-            <p class="trace-label">Operation results</p>
+            <p class="field-caption">Operation results</p>
           </div>
           {#if Object.values(rowResults).some((r) => r.status === "success")}
             <div class="batch-results__group batch-results__group--success">
@@ -347,8 +339,7 @@
               <ul class="batch-results__list">
                 {#each Object.entries(rowResults).filter(([, v]) => v.status === "success") as [key]}
                   <li class="batch-results__item">
-                    <span class="signal-dot signal-dot--cyan" aria-hidden="true"
-                    ></span>{key}
+                    {key}
                   </li>
                 {/each}
               </ul>
@@ -368,10 +359,8 @@
               <ul class="batch-results__list">
                 {#each Object.entries(rowResults).filter(([, v]) => v.status === "failure") as [key, v]}
                   <li class="batch-results__item">
-                    <span class="signal-dot signal-dot--heat" aria-hidden="true"
-                    ></span>{key}<span
-                      class="batch-results__item-error"
-                      title={v.error}>{v.error}</span
+                    {key}<span class="batch-results__item-error" title={v.error}
+                      >{v.error}</span
                     >
                   </li>
                 {/each}
@@ -392,12 +381,12 @@
 
       <section
         class="panel source-inventory"
-        aria-label="Available repository source inventory"
+        aria-label="Available repositories"
       >
         <div class="source-inventory__topline">
           <div>
-            <p class="trace-label">Batch selection</p>
-            <h2 class="mt-1">Repositories ready to connect</h2>
+            <p class="field-caption">Batch selection</p>
+            <h2 class="mt-1">Available repositories</h2>
           </div>
           <button
             onclick={addSelected}
@@ -407,8 +396,6 @@
             {saving ? "Adding…" : `Add ${selectedCount()} selected`}
           </button>
         </div>
-
-        <!-- Source switching as button group, not tabs -->
         <div class="source-tabs" role="group" aria-label="Repository platforms">
           {#each SOURCES as source}
             {@const isEnabled = isSourceEnabled(status, source)}
@@ -424,12 +411,6 @@
                 ? `${source} platform${activeSource === source ? ", selected" : ""}`
                 : `${source} platform (not configured)`}
             >
-              <span
-                class="signal-dot {isEnabled
-                  ? 'signal-dot--cyan'
-                  : 'signal-dot--muted'}"
-                aria-hidden="true"
-              ></span>
               {source}
               {!isEnabled ? " (not configured)" : ""}
             </button>
@@ -468,22 +449,24 @@
 
         {#if filteredList.length === 0}
           <div class="empty-state source-empty">
-            <p class="trace-label">No matching source</p>
+            <p class="field-caption">No matching repositories</p>
             <p class="mt-2 text-sm text-ink-2">
               No available {activeSource} repositories match the current filters.
             </p>
           </div>
         {:else}
           <div class="source-list__meta">
-            <span class="trace-label"
+            <span class="field-caption"
               >{filteredList.length} available in current view</span
             ><button
               onclick={() => {
                 const allSelected = filteredList.every(
                   (r) => selected[repoKey(r)],
                 );
-                for (const r of filteredList)
-                  selected[repoKey(r)] = !allSelected;
+                for (const r of filteredList) {
+                  if (rowResults[repoKey(r)]?.status !== "success")
+                    selected[repoKey(r)] = !allSelected;
+                }
               }}
               class="btn btn-ghost"
               >{filteredList.every((r) => selected[repoKey(r)])
@@ -506,32 +489,22 @@
                   type="checkbox"
                   id={rkey}
                   checked={selected[rkey] ?? false}
-                  disabled={rowStatus === "pending"}
+                  disabled={rowStatus === "pending" || rowStatus === "success"}
                   onchange={(e) => (selected[rkey] = e.currentTarget.checked)}
                 />
                 <label for={rkey} class="source-row__label">
-                  <span class="source-row__name">{r.owner}/{r.repo}</span>
+                  <span class="source-row__name">{r.owner}/<wbr />{r.repo}</span
+                  >
                   <span class="source-row__meta"
                     >{r.platform}{r.ownNamespace === false
                       ? " · shared namespace"
                       : ""}{r.fork === true ? " · fork" : ""}</span
                   >
                 </label>
-                {#if rowStatus === "pending"}
-                  <span class="signal-dot signal-dot--muted" aria-hidden="true"
-                  ></span>
-                {:else if rowStatus === "success"}
-                  <span class="signal-dot signal-dot--cyan" aria-hidden="true"
-                  ></span>
-                {:else if rowStatus === "failure"}
-                  <span
-                    class="signal-dot signal-dot--heat"
-                    aria-hidden="true"
-                    title={rowResults[rkey]?.error}
-                  ></span>
-                {:else}
-                  <span class="signal-dot signal-dot--cyan" aria-hidden="true"
-                  ></span>
+                {#if rowStatus === "pending" || rowStatus === "success"}
+                  <span class="text-sm" role="status"
+                    >{rowStatus === "pending" ? "Adding…" : "Added"}</span
+                  >
                 {/if}
               </li>
             {/each}
@@ -548,8 +521,8 @@
 
     <section class="panel panel-soft manual-source">
       <div>
-        <p class="trace-label">Manual entry</p>
-        <h2 class="mt-1">Place a source directly</h2>
+        <p class="field-caption">Manual entry</p>
+        <h2 class="mt-1">Add a repository by name</h2>
         <p class="mt-2 text-sm text-ink-2">
           Use this when discovery is unavailable or the repository is outside
           the filtered inventory.
@@ -587,79 +560,3 @@
     </section>
   {/if}
 </div>
-
-<style>
-  .live-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--trace-space-4);
-    align-items: center;
-  }
-  .live-summary__item {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--trace-space-2);
-  }
-  .live-summary__item--highlight {
-    font-weight: 600;
-  }
-  .batch-results {
-    display: grid;
-    gap: var(--trace-space-3);
-  }
-  .batch-results__header {
-    display: flex;
-    align-items: center;
-    gap: var(--trace-space-2);
-  }
-  .batch-results__group {
-    display: grid;
-    gap: var(--trace-space-2);
-  }
-  .batch-results__group-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-  .batch-results__group--success .batch-results__group-label {
-    color: var(--trace-cyan);
-  }
-  .batch-results__group--failure .batch-results__group-label {
-    color: var(--trace-red);
-  }
-  .batch-results__list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: var(--trace-space-1);
-  }
-  .batch-results__item {
-    display: flex;
-    align-items: center;
-    gap: var(--trace-space-2);
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    color: var(--trace-ink);
-    overflow-wrap: anywhere;
-  }
-  .batch-results__item-error {
-    color: var(--trace-muted);
-    font-size: 0.6875rem;
-    margin-left: auto;
-    max-width: 20rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .source-row--success {
-    background: color-mix(in srgb, var(--trace-cyan) 8%, var(--trace-panel));
-  }
-  .source-row--failure {
-    background: color-mix(in srgb, var(--trace-red) 8%, var(--trace-panel));
-  }
-  .source-row--pending {
-    opacity: 0.6;
-  }
-</style>

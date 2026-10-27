@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repositories · Annalist</title>
+<script>document.documentElement.dataset.theme=new URLSearchParams(location.search).get('theme')==='dark'?'dark':'light';</script>
+<style>
+:root{color-scheme:light;--canvas:#f5eee5;--surface:#fff;--ink:#302b26;--muted:#6f665c;--line:#e6dccf;--rust:#bd431f;--rust-deep:#a03616;--published:#263524;--published-bg:#edf3ea;--published-border:#b7c9b1;--published-icon:#2c5a33;--failed:#482a22;--failed-bg:#f8eae5;--failed-border:#d9b1a2;--failed-icon:#8c351e;--cached:#3c342b;--cached-bg:#eee8df;--cached-border:#c9bda9;--cached-icon:#62533d;--control-border:#d8caba;--control-hover:#fffaf4;--control-hover-border:#c9b8a5;--selection:#eadbc9;--shadow:rgba(48,43,38,.06);--shadow-soft:rgba(48,43,38,.045);--scroll-thumb:#b9a995;--focus:#bd431f;--brand-mark:#bd431f;--primary-ink:#fff}
+:root[data-theme=dark]{color-scheme:dark;--canvas:#211d19;--surface:#2c2621;--ink:#f4eade;--muted:#c6b6a5;--line:#53473d;--rust:#e8a17b;--rust-deep:#d88b63;--published:#edf4e9;--published-bg:#2e3b2d;--published-border:#64765b;--published-icon:#accc97;--failed:#ffebe3;--failed-bg:#492f29;--failed-border:#a16d5a;--failed-icon:#f3b49a;--cached:#f5eadb;--cached-bg:#3c332a;--cached-border:#89745e;--cached-icon:#d6bd99;--control-border:#8d7d6e;--control-hover:#393029;--control-hover-border:#ad9682;--selection:#66513f;--shadow:rgba(0,0,0,.28);--shadow-soft:rgba(0,0,0,.2);--scroll-thumb:#8d7d6e;--focus:#f1b28b;--brand-mark:#e8a17b;--primary-ink:#241d18}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scrollbar-color:var(--scroll-thumb) var(--canvas)}
+body{margin:0;background:var(--canvas);color:var(--ink);font:15px/1.5 "Avenir Next","Segoe UI",Cantarell,system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+::selection{background:var(--selection);color:var(--ink)}
+button,a{font:inherit}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+.topbar{max-width:1200px;margin:auto;padding:18px 32px 17px;display:flex;align-items:center;gap:44px;border-bottom:1px solid var(--line)}
+.theme-switch{display:flex;align-items:center;margin-left:auto;padding:2px;border:1px solid var(--control-border);border-radius:7px;flex:none}
+.theme-switch a{display:flex;align-items:center;justify-content:center;min-width:50px;min-height:44px;padding:5px 9px;border-radius:4px;color:var(--muted);font-size:13px;text-decoration:none}
+.theme-switch a[aria-current=page]{background:var(--control-hover);color:var(--ink);font-weight:650}
+.theme-switch a:hover{color:var(--ink)}
+.brand{display:inline-flex;align-items:center;gap:12px;text-decoration:none;color:var(--ink);flex:none}
+.brand svg{width:40px;height:40px;display:block}
+.brand-name{font-size:29px;line-height:1;font-weight:650;letter-spacing:-.035em}
+.topnav{display:flex;align-items:stretch;gap:30px;height:46px}
+.topnav a{display:flex;align-items:center;padding:0 1px;color:var(--muted);font-size:15px;text-decoration:none;text-underline-offset:8px}
+.topnav a:hover{color:var(--ink)}
+.topnav a[aria-current=page]{color:var(--ink);font-weight:600;text-decoration:underline;text-decoration-color:var(--rust);text-decoration-thickness:2px}
+main{max-width:1200px;margin:0 auto;padding:38px 32px 22px}
+.heading{display:flex;align-items:flex-end;justify-content:space-between;gap:22px;margin-bottom:23px}
+h1{margin:0;font-size:31px;line-height:1.16;font-weight:650;letter-spacing:-.028em}
+.head-actions{display:flex;align-items:center;gap:10px}
+.button{min-height:44px;padding:9px 15px;border-radius:8px;border:1px solid var(--control-border);background:var(--surface);color:var(--ink);font-size:14px;font-weight:550;line-height:1.25;text-decoration:none;cursor:pointer}
+.button:hover{background:var(--control-hover);border-color:var(--control-hover-border)}
+.button-primary{background:var(--rust);border-color:var(--rust);color:var(--primary-ink);font-weight:600}
+.button-primary:hover{background:var(--rust-deep);border-color:var(--rust-deep)}
+.plane{overflow:hidden;background:var(--surface);border-radius:12px;box-shadow:0 1px 2px var(--shadow),0 10px 24px var(--shadow-soft)}
+table{width:100%;border-collapse:collapse;table-layout:fixed;text-align:left}
+col.repo{width:27%}col.latest{width:29%}col.automation{width:19%}col.action-col{width:25%}
+thead th{padding:15px 22px;border-bottom:1px solid var(--line);color:var(--muted);font-size:14px;font-weight:600}
+tbody.data-row tr:first-child td{padding:19px 22px 18px;vertical-align:middle;border-bottom:1px solid var(--line)}
+tbody.data-row:last-child tr:first-child td{border-bottom:0}
+.repository{font-size:15px;font-weight:620;overflow-wrap:anywhere}
+.platform{display:block;margin-top:3px;color:var(--muted);font-size:14px}
+.result{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;font-size:15px}
+.status{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:1px solid;border-radius:5px;font-size:14px;line-height:1.35;font-weight:650;white-space:nowrap}
+.status svg{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.status-published{color:var(--published);background:var(--published-bg);border-color:var(--published-border)}.status-published svg{color:var(--published-icon)}
+.status-failed{color:var(--failed);background:var(--failed-bg);border-color:var(--failed-border)}.status-failed svg{color:var(--failed-icon)}
+.status-cached{color:var(--cached);background:var(--cached-bg);border-color:var(--cached-border)}.status-cached svg{color:var(--cached-icon)}
+.status-empty{color:var(--ink);background:var(--surface);border-color:var(--control-border);font-weight:600}
+.version{font-weight:550}
+.when{margin-top:3px;color:var(--muted);font-size:14px}
+.automation-state{font-size:14px;font-weight:550}.trigger{display:block;margin-top:2px;color:var(--muted);font-size:14px}
+.actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;white-space:nowrap}
+.actions .button{min-height:40px;padding:8px 12px;font-size:14px}
+.action-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:7px 6px;border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:14px;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px}
+.action-link:hover{color:var(--ink);text-decoration-color:currentColor}
+.failure-row td{padding:12px 22px 18px calc(27% + 22px);border-bottom:1px solid var(--line)}
+.failure-copy{font-size:14px;line-height:1.5}
+.failure-copy p{margin:0 0 3px}.failure-copy p+p{color:var(--muted)}
+.failure-actions{display:flex;align-items:center;gap:15px;margin-top:9px}
+.failure-actions .button{min-height:40px;padding:7px 13px;font-size:14px}
+.failure-actions a{color:var(--muted);font-size:14px;text-underline-offset:3px}.failure-actions a:hover{color:var(--ink)}
+footer{max-width:1200px;margin:auto;padding:5px 32px 25px;display:flex;justify-content:space-between;align-items:center;gap:12px 20px;flex-wrap:wrap;color:var(--muted);font-size:13px}
+.previews{display:flex;gap:17px;flex-wrap:wrap}.previews a{color:var(--muted);text-underline-offset:3px}.previews a:hover{color:var(--ink)}
+@media(max-width:980px){
+ .topbar{padding:12px 20px 9px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 12px}
+ .brand{grid-column:1;grid-row:1}.theme-switch{grid-column:2;grid-row:1;margin-left:0}
+ .topnav{grid-column:1/-1;grid-row:2;height:auto;margin-top:8px;gap:22px}
+ .brand{gap:10px}.brand svg{width:38px;height:38px}.brand-name{font-size:27px}
+ .topnav a{min-height:44px;padding:0 1px;text-underline-offset:5px}
+ main{padding:25px 16px 17px}
+ .heading{display:block;margin-bottom:17px}
+ h1{font-size:27px}
+ .head-actions{margin-top:15px;gap:8px}.head-actions .button{flex:1;padding-inline:8px}
+ .plane{overflow:visible;border-radius:11px;box-shadow:0 1px 2px var(--shadow),0 8px 18px var(--shadow-soft)}
+ table,tbody.data-row{display:block;width:100%}
+ colgroup,thead{display:none}
+ tbody.data-row{padding:0 16px}
+ tbody.data-row+tbody.data-row{border-top:1px solid var(--line)}
+ tbody.data-row tr:first-child{display:grid;grid-template-columns:minmax(0,1fr) minmax(115px,.8fr);gap:13px 12px;padding:16px 0}
+ tbody.data-row tr:first-child td{display:block;padding:0!important;border:0!important;min-width:0}
+ td[data-label]::before{content:attr(data-label);display:block;margin-bottom:3px;color:var(--muted);font-size:13px;font-weight:550}
+ td[data-label="Repository"]::before{display:none}
+ .repository{font-size:15px}.platform{font-size:14px}
+ td[data-label="Automation"]{grid-column:1;grid-row:2}
+ td[data-label="Actions"]{grid-column:2;grid-row:2;align-self:end}
+ .actions{justify-content:flex-start;gap:8px;flex-wrap:wrap}
+ .actions .button{min-height:44px;padding:8px 10px}.action-link{min-height:44px;padding:7px 4px}
+ td[data-label="Latest generation"]{grid-column:2;grid-row:1}
+ .result{gap:6px;font-size:14px}.when,.platform,.trigger,.automation-state{font-size:14px}
+ .failure-row{display:block}
+ .failure-row td{display:block;padding:0 0 16px!important;border:0!important}
+ .failure-copy{font-size:14px}
+ .failure-actions{gap:12px;flex-wrap:wrap}
+ .failure-actions .button{min-height:44px}
+ footer{padding:5px 20px 22px;align-items:flex-start;flex-direction:column}
+}
+@media(max-width:360px){.actions{gap:4px}.actions .button{padding-inline:8px}.topnav{gap:16px}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#" aria-label="Annalist home">
+    <svg viewBox="0 0 40 40" role="img" aria-label="Annalist mark" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 11c-4-4-10-5-15-3v23c5-2 11-1 15 3 4-4 10-5 15-3V8c-5-2-11-1-15 3Z" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linejoin="round"/>
+      <path d="M20 11v23M10 14c2 0 4 .5 6 1.5M10 20c2 0 4 .5 6 1.5M10 26c2 0 4 .5 6 1.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M25 14c1.5-.8 3.2-1.2 5-1.2v9l-2.5-1.5L25 23Z" fill="var(--brand-mark)"/>
+    </svg>
+    <span class="brand-name">Annalist</span>
+  </a>
+  <nav class="topnav" aria-label="Primary">
+    <a href="#" aria-current="page">Repositories</a><a href="#">Settings</a><a href="#">Setup</a>
+  </nav>
+  <nav class="theme-switch" aria-label="Preview color theme">
+    <a href="?theme=light" data-theme-link="light">Light</a><a href="?theme=dark" data-theme-link="dark">Dark</a>
+  </nav>
+</header>
+<main>
+  <header class="heading">
+    <h1>Repositories</h1>
+    <div class="head-actions">
+      <button class="button" type="button">Refresh</button>
+      <button class="button button-primary" type="button">Add repositories</button>
+    </div>
+  </header>
+  <section class="plane" aria-label="Repository register">
+    <table>
+      <colgroup><col class="repo"><col class="latest"><col class="automation"><col class="action-col"></colgroup>
+      <thead><tr><th scope="col">Repository</th><th scope="col">Latest generation</th><th scope="col">Automation</th><th scope="col">Actions</th></tr></thead>
+      <tbody class="data-row">
+        <tr>
+          <td data-label="Repository"><span class="repository">djdembeck/<wbr>annalist</span><span class="platform">Forgejo</span></td>
+          <td data-label="Latest generation"><div class="result"><span class="status status-published"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="m3 8 3.2 3.2L13 4.8"/></svg>Published</span><span class="version">v0.8.2</span></div><div class="when">12 min ago</div></td>
+          <td data-label="Automation"><span class="automation-state">On</span><span class="trigger">On release</span></td>
+          <td data-label="Actions"><div class="actions"><button class="button" type="button">Generate notes</button><button class="action-link" type="button">Settings</button></div></td>
+        </tr>
+      </tbody>
+      <tbody class="data-row">
+        <tr>
+          <td data-label="Repository"><span class="repository">djdembeck/<wbr>audiobookdb</span><span class="platform">GitHub</span></td>
+          <td data-label="Latest generation"><div class="result"><span class="status status-failed"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 2.2 14 13H2L8 2.2Z"/><path d="M8 6v3.2M8 11.3v.1"/></svg>Failed</span><span class="version">v1.14.0</span></div><div class="when">38 min ago</div></td>
+          <td data-label="Automation"><span class="automation-state">On</span><span class="trigger">On release</span></td>
+          <td data-label="Actions"><div class="actions"><button class="button" type="button">Generate notes</button><button class="action-link" type="button">Settings</button></div></td>
+        </tr>
+        <tr class="failure-row"><td colspan="4"><div class="failure-copy"><p>The model request timed out. Check the provider and try again.</p><p>This attempt did not publish release notes.</p></div><div class="failure-actions"><button class="button button-primary" type="button">Retry generation</button><a href="#">View run details</a></div></td></tr>
+      </tbody>
+      <tbody class="data-row">
+        <tr>
+          <td data-label="Repository"><span class="repository">djdembeck/<wbr>orca</span><span class="platform">Forgejo</span></td>
+          <td data-label="Latest generation"><div class="result"><span class="status status-cached"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M5 2.5h7.5v9H5z"/><path d="M3.5 5H2.5v9H10v-1.5"/></svg>Cached</span><span class="version">v0.6.1</span></div><div class="when">2 hr ago</div></td>
+          <td data-label="Automation"><span class="automation-state">On</span><span class="trigger">On release</span></td>
+          <td data-label="Actions"><div class="actions"><button class="button" type="button">Generate notes</button><button class="action-link" type="button">Settings</button></div></td>
+        </tr>
+      </tbody>
+      <tbody class="data-row">
+        <tr>
+          <td data-label="Repository"><span class="repository">djdembeck/<wbr>dotfiles</span><span class="platform">GitHub</span></td>
+          <td data-label="Latest generation"><div class="result"><span class="status status-empty">No runs yet</span></div></td>
+          <td data-label="Automation"><span class="automation-state">Off</span></td>
+          <td data-label="Actions"><div class="actions"><button class="button" type="button">Generate notes</button><button class="action-link" type="button">Settings</button></div></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+<footer>
+  <span>Design preview · Illustrative data</span>
+  <nav class="previews" aria-label="Compare designs"><a href="/challenger-consumer.html">Quiet Workspace</a><a href="/assigned.html">Standards Reference</a></nav>
+</footer>
+<script>const previewTheme=document.documentElement.dataset.theme;document.querySelectorAll('[data-theme-link]').forEach(link=>{if(link.dataset.themeLink===previewTheme)link.setAttribute('aria-current','page')});</script>
+</body>
+</html>

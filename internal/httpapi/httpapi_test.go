@@ -27,18 +27,21 @@ import (
 // either a recorded notes string or a forced error, and records every
 // GenerateNotes call for assertions.
 type fakePip struct {
-	notes      string
-	err        error
-	resolveErr error
-	eff        engine.Resolved
-	calls      []pipeline.Spec
-	opts       []pipeline.Options
+	outcome     string
+	warningCode string
+	notes       string
+	err         error
+	resolveErr  error
+	eff         engine.Resolved
+	calls       []pipeline.Spec
+	opts        []pipeline.Options
 }
 
 func newFakePip() *fakePip {
 	return &fakePip{
-		notes: "generated notes",
-		eff:   engine.Resolved{Tone: "t0", Instructions: "i0", Model: "m0", Temperature: 0.5, MaxTokens: 4096, ThinkingLevel: "low"},
+		outcome: "generated",
+		notes:   "generated notes",
+		eff:     engine.Resolved{Tone: "t0", Instructions: "i0", Model: "m0", Temperature: 0.5, MaxTokens: 4096, ThinkingLevel: "low"},
 	}
 }
 
@@ -57,6 +60,8 @@ func (f *fakePip) GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pi
 		return pipeline.Result{}, f.err
 	}
 	return pipeline.Result{
+		Outcome:        f.outcome,
+		WarningCode:    f.warningCode,
 		Notes:          f.notes,
 		Profile:        spec.Profile,
 		DisplayVersion: spec.DisplayVersion,
@@ -1086,6 +1091,8 @@ func TestHandleGenerate(t *testing.T) {
 	a, pip, _ := testAPI(t, &config.Config{}, nil)
 
 	t.Run("success", func(t *testing.T) {
+		pip.outcome = "published"
+		t.Cleanup(func() { pip.outcome = "generated" })
 		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","from_tag":"v0.9.0","force":true,"publish":true}`,
 			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
 		w := do(a.handleGenerate, r)

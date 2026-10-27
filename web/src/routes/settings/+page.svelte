@@ -61,14 +61,10 @@
           ? "GitHub configured, Forgejo not configured."
           : settings.forgejo
             ? "Forgejo configured, GitHub not configured."
-            : "No platforms configured yet — add a platform below to start."
+            : "No platforms configured yet. Configure GitHub or Forgejo on the server, then return to setup."
       : undefined,
   );
-  let headerLede = $derived(
-    settings
-      ? `${platformStatus} · Base URL ${settings.llm.base_url || "not set"} · Model ${model.trim() || "system default"}`
-      : undefined,
-  );
+  let headerLede = $derived(settings ? platformStatus : undefined);
 
   async function load(): Promise<void> {
     try {
@@ -89,10 +85,9 @@
       mode = s.mode === "deep" ? "deep" : "lite";
       temperature = s.temperature === null ? "" : String(s.temperature);
       maxTokens =
-        s.max_tokens === 0 || s.max_tokens == null
-          ? ""
-          : String(s.max_tokens);
-      thinkingLevel = s.thinking_level === "off" ? "" : (s.thinking_level ?? "");
+        s.max_tokens === 0 || s.max_tokens == null ? "" : String(s.max_tokens);
+      thinkingLevel =
+        s.thinking_level === "off" ? "" : (s.thinking_level ?? "");
       const commitTypeSelection = getCommitTypeSelection(s.commit_types);
       const hasSavedCommitTypes = Boolean(s.commit_types?.trim());
       selectedCommitTypes = hasSavedCommitTypes
@@ -203,28 +198,24 @@
   <title>Settings · Annalist</title>
   <meta
     name="description"
-    content="Tune Annalist's global release-note contract and tone."
+    content="Configure global release-note defaults and the model provider."
   />
 </svelte:head>
 
-<div class="trace-wall">
-  <SectionHead
-    label="Operations / global contract"
-    title="Machine contract &amp; tone proof"
-    lede={headerLede}
-  >
+<div class="workspace">
+  <SectionHead title="Settings" lede={headerLede}>
     {#snippet actions()}
-      <a href="/repos" class="btn btn-secondary">Repository inventory</a>
+      <a href="/repos" class="btn btn-secondary">Repositories</a>
     {/snippet}
   </SectionHead>
 
   {#if error}
-    <ErrorBanner label="Contract update needs attention" message={error} />
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
     <section class="panel" aria-busy="true" aria-label="Loading settings">
-      <p class="trace-label">Reading machine contract</p>
+      <p class="field-caption">Loading settings…</p>
       <div class="skeleton mt-4 h-12 w-full"></div>
       <div class="skeleton mt-3 h-28 w-full"></div>
       <div class="skeleton mt-3 h-12 w-1/2"></div>
@@ -235,12 +226,7 @@
         class="panel settings-form"
         aria-label="Global release note defaults"
       >
-        <SectionHead
-          label="LLM endpoint"
-          title="Connection"
-          compact
-          headingLevel="h2"
-        >
+        <SectionHead title="Connection" compact headingLevel="h2">
           {#snippet actions()}
             <button class="btn btn-secondary" onclick={loadModels}>
               Refresh models
@@ -249,7 +235,6 @@
         </SectionHead>
         {#if modelsError}
           <ErrorBanner
-            label="Model list needs attention"
             message={modelsError}
             actionLabel="Retry"
             onAction={loadModels}
@@ -260,28 +245,32 @@
             ><span class="field-group__label">Base URL</span><input
               bind:value={baseUrl}
               placeholder="https://llm.example.com (host only, no path)"
-              class="field" /><span class="field-group__hint"
+              class="field"
+            /><span class="field-group__hint"
               >OpenAI-compatible endpoint (scheme://host[:port]). Overrides the
-              LLM_BASE_URL env value while set; clear the field to fall back
-              to env.</span
+              LLM_BASE_URL env value while set; clear the field to fall back to
+              env.</span
             ></label
           >
           <label class="field-group"
             ><span class="field-group__label"
               >API key
               {#if settings?.llm.has_key}
-              <span class="field-group__hint"
-                >(saved or env: {settings.llm.api_key})</span
-              >
+                <span class="field-group__hint"
+                  >(saved or env: {settings.llm.api_key})</span
+                >
               {:else}
-              <span class="field-group__hint">(none set)</span>
+                <span class="field-group__hint">(none set)</span>
               {/if}</span
             ><input
               bind:value={apiKey}
               type="password"
               oninput={() => (apiKeyTouched = true)}
-              placeholder={settings?.llm.has_key ? "Leave blank to keep current key" : "sk-..."}
-              class="field" /><span class="field-group__hint"
+              placeholder={settings?.llm.has_key
+                ? "Leave blank to keep current key"
+                : "sk-..."}
+              class="field"
+            /><span class="field-group__hint"
               >Overrides LLM_API_KEY while non-empty; a blanked, saved key is
               cleared on Save.</span
             >{#if apiKeyTouched && apiKey === "" && settings?.llm.has_key}
@@ -292,17 +281,9 @@
           >
         </div>
 
-        <SectionHead
-          label="Tone contract"
-          title="Global defaults"
-          compact
-          headingLevel="h2"
-        >
+        <SectionHead title="Global defaults" compact headingLevel="h2">
           {#snippet actions()}
-            <span class="status status--healthy"
-              ><span class="signal-dot signal-dot--muted" aria-hidden="true"
-              ></span>Editable</span
-            >
+            <span class="status status--healthy">Editable</span>
           {/snippet}
         </SectionHead>
         <div class="grid gap-5">
@@ -330,7 +311,8 @@
               rows="5"
               placeholder="Additional instructions for note generation"
               class="field"></textarea><span class="field-group__hint"
-              >These instructions travel with the global tone contract.</span
+              >When set, these instructions replace the default writing
+              instructions. Repository instructions take priority.</span
             ></label
           >
           <div class="grid gap-5 sm:grid-cols-4">
@@ -341,12 +323,14 @@
                 ></span
               ><select bind:value={model} class="field"
                 ><option value="">Inherit (system default)</option
-                >{#each models as m (m)}<option value={m}>{m}</option>{/each
-              }{#if model && !models.includes(model)}<option value={model}>{model}
-                  (not in /models list)</option
-                >{/if}</select
+                >{#each models as m (m)}<option value={m}>{m}</option
+                  >{/each}{#if model && !models.includes(model)}<option
+                    value={model}
+                    >{model}
+                    (not in /models list)</option
+                  >{/if}</select
               ><span class="field-group__hint"
-                >Saved on the global contract; repositories can override per
+                >Saved on the global defaults; repositories can override per
                 repo.</span
               ></label
             >
@@ -383,30 +367,32 @@
               /><span class="field-group__hint"
                 >Cap on generated tokens per request (blank = server default;
                 whole number of 1 or more).</span
-              >{#if maxTokensError}<span
-                  class="field-group__error"
-                  role="alert">{maxTokensError}</span
+              >{#if maxTokensError}<span class="field-group__error" role="alert"
+                  >{maxTokensError}</span
                 >{/if}</label
             >
             <label class="field-group"
-              ><span class="field-group__label">Thinking level</span
-              ><select bind:value={thinkingLevel} class="field"
+              ><span class="field-group__label">Thinking level</span><select
+                bind:value={thinkingLevel}
+                class="field"
                 ><option value="">off — no extended thinking</option
-                >{#each THINKING_LEVELS as lvl (lvl)}<option
-                    value={lvl}>{lvl}</option
+                >{#each THINKING_LEVELS as lvl (lvl)}<option value={lvl}
+                    >{lvl}</option
                   >{/each}</select
               ><span class="field-group__hint"
-                >Sent to the model as reasoning_effort; off sends
-                "none" so extended thinking stays off. Only works
-                on endpoints that support it.</span
+                >Sent to the model as reasoning_effort; off sends "none" so
+                extended thinking stays off. Only works on endpoints that
+                support it.</span
               ></label
             >
           </div>
           <label class="field-group"
-            ><span class="field-group__label">Mode</span
-            ><select bind:value={mode} class="field"
-              ><option value="lite">lite — commit log only</option
-              ><option value="deep">deep — commit log + diff</option></select
+            ><span class="field-group__label">Mode</span><select
+              bind:value={mode}
+              class="field"
+              ><option value="lite">lite — commit log only</option><option
+                value="deep">deep — commit log + diff</option
+              ></select
             ><span class="field-group__hint"
               >deep inspects the code diff between tags; it costs more per
               release.</span
@@ -417,41 +403,31 @@
             <CommitTypeSelector
               bind:selected={selectedCommitTypes}
               bind:custom={customCommitTypes}
-              hint={
-                !commitTypesDirty && !settings?.commit_types?.trim()
-                  ? "Default selection shown for new installs. Change a checkbox to save a filter."
-                  : isKeepAll(formatCommitTypes(selectedCommitTypes, customCommitTypes))
-                    ? "No filter — all commit types are included."
-                    : "Selected types are included in notes."
-              }
+              hint={!commitTypesDirty && !settings?.commit_types?.trim()
+                ? "Default selection shown for new installs. Change a checkbox to save a filter."
+                : isKeepAll(
+                      formatCommitTypes(selectedCommitTypes, customCommitTypes),
+                    )
+                  ? "No filter — all commit types are included."
+                  : "Selected types are included in notes."}
               ariaLabel="Global commit types"
               onDirty={() => (commitTypesDirty = true)}
             />
           </fieldset>
           <div class="flex flex-wrap items-center gap-3">
             <button onclick={save} disabled={saving} class="btn btn-primary"
-              >{saving ? "Saving…" : "Save contract"}</button
+              >{saving ? "Saving…" : "Save settings"}</button
             >{#if saved}<span class="status status--healthy" role="status"
-                ><span class="signal-dot signal-dot--healthy" aria-hidden="true"
-                ></span>Saved</span
+                >Saved</span
               >{/if}
           </div>
         </div>
       </section>
 
       <aside class="settings-proof">
-        <section class="panel panel-soft" aria-label="Machine contract">
-          <SectionHead
-            label="Machine contract"
-            title="Connection state"
-            compact
-            headingLevel="h2"
-          >
-            {#snippet actions()}
-              <span class="signal-dot signal-dot--healthy" aria-hidden="true"
-              ></span>
-            {/snippet}
-          </SectionHead>
+        <section class="panel panel-soft" aria-label="Server configuration">
+          <SectionHead title="Connection state" compact headingLevel="h2"
+          ></SectionHead>
           <dl class="contract-list">
             <div>
               <dt>Base URL</dt>
@@ -464,14 +440,7 @@
                   class="status {settings.github
                     ? 'status--healthy'
                     : 'status--quiet'}"
-                  ><span
-                    class="signal-dot {settings.github
-                      ? 'signal-dot--healthy'
-                      : 'signal-dot--muted'}"
-                    aria-hidden="true"
-                  ></span>{settings.github
-                    ? "Configured"
-                    : "Not configured"}</span
+                  >{settings.github ? "Configured" : "Not configured"}</span
                 >
               </dd>
             </div>
@@ -482,23 +451,16 @@
                   class="status {settings.forgejo
                     ? 'status--healthy'
                     : 'status--quiet'}"
-                  ><span
-                    class="signal-dot {settings.forgejo
-                      ? 'signal-dot--healthy'
-                      : 'signal-dot--muted'}"
-                    aria-hidden="true"
-                  ></span>{settings.forgejo
-                    ? "Configured"
-                    : "Not configured"}</span
+                  >{settings.forgejo ? "Configured" : "Not configured"}</span
                 >
               </dd>
             </div>
           </dl>
         </section>
 
-        <section class="panel panel-soft" aria-label="Tone proof">
-          <p class="trace-label">Tone proof</p>
-          <h2 class="mt-1">Current contract at a glance</h2>
+        <section class="panel panel-soft" aria-label="Current values">
+          <p class="field-caption">Current values</p>
+          <h2 class="mt-1">Form summary</h2>
           <pre class="note-paper mt-4">Tone: {toneOption === "custom"
               ? customTone.trim() || "inherit"
               : toneOption === "inherit"
@@ -512,12 +474,17 @@ Thinking: {thinkingLevel || "off"}
 Instructions: {instructions.trim() || "No additional instructions."}
 Commit types: {!commitTypesDirty && !settings?.commit_types?.trim()
               ? `${DEFAULT_COMMIT_TYPES.join(",")} (default, not saved)`
-              : isKeepAll(formatCommitTypes(selectedCommitTypes, customCommitTypes))
+              : isKeepAll(
+                    formatCommitTypes(selectedCommitTypes, customCommitTypes),
+                  )
                 ? "all commit types (no filter)"
-                : formatCommitTypes(selectedCommitTypes, customCommitTypes)}</pre>
+                : formatCommitTypes(
+                    selectedCommitTypes,
+                    customCommitTypes,
+                  )}</pre>
           <p class="mt-3 text-xs text-ink-3">
-            This proof reflects the values in the form. Repository-level
-            settings can override the global contract.
+            This summary reflects the values in the form. Repository-level
+            settings can override the global defaults.
           </p>
         </section>
       </aside>

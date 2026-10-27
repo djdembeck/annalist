@@ -1,7 +1,7 @@
 # Annalist
 
 <p align="center">
-  <img src="web/static/annalist-mark.svg" alt="Annalist" width="240">
+  <img src="web/static/annalist-mark.svg" alt="Annalist" width="72">
 </p>
 
 AI-generated release notes for GitHub and Forgejo. Annalist listens for release webhooks, clones the repository, summarizes commit history through an OpenAI-compatible LLM, and writes the notes back into the release body. It also ships an embedded admin dashboard for manual generation and per-repository settings.
@@ -72,17 +72,36 @@ Webhook payloads are deduplicated by event hash, and generated notes carry an An
 
 ## Dashboard
 
-The dashboard is an embedded SvelteKit 5 application served by the Annalist binary. Open it at `http://<SERVER_HOST>:<SERVER_PORT>/` and authenticate with `ADMIN_TOKEN` as a bearer token.
+The dashboard is an embedded SvelteKit 5 application served by the Annalist binary. Open `http://<SERVER_HOST>:<SERVER_PORT>/`: browsers with a saved admin token go to `/repos`; other browsers go to `/setup`. Authenticate with `ADMIN_TOKEN`. Setup is public; management actions and admin `/api/*` routes require the bearer token. `GET /api/health` is unauthenticated.
 
-The installed dashboard now treats `/` as a **setup-first operating home**, not as the post-setup repository list:
+- `/setup` checks the token and platform connections, adds repositories, and saves a default writing tone.
+- `/repos` lists managed repositories, their latest recorded generation outcome, automation settings, and actions. Add discovered repositories through `/repos/add`, or enter an owner and repository manually.
+- Per-repository panels provide recent runs, writing settings, and manual preview/publication. Overwrite requires confirmation; normal generation preserves human-authored release bodies.
+- `/settings` controls global writing defaults and the OpenAI-compatible connection. Repository overrides remain separate.
 
-1. Open `/` to see the activation status and the release workflow path.
-2. Use `/setup` for first-run activation and to establish the local onboarding state.
-3. After activation, use `/repos` (and `/repos/add`) for repository access and per-repository settings, and `/settings` for global settings.
+The interface uses warm light and dark themes, quiet navigation, and labeled result badges. The first visit follows the system color preference; an explicit Light/Dark choice persists in the browser.
 
-The landing page and setup page are public routes. The management routes and admin `/api/*` routes require the bearer token matching `ADMIN_TOKEN`; `GET /api/health` is the unauthenticated health check. Repositories granted to the configured GitHub App or Forgejo credentials appear in **Repos** and are enabled by default; there is no separate per-repository registration step.
+### Generation history
 
-The dashboard uses the **Release Trace Wall** visual system: dark operator panels, thermal-paper proof surfaces, copper action rails, and cyan trace signals. This describes the interface style, not a separate asset or deployment requirement.
+Accepted daemon attempts are persisted in SQLite, separately from the generated-note cache. The repository list exposes the latest attempt as `latest_run` (or `null` when none is recorded), independently of recent-history limits. Outcomes mean:
+
+| Status | Meaning |
+| --- | --- |
+| `running` | Accepted; waiting for a generation slot or doing work. |
+| `generated` | Preview notes completed; nothing was published. |
+| `published` | This attempt successfully wrote the remote release body. |
+| `cached` | Previously generated notes were reused; no new publication occurred. |
+| `preserved` | The existing human-authored release body was not overwritten. |
+| `failed` | The attempt failed, with a bounded recovery category. |
+| `interrupted` | A prior daemon attempt was unfinished when the daemon restarted. |
+
+Automation On/Off and trigger settings describe configuration, not service health. The visible repository page refreshes outcomes about every 15 seconds without replacing unsaved settings drafts.
+
+`GET /api/runs` requires the same admin bearer token. It returns newest-first records, defaults to `limit=20`, and accepts limits from 1 through 100. To filter a repository, provide all three identity fields: `platform`, `owner`, and `repo`. Partial identities and invalid limits return HTTP 400. History contains identity, tags/profile, source (`manual` or `webhook`), outcome, safe error/warning codes, and UTC timestamps—not note bodies, prompts, credentials, raw provider errors, or webhook payloads. CLI `generate` and filtered/invalid webhook deliveries do not create server history.
+
+Publication responses include `outcome`, a truthful `published` boolean, and nullable `warning_code`. If the remote write succeeds but saving the note cache fails, the response remains successful with `outcome=published` and `warning_code=cache_persistence`; the pipeline logs the storage failure, including on the CLI. Check the remote release before retrying a publication.
+
+A history row must be created before generation starts; failure to create it prevents remote work. If saving the terminal history record fails after a publication, the release remains published and the failure is logged; history can remain `running` until the next daemon startup marks it `interrupted`. Run one daemon per data directory. Opening the database from the CLI does not reconcile or interrupt active daemon runs.
 
 ## Platform setup
 

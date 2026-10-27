@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">Annalist mark</title>
-  <desc id="desc">Three cyan lines with a copper signal dot on a dark panel.</desc>
-  <rect width="64" height="64" rx="12" fill="#0b0f14"/>
-  <path d="M14 17h36M14 31h23M14 45h36" fill="none" stroke="#59c3c3" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="45" cy="31" r="5" fill="#f06a3a"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-labelledby="title"><title id="title">Annalist ledger</title><rect width="40" height="40" rx="8" fill="#f5eee5"/><path d="M20 11c-4-4-10-5-15-3v23c5-2 11-1 15 3 4-4 10-5 15-3V8c-5-2-11-1-15 3Z" fill="none" stroke="#302b26" stroke-width="2.3" stroke-linejoin="round"/><path d="M20 11v23M10 14c2 0 4 .5 6 1.5M10 20c2 0 4 .5 6 1.5M10 26c2 0 4 .5 6 1.5" fill="none" stroke="#302b26" stroke-width="2" stroke-linecap="round"/><path d="M25 14c1.5-.8 3.2-1.2 5-1.2v9l-2.5-1.5L25 23Z" fill="#bd431f"/></svg>

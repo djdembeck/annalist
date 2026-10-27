@@ -107,33 +107,21 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function mountPage(
-  initialHint: string | RegExp = /Default selection shown/,
-) {
+async function mountPage() {
   container = document.createElement("div");
   document.body.append(container);
   component = mount(SettingsPage, { target: container });
   await waitFor(() => {
-    expect(container?.textContent).toMatch(initialHint);
+    expect(screen.getByLabelText(/Instructions/)).toBeInstanceOf(
+      HTMLTextAreaElement,
+    );
+    expect(
+      screen.getByRole("button", { name: /Save settings/ }),
+    ).toBeInstanceOf(HTMLButtonElement);
   });
 }
 
 describe("settings page commit type contract", () => {
-  it("shows the default-selection hint when commit_types is unset", async () => {
-    mockSettings();
-    await mountPage();
-
-    expect(screen.getByText(/Default selection shown for new installs/));
-    // The tone-proof block shows the four recommended types as a
-    // not-saved default (interpolated alongside the other lines, so
-    // match the block's full text).
-    expect(
-      screen.getByText((content) =>
-        content.includes("fix,feat,refactor,perf (default, not saved)"),
-      ),
-    );
-  });
-
   it("preserves an unset commit_types filter on an unrelated save", async () => {
     mockSettings();
     await mountPage();
@@ -144,7 +132,7 @@ describe("settings page commit type contract", () => {
     await fireEvent.input(instructions, { target: { value: "be terse" } });
 
     await fireEvent.click(
-      screen.getByRole("button", { name: /Save contract/ }),
+      screen.getByRole("button", { name: /Save settings/ }),
     );
 
     await waitForPut();
@@ -168,7 +156,7 @@ describe("settings page commit type contract", () => {
     expect(putBody).toBeNull(); // no save yet
 
     await fireEvent.click(
-      screen.getByRole("button", { name: /Save contract/ }),
+      screen.getByRole("button", { name: /Save settings/ }),
     );
 
     await waitForPut();
@@ -183,7 +171,7 @@ describe("settings page commit type contract", () => {
     await mountPage();
 
     await fireEvent.click(
-      screen.getByRole("button", { name: /Save contract/ }),
+      screen.getByRole("button", { name: /Save settings/ }),
     );
 
     // The save is still pending (putResolve is not called in this test).
@@ -232,7 +220,7 @@ describe("settings page commit type contract", () => {
     await fireEvent.input(instructions, { target: { value: "be terse" } });
 
     await fireEvent.click(
-      screen.getByRole("button", { name: /Save contract/ }),
+      screen.getByRole("button", { name: /Save settings/ }),
     );
 
     await waitForPut();
@@ -259,7 +247,7 @@ describe("settings page commit type contract", () => {
     }
 
     await fireEvent.click(
-      screen.getByRole("button", { name: /Save contract/ }),
+      screen.getByRole("button", { name: /Save settings/ }),
     );
 
     await waitForPut();
@@ -268,11 +256,9 @@ describe("settings page commit type contract", () => {
     resolvePutSettings();
   });
 
-  it("shows every box unchecked and the no-filter hint when the saved value is the keep-all sentinel", async () => {
+  it("shows every box unchecked when the saved value is the keep-all sentinel", async () => {
     mockSettings({ commit_types: "*" });
-    // A stored sentinel is a saved value, so the page shows the no-filter
-    // hint rather than the not-yet-saved default hint.
-    await mountPage(/No filter — all commit types are included\./);
+    await mountPage();
 
     for (const name of ["fix", "feat", "refactor", "perf"]) {
       const box = screen.getByRole("checkbox", {
@@ -284,9 +270,6 @@ describe("settings page commit type contract", () => {
       /Additional types/,
     ) as HTMLInputElement;
     expect(customInput.value).toBe("");
-    // The hint span appends the breaking-changes note, so match the
-    // hint sentence, not the span's full text.
-    expect(screen.getByText(/No filter — all commit types are included\./));
     resolvePutSettings();
   });
 
@@ -298,7 +281,7 @@ describe("settings page commit type contract", () => {
     await fireEvent.input(maxTokens, { target: { value: "8192" } });
 
     await fireEvent.click(
-      screen.getByRole("button", { name: /Save contract/ }),
+      screen.getByRole("button", { name: /Save settings/ }),
     );
 
     await waitForPut();
@@ -319,7 +302,7 @@ describe("settings page commit type contract", () => {
     await fireEvent.input(maxTokens, { target: { value: "" } });
 
     await fireEvent.click(
-      screen.getByRole("button", { name: /Save contract/ }),
+      screen.getByRole("button", { name: /Save settings/ }),
     );
 
     await waitForPut();
@@ -336,7 +319,7 @@ describe("settings page commit type contract", () => {
     for (const bad of ["0", "1.5"]) {
       await fireEvent.input(maxTokens, { target: { value: bad } });
       await fireEvent.click(
-        screen.getByRole("button", { name: /Save contract/ }),
+        screen.getByRole("button", { name: /Save settings/ }),
       );
 
       // Svelte schedules the re-render as a microtask after the click.
@@ -358,7 +341,7 @@ describe("settings page commit type contract", () => {
     await fireEvent.change(thinking, { target: { value: "high" } });
 
     await fireEvent.click(
-      screen.getByRole("button", { name: /Save contract/ }),
+      screen.getByRole("button", { name: /Save settings/ }),
     );
 
     await waitForPut();
@@ -372,13 +355,15 @@ describe("settings page commit type contract", () => {
     mockSettings({ thinking_level: "medium" });
     await mountPage();
 
-    const thinking = screen.getByLabelText(/Thinking level/) as HTMLSelectElement;
+    const thinking = screen.getByLabelText(
+      /Thinking level/,
+    ) as HTMLSelectElement;
     expect(thinking.value).toBe("medium");
     // Switch to off (option value "").
     await fireEvent.change(thinking, { target: { value: "" } });
 
     await fireEvent.click(
-      screen.getByRole("button", { name: /Save contract/ }),
+      screen.getByRole("button", { name: /Save settings/ }),
     );
 
     await waitForPut();
@@ -394,7 +379,9 @@ describe("settings page commit type contract", () => {
     mockSettings({ thinking_level: "off" });
     await mountPage();
 
-    const thinking = screen.getByLabelText(/Thinking level/) as HTMLSelectElement;
+    const thinking = screen.getByLabelText(
+      /Thinking level/,
+    ) as HTMLSelectElement;
     expect(thinking.value).toBe("");
     resolvePutSettings();
   });

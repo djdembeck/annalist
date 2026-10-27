@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repositories · Annalist — Quiet Workspace</title>
+<style>
+:root{--canvas:#f5eee5;--surface:#fff;--ink:#302b26;--muted:#6f665c;--line:#e6dccf;--rust:#bd431f;--rust-deep:#a03616;--ok:#2f6b3f;--bad:#a63a22;--quiet:#766c60}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--canvas);color:var(--ink);font-family:"Avenir Next","Segoe UI",Cantarell,system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+::selection{background:#eadbc9;color:#302b26}
+button{font:inherit}
+:focus-visible{outline:2px solid var(--rust);outline-offset:2px}
+.topbar{max-width:1120px;margin:0 auto;padding:20px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:1px solid #e5d9ca}
+.brand{font-size:16.5px;font-weight:650;letter-spacing:-.015em}
+.topnav{display:flex;align-items:center;gap:26px}
+.topnav a{font-size:14px;color:var(--muted);text-decoration:none;padding:4px 0;text-underline-offset:7px}
+.topnav a:hover{color:var(--ink)}
+.topnav a[aria-current="page"]{color:var(--ink);text-decoration:underline;text-decoration-thickness:2px}
+main{max-width:1120px;margin:0 auto;padding:38px 32px 22px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:26px}
+h1{margin:0 0 6px;font-size:30px;line-height:1.15;font-weight:650;letter-spacing:-.022em}
+.sub{margin:0;max-width:62ch;font-size:14.5px;color:var(--muted)}
+.head-actions{display:flex;align-items:center;gap:9px}
+.btn{border:0;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:550;line-height:1.2;cursor:pointer}
+.btn-quiet{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px #ded1c1}
+.btn-quiet:hover{box-shadow:inset 0 0 0 1px #cdbca8;background:#fffdfa}
+.btn-action{background:var(--rust);color:#fff}
+.btn-action:hover{background:var(--rust-deep)}
+.repos{display:flex;flex-direction:column;gap:16px}
+.repo{background:var(--surface);border-radius:16px;padding:22px 26px;box-shadow:0 1px 2px rgba(48,43,38,.04),0 10px 28px rgba(48,43,38,.06)}
+.repo-main{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.8fr) auto;gap:18px 28px;align-items:start}
+h2{margin:0;font-size:17px;line-height:1.3;font-weight:600;letter-spacing:-.012em;overflow-wrap:anywhere}
+.meta{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
+.auto{margin:11px 0 0;font-size:13px;color:var(--muted)}
+.auto b{font-weight:600;color:#4d463e}
+.latest{min-width:0}
+.outcome{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin:2px 0 0}
+.status{font-size:14.5px;font-weight:600}
+.s-ok{color:var(--ok)}
+.s-bad{color:var(--bad)}
+.s-quiet{color:var(--quiet)}
+.version{font-size:15px;font-weight:550;color:var(--ink)}
+.when{margin:4px 0 0;font-size:13px;color:var(--muted)}
+.repo-actions{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.act{background:none;border:0;padding:5px 0;font-size:14px;font-weight:600;color:var(--rust);cursor:pointer;text-underline-offset:3px}
+.act:hover{text-decoration:underline}
+.act-quiet{font-size:13.5px;font-weight:500;color:var(--muted)}
+.act-quiet:hover{color:var(--ink)}
+.failure{grid-column:1/-1;margin-top:4px;padding-top:14px;border-top:1px solid var(--line);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px 24px;align-items:start}
+.failure-msg{margin:0;max-width:66ch;font-size:14px;line-height:1.55}
+.failure-meta{margin:6px 0 0;font-size:12.5px;color:var(--muted)}
+.failure .act{justify-self:start}
+.foot{max-width:1120px;margin:0 auto;padding:4px 32px 26px;display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.foot nav{display:flex;flex-wrap:wrap;gap:4px 14px}
+.foot a{color:var(--muted);text-underline-offset:3px}
+.foot a:hover{color:var(--ink)}
+.foot a[aria-current="page"]{color:var(--ink);font-weight:600;text-decoration:none}
+.notice{font-weight:600;color:var(--ink)}
+@media (max-width:760px){
+.topbar{padding:14px 20px;align-items:flex-start;flex-wrap:wrap;gap:10px}
+.topnav{gap:16px;flex-wrap:wrap}
+main{padding:24px 20px 18px}
+h1{font-size:26px}
+.repo{padding:20px;border-radius:14px}
+.repo-main{grid-template-columns:1fr;gap:14px}
+.repo-actions{flex-direction:row;align-items:center;gap:16px}
+.failure{grid-template-columns:1fr}
+.foot{padding:4px 20px 22px;align-items:flex-start;flex-direction:column}
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Annalist</div>
+  <nav class="topnav" aria-label="Primary">
+    <a href="#" aria-current="page">Repositories</a>
+    <a href="#">Settings</a>
+    <a href="#">Setup</a>
+  </nav>
+</header>
+
+<main>
+  <header class="head">
+    <div>
+      <h1>Repositories</h1>
+      <p class="sub">What each repository last generated, and whether automation is on.</p>
+    </div>
+    <div class="head-actions">
+      <button class="btn btn-quiet" type="button">Refresh</button>
+      <button class="btn btn-action" type="button">Add repositories</button>
+    </div>
+  </header>
+
+  <section class="repos" aria-label="Connected repositories">
+    <article class="repo">
+      <div class="repo-main">
+        <div>
+          <h2>djdembeck/annalist</h2>
+          <p class="meta">Forgejo</p>
+          <p class="auto"><b>Automation on</b> · Release published</p>
+        </div>
+        <div class="latest">
+          <p class="outcome"><span class="status s-ok">Published</span><span class="version">v0.8.2</span></p>
+          <p class="when">12 min ago</p>
+        </div>
+        <div class="repo-actions">
+          <button class="act" type="button">Generate notes</button>
+          <button class="act act-quiet" type="button">Settings</button>
+        </div>
+      </div>
+    </article>
+
+    <article class="repo">
+      <div class="repo-main">
+        <div>
+          <h2>djdembeck/audiobookdb</h2>
+          <p class="meta">GitHub</p>
+          <p class="auto"><b>Automation on</b> · Release published</p>
+        </div>
+        <div class="latest">
+          <p class="outcome"><span class="status s-bad">Failed</span><span class="version">v1.14.0</span></p>
+          <p class="when">38 min ago</p>
+        </div>
+        <div class="repo-actions">
+          <button class="act" type="button">Generate notes</button>
+          <button class="act act-quiet" type="button">Settings</button>
+        </div>
+        <div class="failure" role="group" aria-label="Failure detail for djdembeck/audiobookdb">
+          <div>
+            <p class="failure-msg">The model request timed out. Check the provider and try again.</p>
+            <p class="failure-meta">Release v1.14.0 · 38 minutes ago</p>
+          </div>
+          <button class="act" type="button">Try again</button>
+        </div>
+      </div>
+    </article>
+
+    <article class="repo">
+      <div class="repo-main">
+        <div>
+          <h2>djdembeck/orca</h2>
+          <p class="meta">Forgejo</p>
+          <p class="auto"><b>Automation on</b> · Release published</p>
+        </div>
+        <div class="latest">
+          <p class="outcome"><span class="status s-quiet">Cached</span><span class="version">v0.6.1</span></p>
+          <p class="when">2 hr ago</p>
+        </div>
+        <div class="repo-actions">
+          <button class="act" type="button">Generate notes</button>
+          <button class="act act-quiet" type="button">Settings</button>
+        </div>
+      </div>
+    </article>
+
+    <article class="repo">
+      <div class="repo-main">
+        <div>
+          <h2>djdembeck/dotfiles</h2>
+          <p class="meta">GitHub</p>
+          <p class="auto"><b>Automation off</b></p>
+        </div>
+        <div class="latest">
+          <p class="outcome"><span class="status s-quiet">No runs yet</span></p>
+          <p class="when">No generation yet</p>
+        </div>
+        <div class="repo-actions">
+          <button class="act" type="button">Generate notes</button>
+          <button class="act act-quiet" type="button">Settings</button>
+        </div>
+      </div>
+    </article>
+  </section>
+</main>
+
+<footer class="foot">
+  <span><span class="notice">Design preview · Illustrative data</span> · Quiet Workspace direction</span>
+  <nav aria-label="Other previews">
+    <a href="challenger-consumer.html" aria-current="page">Quiet workspace</a>
+    <a href="model-pick.html">Release checklist</a>
+    <a href="assigned.html">Standards</a>
+    <a href="canon.html">Category</a>
+  </nav>
+</footer>
+</body>
+</html>

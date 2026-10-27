@@ -1240,14 +1240,14 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 
 	t.Run("fetch release error propagates", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, nil) // no releases map -> tag missing
-		err := pip.Publish(context.Background(), published("notes", "v0.1.0"), genSpec("v0.2.0", "rel-fetch"), f, false)
+		_, err := pip.Publish(context.Background(), published("notes", "v0.1.0"), genSpec("v0.2.0", "rel-fetch"), f, false)
 		if err == nil || !strings.Contains(err.Error(), "pipeline: fetch release") {
 			t.Fatalf("err = %v, want fetch-release error", err)
 		}
 	})
 	t.Run("human-edited body not clobbered without force", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
-		err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
+		_, err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
 		if err != nil {
 			t.Fatalf("Publish: %v", err)
 		}
@@ -1257,7 +1257,7 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 	})
 	t.Run("force overrides don't-clobber guard", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
-		err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, true)
+		_, err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, true)
 		if err != nil {
 			t.Fatalf("Publish: %v", err)
 		}
@@ -1269,7 +1269,7 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 	t.Run("edit release body error propagates", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
 		f.editErr = errors.New("api down")
-		err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
+		_, err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
 		if err == nil || !strings.Contains(err.Error(), "pipeline: edit release body") {
 			t.Fatalf("err = %v, want edit-release-body error", err)
 		}

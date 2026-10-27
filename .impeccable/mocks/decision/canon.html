@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repositories — Category Standard</title>
+<style>
+:root{--blue:#245bd6;--blue-d:#1b47ad;--ink:#1c2333;--ink2:#2f3849;--mut:#5b6577;--faint:#68718a;--line:#dfe3ea;--hair:#edf0f5;--can:#f6f7f9;--paper:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--can);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:3px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.side{flex:none;width:236px;background:var(--paper);border-right:1px solid var(--line);padding:18px 12px 16px;display:flex;flex-direction:column;gap:24px;position:sticky;top:0;height:100vh}
+.brand{display:flex;align-items:center;gap:9px;padding:0 8px;font-size:15px;font-weight:650;letter-spacing:-.01em}
+.brand svg{display:block}
+.snav{display:flex;flex-direction:column;gap:2px}
+.snav a{display:block;padding:8px 10px;border-radius:7px;color:#3c4557;font-size:13.5px;font-weight:500;text-decoration:none}
+.snav a:hover{background:#f2f4f8;text-decoration:none}
+.snav a[aria-current]{background:#eef3fe;color:var(--blue);font-weight:650}
+.suser{margin-top:auto;display:flex;align-items:center;gap:9px;padding:13px 8px 0;border-top:1px solid var(--line);font-size:12px;color:var(--mut)}
+
+main{flex:1;min-width:0;padding:26px 30px 30px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:28px;line-height:1.2;font-weight:650;letter-spacing:-.022em}
+.rowacts{display:flex;gap:9px;flex-wrap:wrap}
+.btn{min-height:34px;padding:7px 13px;border:1px solid #d3d9e3;border-radius:7px;background:var(--paper);color:var(--ink2);font-size:13px;font-weight:550}
+.btn:hover{background:#f3f5f8}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{background:var(--blue-d);border-color:var(--blue-d)}
+.toolbar{display:flex;align-items:center;gap:10px;margin:18px 0 14px;flex-wrap:wrap}
+input[type=search],select{min-height:34px;padding:6px 10px;border:1px solid #d3d9e3;border-radius:7px;background:var(--paper);font-size:13px}
+input[type=search]{width:290px}
+input::placeholder{color:#6a7385}
+select{padding-right:6px}
+.count{margin-left:auto;font-size:12.5px;color:var(--mut)}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 16px;background:#fbfbfd;border-bottom:1px solid var(--line);color:var(--faint);font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+td{padding:12px 16px;border-bottom:1px solid var(--hair);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#fafbfe}
+tbody tr[aria-selected=true]{background:#f1f5fe}
+tbody tr[aria-selected=true] .repo{font-weight:700}
+.repo{display:block;font-weight:600;font-size:13.5px;letter-spacing:-.005em}
+.hostname{display:block;margin-top:2px;font-size:12px;color:var(--mut)}
+.ver{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--ink2)}
+.dash{color:#8a93a4}
+.cfg{font-size:13px;color:var(--ink2)}
+.cfg.off{color:var(--mut)}
+.badge{display:inline-block;padding:2px 8px;border:1px solid;border-radius:999px;font-size:11.5px;font-weight:650;line-height:1.45}
+.b-pub{color:#186b46;background:#eaf6ef;border-color:#c6e6d5}
+.b-fail{color:#a3271f;background:#fdeeec;border-color:#f4cec9}
+.b-cache{color:#4c5568;background:#eff1f5;border-color:#dde1e8}
+.b-none{color:#6a7385;background:#fff;border-style:dashed;border-color:#cfd6e0}
+.time{font-size:12.5px;color:var(--mut);white-space:nowrap}
+.panel{margin-top:18px}
+.panel-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line);background:#fbfbfd}
+.panel-head h2{margin:0;font-size:15px;font-weight:650;letter-spacing:-.01em}
+.panel-head .tag{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;padding:1px 6px;border:1px solid #e2e6ee;border-radius:5px;background:#f2f4f8;color:#3c4557}
+.panel-head .link{margin-left:auto;font-size:12.5px;font-weight:600}
+.panel-body{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;padding:14px 16px 16px}
+.fact dt{margin:0 0 4px;color:var(--faint);font-size:11px;font-weight:650;letter-spacing:.05em;text-transform:uppercase}
+.fact dd{margin:0;font-size:13.5px;font-weight:550}
+.fact dd small{display:block;margin-top:2px;font-size:12px;font-weight:400;color:var(--mut)}
+.alert{display:flex;gap:10px;align-items:flex-start;margin:0 16px 14px;padding:11px 13px;border:1px solid #f4cec9;border-radius:8px;background:#fdf3f2}
+.alert svg{flex:none;margin-top:2px}
+.alert p{margin:0;font-size:13px;color:#8f221b;line-height:1.45}
+.alert .fix{display:block;margin-top:2px;color:#6b3a35;font-size:12.5px}
+.panel-acts{display:flex;gap:9px;flex-wrap:wrap;padding:0 16px 16px}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:16px;font-size:12px;color:var(--mut)}
+.previews{display:flex;gap:14px;flex-wrap:wrap}
+.previews a{color:var(--mut);text-decoration:none}
+.previews a:hover{text-decoration:underline}
+.previews a[aria-current]{color:var(--ink);font-weight:650}
+@media(max-width:900px){
+ body{display:block}
+ .side{position:static;width:auto;height:auto;flex-direction:row;align-items:center;flex-wrap:wrap;gap:10px 14px;padding:10px 14px;border-right:0;border-bottom:1px solid var(--line)}
+ .snav{flex-direction:row;gap:2px;order:3;flex:1 1 100%;overflow-x:auto}
+ .suser{display:none}
+ main{padding:20px 16px 26px}
+ .toolbar{margin-top:14px}
+ input[type=search]{width:100%;flex:1 1 200px}
+ .count{margin-left:0;flex:1 1 100%}
+ .panel-body{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+ th:nth-child(3),td:nth-child(3){display:none}
+ th,td{padding-left:14px;padding-right:10px}
+}
+@media(max-width:600px){
+ h1{font-size:24px}
+ table{font-size:12.5px;table-layout:fixed}
+ th{font-size:11px;letter-spacing:.04em}
+ th,td{padding-left:12px;padding-right:8px}
+ th:nth-child(1),td:nth-child(1){width:52%}
+ th:nth-child(2),td:nth-child(2){width:23%}
+ th:nth-child(5),td:nth-child(5){display:none}
+ .g2{display:none}.repo{font-size:12.5px}
+ .panel-head .tag{display:none}
+ .panel-head h2{font-size:14px}
+ .btn{flex:1 1 auto}
+}
+</style>
+</head>
+<body>
+<aside class="side">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect width="22" height="22" rx="6" fill="#245bd6"/><path d="M6.5 7.2h9M6.5 11h9M6.5 14.8h5.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
+    Annalist
+  </div>
+  <nav class="snav" aria-label="Main">
+    <a href="#" aria-current="page">Repositories</a>
+    <a href="#">Settings</a>
+    <a href="#">Setup</a>
+  </nav>
+  <div class="suser">Admin session</div>
+</aside>
+<main>
+  <div class="top">
+    <h1>Repositories</h1>
+    <div class="rowacts"><button class="btn">Refresh</button><button class="btn primary">Add repositories</button></div>
+  </div>
+
+  <div class="toolbar">
+    <input type="search" placeholder="Search repositories" aria-label="Search repositories">
+    <select aria-label="Filter by state"><option>All states</option><option>Published</option><option>Failed</option><option>Cached</option><option>No runs yet</option></select>
+    <span class="count">4 repositories</span>
+  </div>
+
+  <section class="card" aria-label="Repositories"><table>
+      <thead>
+        <tr><th>Repository</th><th>Latest <span class="g2">generation</span></th><th>Automation</th><th>State</th><th>Updated</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="repo">djdembeck/annalist</span><span class="hostname">Forgejo</span></td>
+          <td><span class="ver">v0.8.2</span></td>
+          <td><span class="cfg">Enabled</span></td>
+          <td><span class="badge b-pub">Published</span></td>
+          <td><span class="time">12 min ago</span></td>
+        </tr>
+        <tr aria-selected="true">
+          <td><span class="repo">djdembeck/audiobookdb</span><span class="hostname">GitHub</span></td>
+          <td><span class="ver">v1.14.0</span></td>
+          <td><span class="cfg">Enabled</span></td>
+          <td><span class="badge b-fail">Failed</span></td>
+          <td><span class="time">38 min ago</span></td>
+        </tr>
+        <tr>
+          <td><span class="repo">djdembeck/orca</span><span class="hostname">Forgejo</span></td>
+          <td><span class="ver">v0.6.1</span></td>
+          <td><span class="cfg">Enabled</span></td>
+          <td><span class="badge b-cache">Cached</span></td>
+          <td><span class="time">2 hr ago</span></td>
+        </tr>
+        <tr>
+          <td><span class="repo">djdembeck/dotfiles</span><span class="hostname">GitHub</span></td>
+          <td><span class="dash">—</span></td>
+          <td><span class="cfg off">Off</span></td>
+          <td><span class="badge b-none">No runs yet</span></td>
+          <td><span class="time">—</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card panel" aria-label="Selected run detail">
+    <div class="panel-head">
+      <h2>djdembeck/audiobookdb</h2>
+      <span class="badge b-fail">Failed</span>
+      <span class="tag">v1.14.0</span>
+      <a class="link" href="#">View run details</a>
+    </div>
+    <div class="panel-body">
+      <div class="fact"><dt>Latest generation</dt><dd>v1.14.0<small>Completed 38 min ago</small></dd></div>
+      <div class="fact"><dt>Result</dt><dd>Failed<small>Model request timed out</small></dd></div>
+      <div class="fact"><dt>Release</dt><dd>Not published<small>Notes not updated</small></dd></div>
+      <div class="fact"><dt>Automation</dt><dd>Enabled<small>Enabled on GitHub</small></dd></div>
+    </div>
+    <div class="alert">
+      <svg width="14" height="14" viewBox="0 0 13 13" aria-hidden="true"><path d="M6.5 1.6 12 11.4H1z" fill="none" stroke="#a3271f" stroke-width="1.2" stroke-linejoin="round"/><path d="M6.5 5v2.8" stroke="#a3271f" stroke-width="1.2" stroke-linecap="round"/><circle cx="6.5" cy="9.6" r=".7" fill="#a3271f"/></svg>
+      <p>The model request timed out. Check the provider and try again.<span class="fix">This attempt did not publish release notes.</span></p>
+    </div>
+    <div class="panel-acts">
+      <button class="btn primary">Retry generation</button>
+      <button class="btn">Repository settings</button>
+      <button class="btn">Generate notes</button>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>Design preview · Illustrative data</span>
+    <nav class="previews" aria-label="Design previews">
+      <a href="/assigned.html">Standards</a><a href="/model-pick.html">Release checklist</a><a href="/challenger-consumer.html">Quiet workspace</a><a href="/canon.html" aria-current="page">Category</a>
+    </nav>
+  </footer>
+</main>
+</body>
+</html>

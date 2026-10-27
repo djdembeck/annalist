@@ -24,7 +24,7 @@ Self-hosted service run as a container or Go binary. Configured through `config.
 
 - Webhook ingestion (GitHub App, Forgejo) that triggers generation on release events.
 - CLI: `serve` (daemon), `generate` (on-demand, `--publish` writes to the release body), `version`.
-- Admin dashboard served at `/`, protected by a single bearer `ADMIN_TOKEN`.
+- Admin dashboard: `/` redirects to `/repos` when the browser has an admin token, otherwise to public `/setup`. Repository/settings actions and admin APIs require the single bearer `ADMIN_TOKEN`.
 
 Operators typically run it on their own server next to the CI that ships their releases.
 
@@ -32,6 +32,7 @@ Operators typically run it on their own server next to the CI that ships their r
 
 - Generation from release webhooks (GitHub App + Forgejo), deduplicated by event hash; regenerated notes carry a marker so repeated deliveries are idempotent.
 - On-demand generation from the CLI on any platform, with optional publish-back.
+- Persisted daemon generation monitoring: repository latest outcomes and authenticated recent history distinguish running, generated, published, cached, preserved, failed, and interrupted attempts. History contains safe metadata, not notes, prompts, credentials, or raw errors. CLI runs remain outside server history; one daemon owns each data directory.
 - Tone control: a global or per-repo `tone`, three built-in presets (`chronicler`, `engineer`, `launch`), any other string used as a custom freeform persona layered over the shared release-note rules, plus per-repo markdown instructions (which replace the defaults entirely).
 - Configurable LLM endpoint, model, temperature, token limit, and timeout against any OpenAI-compatible API (default model `qwen3.5-397b-a17b`).
 - Single admin bearer token, single-operator model: one account protects all `/api/*` and dashboard actions.
@@ -44,7 +45,7 @@ Operators typically run it on their own server next to the CI that ships their r
 - Name: "Annalist" (displayed as "Annalist" in the dashboard nav).
 - License: UNLICENSED. Distributed from `github.com/djdembeck/annalist`.
 - Voice promise, stated in the README: "consistent, human-sounding release notes."
-- No formal brand system, logo, or marketing commitments exist.
+- Visual identity: the approved Quiet Workspace direction uses a ledger mark and prominent Annalist wordmark, warm light/dark work planes, copper actions, and quiet top navigation. Repository outcomes are labeled operational evidence, not marketing or health claims. DESIGN.md and `.impeccable/design.json` record the built system.
 
 ## Evidence on Hand
 

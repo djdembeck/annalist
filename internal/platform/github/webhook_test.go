@@ -240,6 +240,31 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 	})
 }
 
+func TestGithubWebhookRejectsIncompleteRepositoryIdentity(t *testing.T) {
+	const secret = "github-secret"
+	stub := llmStub(t)
+	pip, store, dataDir := makePipeline(t, stub.URL)
+	handler := New(config.GitHubConfig{AppID: 1, WebhookSecret: secret}).WebhookHandler(pip)
+
+	body := []byte(bytes.Replace([]byte(githubPayload), []byte(`"name":"annalist"`), []byte(`"name":""`), 1))
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("X-Hub-Signature-256", "sha256="+signGitHub(secret, body))
+	req.Header.Set("X-GitHub-Event", "release")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("incomplete repository identity status=%d, want 200", rec.Code)
+	}
+
+	runs, err := store.ListRuns("", "", "", 20)
+	if err != nil || len(runs) != 0 {
+		t.Fatalf("incomplete identity created generation history: runs=%+v err=%v", runs, err)
+	}
+	if n, err := countGenerated(dataDir); err != nil || n != 0 {
+		t.Fatalf("incomplete identity dispatched generation: count=%d err=%v", n, err)
+	}
+}
+
 // TestGithubWebhookPreDispatchRejections covers every branch the handler
 // executes BEFORE it ever dispatches into the pipeline: secret-present guard,
 // signature verification, event routing, and payload parsing. Because each of
