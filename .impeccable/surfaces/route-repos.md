@@ -19,6 +19,6 @@ STORY: Identify the repository, read its latest observed outcome, distinguish co
 
 FIRST VIEWPORT: At 1440px, a 1200px centered shell; brand/navigation/theme control above a Repositories heading with Refresh/Add actions, followed by aligned Repository / Latest generation / Automation / Actions columns and inline run details. Mobile retains all information in labeled rows, wrapping names at the namespace slash.
 
-FORM: User-approved Quiet Workspace world with Standards Reference information density; the final light/dark mock `.impeccable/mocks/decision/refined-workspace.html` is the code-led composition authority. seed:c2f9040bf910e851. The user pinned this combination after the direction round.
+FORM: User-approved Quiet Workspace world with Standards Reference information density; the built `/repos` route is the composition authority. seed:c2f9040bf910e851. The user pinned this combination after the direction round.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
