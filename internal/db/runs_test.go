@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -110,5 +111,31 @@ func TestLatestRunBeyondRecentHistory(t *testing.T) {
 		if strings.Contains(string(encoded), `"`+forbidden+`"`) {
 			t.Fatalf("sensitive history field %s", forbidden)
 		}
+	}
+}
+
+func TestLatestRunWithoutRows(t *testing.T) {
+	store, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertRepoSettings(RepoSetting{Platform: "github", Owner: "o", Repo: "empty"}); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.LatestRun(context.Background(), "github", "o", "empty")
+	if err != nil || latest != nil {
+		t.Fatalf("LatestRun = %+v, %v; want (nil, nil)", latest, err)
+	}
+	id, err := store.StartRun(GenerationRun{Platform: "github", Owner: "o", Repo: "empty", Source: "manual", ToTag: "v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishRun(id, "", "published", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	latest, err = store.LatestRun(context.Background(), "github", "o", "empty")
+	if err != nil || latest == nil || latest.ID != id || latest.Status != "published" {
+		t.Fatalf("LatestRun = %+v, %v; want published run %d", latest, err, id)
 	}
 }

@@ -163,9 +163,9 @@ describe("settings page commit type contract", () => {
 
     await waitForPut();
     const payload = JSON.parse(putBody as string) as SettingsUpdate;
-    // The page's preserve-on-unrelated-save behavior: null stays null,
-    // NOT the formatted default the checkboxes visually display.
-    expect(payload.commit_types).toBe(null);
+    // Unrelated save: commit_types is omitted entirely, so the stored
+    // filter can neither be pinned by the displayed default nor flipped.
+    expect(payload.commit_types).toBeUndefined();
     // And the other fields carried the real edit.
     expect(payload.instructions).toBe("be terse");
     resolvePutSettings();
@@ -830,7 +830,8 @@ describe("settings draft lifecycle", () => {
     await fireEvent.input(screen.getByLabelText(/Instructions/), { target: { value: "Edited" } });
     await fireEvent.click(saveButton());
     await waitForPut();
-    expect(JSON.parse(putBody as string).commit_types).toBeNull();
+    // Restored to clean: nothing is sent, so the inherited filter is kept.
+    expect(JSON.parse(putBody as string).commit_types).toBeUndefined();
     resolvePutSettings();
   });
 });

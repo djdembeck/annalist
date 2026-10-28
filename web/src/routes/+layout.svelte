@@ -39,6 +39,11 @@
   function chooseTheme(value: "light" | "dark") {
     theme = value;
     document.documentElement.dataset.theme = value;
+    // Keep the browser chrome in step with the app surface.
+    const meta = document.querySelector<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    );
+    if (meta) meta.content = value === "dark" ? "#211d19" : "#f5eee5";
     try {
       localStorage.setItem("annalist-theme", value);
     } catch {

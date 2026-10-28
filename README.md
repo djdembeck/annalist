@@ -120,7 +120,7 @@ Copy-paste deployment, config, prompt, and workflow templates are in [`examples/
 1. Set the environment variables below and start the container with `docker run` or `docker compose up -d` (see the examples pack).
 2. Confirm the public health check: `GET https://<annalist-host>/api/health` returns `{"status":"ok",...}`.
 3. Register the platform webhook against `https://<annalist-host>/webhooks/github` or `https://<annalist-host>/webhooks/forgejo`.
-4. Open the dashboard, enter `ADMIN_TOKEN`, and check **Repos**. Repositories granted to the integration appear there and are enabled by default.
+4. Open the dashboard, enter `ADMIN_TOKEN`, and add the repositories you want managed through **Setup** (`/setup`) or **Add repositories** (`/repos/add`). Added repositories are enabled by default.
 
 ### GitHub (account or organization)
 
@@ -232,6 +232,7 @@ The annotated [`config.example.yaml`](config.example.yaml) documents every key. 
 - `POST /api/repos`
 - `PUT /api/repos/{platform}/{owner}/{repo}/settings`
 - `POST /api/repos/{platform}/{owner}/{repo}/generate`
+- `GET /api/runs`
 - `GET /api/settings`
 - `PUT /api/settings`
 

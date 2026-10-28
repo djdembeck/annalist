@@ -678,6 +678,17 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 	if item.Instructions != "" {
 		t.Errorf("instructions = %q, want cleared by explicit null", item.Instructions)
 	}
+	// A fresh repo has no generation history on the mutating response yet.
+	if item.LatestRun != nil {
+		t.Errorf("fresh repo latest_run = %+v, want nil", item.LatestRun)
+	}
+	runID, err := store.StartRun(db.GenerationRun{Platform: "github", Owner: "djdembeck", Repo: "annalist", Source: "manual", ToTag: "v2.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishRun(runID, "v1.0.0", "published", "", ""); err != nil {
+		t.Fatal(err)
+	}
 
 	// Verify it persisted in the store.
 	row, err := store.GetRepoSettings("github", "djdembeck", "annalist")
@@ -821,6 +832,20 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 	wBadKnob := do(a.handlePutRepoSettings, rBadKnob)
 	if wBadKnob.Code != http.StatusBadRequest {
 		t.Fatalf("invalid thinking_level PUT status = %d, want 400", wBadKnob.Code)
+	}
+
+	// A completed run must appear on the mutating response.
+	rLatest := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"tone":"terse"}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	wLatest := do(a.handlePutRepoSettings, rLatest)
+	if wLatest.Code != http.StatusOK {
+		t.Fatalf("latest_run PUT status = %d, want 200", wLatest.Code)
+	}
+	var itemLatest repoItemResp
+	_ = json.Unmarshal(wLatest.Body.Bytes(), &itemLatest)
+	if itemLatest.LatestRun == nil || itemLatest.LatestRun.ID != runID || itemLatest.LatestRun.Status != "published" {
+		t.Fatalf("latest_run = %+v, want published run %d", itemLatest.LatestRun, runID)
 	}
 }
 

@@ -84,10 +84,6 @@ import {
   let showSharedNamespaces = $state(false);
   let sortBy = $state<"name" | "activity">("activity");
 
-  // Resume marker — tracks where we should return after a token re-auth.
-  // Never stores the token itself.
-  let resumeStep = $state<number | null>(null);
-
   // Per-repository add results for batch reconciliation.
   let repoAddResults = $state<BatchResult>({});
   let addAttempted = $state(false);
@@ -138,7 +134,6 @@ import {
   }
 
   function resetExpiredSession(): void {
-    resumeStep = step;
     setToken("");
     adminToken = "";
     status = null;
@@ -154,13 +149,7 @@ import {
     try {
       status = await getStatus();
       skipWarning = false;
-      // Resume at previous step if we were interrupted by a 401.
-      if (resumeStep !== null && resumeStep > 0) {
-        step = resumeStep;
-        resumeStep = null;
-      } else {
-        step = 1;
-      }
+      step = 1;
     } catch (e) {
       if (handleAuthError(e, resetExpiredSession)) {
         busy = false;

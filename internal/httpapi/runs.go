@@ -8,18 +8,21 @@ import (
 	"github.com/djdembeck/annalist/internal/db"
 )
 
+const (
+	defaultRunLimit = 20
+	maxRunLimit     = 100
+)
+
 func (a *api) repoItemWithLatest(ctx context.Context, row db.RepoSetting) (repoItemResp, error) {
 	item, err := a.repoItem(ctx, row)
 	if err != nil {
 		return repoItemResp{}, err
 	}
-	runs, err := a.store.ListRuns(row.Platform, row.Owner, row.Repo, 1)
+	latest, err := a.store.LatestRun(ctx, row.Platform, row.Owner, row.Repo)
 	if err != nil {
 		return repoItemResp{}, err
 	}
-	if len(runs) != 0 {
-		item.LatestRun = &runs[0]
-	}
+	item.LatestRun = latest
 	return item, nil
 }
 
@@ -39,11 +42,11 @@ func (a *api) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	limit := 20
+	limit := defaultRunLimit
 	if q.Has("limit") {
 		var err error
 		limit, err = strconv.Atoi(q.Get("limit"))
-		if err != nil || limit < 1 || limit > 100 {
+		if err != nil || limit < 1 || limit > maxRunLimit {
 			writeErr(w, http.StatusBadRequest, "limit must be an integer between 1 and 100")
 			return
 		}

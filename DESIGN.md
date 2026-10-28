@@ -68,18 +68,18 @@ rounded:
   control: "8px"
   surface: "12px"
 spacing:
-  "0": "3px"
-  "0.5": "5px"
-  "1": "7px"
-  "1.5": "8px"
-  "2": "10px"
-  "2.5": "12px"
-  "3": "15px"
+  # Tailwind v4 base spacing token: --spacing = .25rem (4px). Utility steps
+  # below are n x --spacing, verified against the generated
+  # `calc(var(--spacing) * n)` rules in the built CSS.
+  "0.5": "2px"
+  "1": "4px"
+  "1.5": "6px"
+  "2": "8px"
+  "2.5": "10px"
+  "3": "12px"
   "4": "16px"
   "5": "20px"
   "6": "24px"
-  "7": "28px"
-  "8": "32px"
 components:
   button-primary:
     backgroundColor: "{colors.copper}"
@@ -147,7 +147,7 @@ Copper (`--rust`) marks the actions that commit work; the ledger mark and wordma
 
 ## Colors
 
-Two complete plans share one token set: the light paper plan is the `:root` default; the dark charcoal plan is `:root[data-theme="dark"]`, toggled by the top-right switch, stored in `localStorage`, and defaulted from `prefers-color-scheme` by an inline script before first paint. Every value below is the light plan; the matching dark value is carried in `.impeccable/design.json` beside each token.
+Two complete plans share one token set: the light paper plan is the `:root` default; the dark charcoal plan is `:root[data-theme="dark"]`, toggled by the top-right switch, stored in `localStorage`, and defaulted from `prefers-color-scheme` by the same-origin `/theme.js` script in the document head before first paint. Every value below is the light plan; the matching dark value is carried in `.impeccable/design.json` beside each token.
 
 ### Primary
 - **Copper** (`#bd431f` / dark `#e8a17b`): the committed action — primary buttons, the ledger mark's stamped bookmark, caret, checkbox accent, running-state badge text, markdown links. Its hover is **Copper Deep** (`#a03616` / dark `#d88b63`). In dark mode the copper lightens so it sits on charcoal; the white primary ink flips to near-charcoal (`#241d18`).
@@ -164,7 +164,7 @@ Two complete plans share one token set: the light paper plan is the `:root` defa
 - **Skeleton** (`#e0d2bf` / dark `#4a4036`): loading placeholder fill. **Scroll Thumb** (`#b9a995` / dark `#8d7d6e`): scrollbar fill.
 
 ### Status
-- **Published green** — text `#263524` / dark `#edf4e9`, background `#edf3ea` / dark `#2e3b2d`, border `#b7c9b1` / dark `#64765b`, icon `#2c5a33` / dark `#accc97`. The observed generation outcome: published, complete, accepted runs.
+- **Published green** — text `#263524` / dark `#edf4e9`, background `#edf3ea` / dark `#2e3b2d`, border `#b7c9b1` / dark `#64765b`, icon `#2c5a33` / dark `#accc97`. The observed generation outcome for `published` runs.
 - **Failed clay** — text `#482a22` / dark `#ffebe3`, background `#f8eae5` / dark `#492f29`, border `#d9b1a2` / dark `#a16d5a`, icon `#8c351e` / dark `#f3b49a`. Observed errors, invalid input, interrupted runs.
 - **Cached neutral** — text `#3c342b` / dark `#f5eadb`, background `#eee8df` / dark `#3c332a`, border `#c9bda9` / dark `#89745e`, icon `#62533d` / dark `#d6bd99`. Cached, preserved, and quiet states.
 - **Running** is copper text on the surface with a copper border — an in-progress cue, not a success color. Preserved takes the cached tint with a **dashed** border so it reads as kept-in-place, not failed; generated and empty take ink on the surface with a strong border. A quiet row state — muted text on the control-hover wash with a strong border — carries the "Not configured" platform fact; the configured fact ("Configured") renders in the published family as a plain server fact.
@@ -173,7 +173,7 @@ Two complete plans share one token set: the light paper plan is the `:root` defa
 
 **The Warm Assurance Rule.** Every state ships a text, a background, a border, and an icon in one hue family. Color tint is support; the word and icon carry the meaning, so no badge relies on hue alone.
 
-**The Copper Commit Rule.** Copper is the committed action and the identity markup. It is not a second primary per surface, not a link color outside generated markdown, and not a hover-wash or decoration on neutral work.
+**The Copper Commit Rule.** Copper is the committed action and the identity markup. It is not a second primary within one panel/view section, not a link color outside generated markdown, and not a hover-wash or decoration on neutral work.
 
 **The Configuration Is Not a Health Claim Rule.** Configured / not-configured is a server configuration fact, stated as a server fact: the "Configured" label wears the published family and "Not configured" the muted wash. It is not a connectivity claim — the UI does not probe reachability, and no endpoint is reported reachable here. Wording follows the same line: a platform is "configured" on the server; an endpoint is "reachable" only as a troubleshooting hint when a run has actually failed.
 
@@ -192,7 +192,7 @@ Two complete plans share one token set: the light paper plan is the `:root` defa
 - **Subheading (h3).** Weight 620, 18px, line-height 1.35.
 - **Body.** Weight 400, 15px, line-height 1.5 — the base document size.
 - **Working text.** 14px; the size of buttons, fields, table cells, badges, and ledes (section ledes capped at 75ch, muted).
-- **Label.** 13px, muted: table column labels, chips, run metadata, hints. Row labels in the mobile register are 13px at weight 550.
+- **Label.** 13px, muted: chips, run metadata, hints, mobile data-label prefixes.
 - **Code.** Mono, 14px inside rendered markdown; inline code carries the control-hover fill at 4px radius.
 
 ### Named Rules
@@ -203,7 +203,7 @@ Two complete plans share one token set: the light paper plan is the `:root` defa
 
 A centered 1200px shell (`max-width: 1200px`, `margin: auto`) with 32px inline gutters — 16px below 980px and 20px for the top bar on mobile. The top bar is a hairline-capped band: 40px ledger mark, 29px wordmark (weight 650, letter-spacing -0.035em), quiet nav links, and the theme switch at the right.
 
-The mainspace rhythm is 20px between workspace blocks; a panel's own interior is 24px (20px below 600px). The repository register uses fixed columns — Repository 27%, Latest generation 29%, Automation 19%, Actions 25% — with 22px cell padding relaxing to 14px between 980–1100px. Row content sits on a 19px/18px vertical pad under a 1px divider; detail rows (failure copy, run history) inset under the Repository column at `calc(27% + 22px)`.
+The mainspace rhythm is 20px between workspace blocks; a panel's own interior is 24px (20px below 600px). The repository register uses fixed columns — Repository 27%, Latest generation 29%, Automation 19%, Actions 25% — with 22px cell padding relaxing to 14px between 980–1100px. Row content sits on 19px/18px vertical pad under a 1px divider; the failure copy insets under the Repository column at `calc(27% + 22px)`, while the run-history panel spans the full row at 24px padding.
 
 At 980px the register becomes labeled rows: column headers drop, each cell gains its `data-label` in 13px muted text, the row lays out as two columns (name + latest, automation + actions), and section action buttons stretch full-width. At 600px field grids and stacked proofs collapse to one column. 44px is the minimum gesture height everywhere — nav links, tabs, checks, summaries, row actions — and long names wrap at the namespace slash via `overflow-wrap: anywhere` rather than truncate.
 
@@ -226,7 +226,7 @@ The radius ladder is 4px (inline code), 5px (badges, chips), 7px (theme switch),
 
 ### Buttons
 - **Shape:** 8px radius, 44px minimum height, 1px line-strong border, 14px text.
-- **Primary:** copper fill, white ink (dark plan flips to near-charcoal on lightened copper), weight 600; hover deepens to copper-deep. One per view — the committed action.
+- **Primary:** copper fill, white ink (dark plan flips to near-charcoal on lightened copper), weight 600; hover deepens to copper-deep. One per panel/view section — the committed action for that surface (the page header, each repository panel, and the failure banners each carry their own).
 - **Secondary:** surface fill, ink text, strong border; hover warms to control-hover with a deeper border.
 - **Ghost:** transparent, muted text, no border; hover shifts to ink. Row **action links** are the 14px underlined variant — transparent at rest, underline appearing on hover.
 - **Disabled:** 55% opacity, `not-allowed` cursor, transitions suspended.
@@ -239,7 +239,7 @@ The radius ladder is 4px (inline code), 5px (badges, chips), 7px (theme switch),
 ### Chips, Tabs, and Choices
 - **Chip:** 13px muted text on surface, 5px radius, 1px line border — compact metadata, not a control.
 - **Tabs and mode choices:** 44px control height, 8px radius, strong border, surface fill; the active one gets the selection fill with a copper border. Choices that remove data (`--danger`) swap to the failed tint.
-- **Setup steps:** 44px tabs where the current step carries the selection fill; completed steps are plain text.
+- **Setup steps:** 44px tabs; completed steps render as bordered buttons and the current step is a plain span carrying the selection fill (`aria-current="step"`).
 
 ### Register Table / Labeled Rows
 - **Desktop:** fixed-column table on a 12px-radius plane; 14px row labels in muted, 15px repository names at weight 620 with the platform in 14px muted below; version weight 550, when-line 14px muted.
@@ -250,7 +250,7 @@ The radius ladder is 4px (inline code), 5px (badges, chips), 7px (theme switch),
 - **Style:** surface fill, 1px line-strong border, 8px radius, 44px minimum height, 14px text; placeholders muted. Textareas start at 100px and resize vertically.
 - **Focus:** the global 3px `--focus` outline at 3px offset — color is never the only focus signal.
 - **Error:** the message sets `--failed-icon` at 14px; the field itself is not redrawn.
-- **Checks:** 18px native boxes with the copper accent; **radio-group choices** render as bordered option cards with the selection state on selection.
+- **Checks:** 18px native boxes with the copper accent. Option choices are the shipped primitives: `aria-pressed` mode-choice buttons and checkbox option cards, rendered as bordered cards with the selection fill when selected.
 
 ### Navigation
 - **Top bar:** 1px line border below, 44px-tall links in 15px muted; hover shifts to ink. The current route is ink at weight 600 with a 2px copper underline offset 8px (`aria-current="page"` drives it).
@@ -259,7 +259,7 @@ The radius ladder is 4px (inline code), 5px (badges, chips), 7px (theme switch),
 
 ### Workflow and Draft State
 - **Setup:** discovery is explicit. One continuation control remains available with no selection, filtered/empty results, discovery errors, and partial-add errors; pending repository writes block continuation. Platform badges carry configuration status without a repeated subtitle.
-- **Manual entry:** default to a known configured platform without replacing an operator's explicit selection. Unconfigured platforms remain selectable for preconfiguration; unknown status is not labeled unconfigured.
+- **Manual entry:** default to a known configured platform without replacing an operator's explicit selection. Unconfigured platforms are labeled and disabled (a run would fail server-side without that platform's credentials); an unknown status is not labeled unconfigured.
 - **Global settings:** Save commits the draft and establishes its new baseline; Discard restores the saved values. Dirty route exits require confirmation and dirty unloads warn. An expired session preserves the in-memory draft for same-origin reauthentication; Discard clears the preservation notice. Draft credentials never gain a new browser-storage path.
 - **Disclosure:** provider connection, model tuning, and additional commit types use native details. Every existing setting remains available; active uncommon/custom types remain discoverable, and invalid tuning fields are revealed and focused. Restoring the original effective values restores the clean state.
 - **Mobile navigation:** Save/Discard, Form summary, and Back to Save and Discard links keep actions and effective settings reachable without leaving the draft. In-page hash links do not trigger the dirty-route confirmation.

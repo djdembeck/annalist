@@ -55,6 +55,7 @@
   let repos = $state<Repo[]>([]);
   let loadState = $state<"idle" | "loading" | "success" | "error">("idle");
   let loadError = $state("");
+  let loadErrorDetail = $state("");
   let models = $state<string[]>([]);
   let modelsError = $state("");
   let pending = $state<
@@ -70,11 +71,15 @@
     Record<string, "settings" | "generate" | "history" | undefined>
   >({});
   let drafts = $state<Record<string, Draft>>({});
+  let draftBaselines = $state<Record<string, string>>({});
   let force = $state<Record<string, boolean>>({});
   let publish = $state<Record<string, boolean>>({});
   let notesOut = $state<Record<string, string | null>>({});
   let genError = $state<Record<string, string | null>>({});
   let generateTag = $state<Record<string, string>>({});
+  let generateFromTag = $state<Record<string, string>>({});
+  let generateProfile = $state<Record<string, string>>({});
+  let generateDisplayVersion = $state<Record<string, string>>({});
   let genTagError = $state<Record<string, string | null>>({});
   let overwriteConfirm = $state<Record<string, boolean>>({});
   let temperatureError = $state<Record<string, string | null>>({});
@@ -84,7 +89,9 @@
   let historyError = $state<Record<string, string>>({});
   let historyPending = $state<Record<string, boolean>>({});
   let generationMessage = $state<Record<string, string>>({});
-  let refreshing = $state(false);
+  // User-initiated refresh only; the 15s poll must not disable/relabel the
+  // manual Refresh button.
+  let manualRefreshing = $state(false);
   let mounted = false;
 
   onMount(() => {
@@ -227,16 +234,21 @@
       }
       return refreshFlight;
     }
-    refreshing = true;
+    if (!background) manualRefreshing = true;
     refreshModelsQueued = !background;
     refreshFlight = (async () => {
       try {
         do {
           refreshQueued = false;
+          const inFlight = !background;
           const refreshModels = refreshModelsQueued;
           refreshModelsQueued = false;
           loadError = "";
-          if (loadState === "idle") loadState = "loading";
+          loadErrorDetail = "";
+          // Only user-initiated flights replace a settled view; the 15s
+          // background poll must not swap an error banner for a skeleton.
+          if (inFlight && (loadState === "idle" || loadState === "error"))
+            loadState = "loading";
           try {
             const incoming = await getRepos();
             if (!mounted) return;
@@ -251,12 +263,13 @@
             if (loadState === "loading") loadState = "error";
             loadError =
               "Could not refresh repositories. Check your connection and try again.";
+            loadErrorDetail = formatError(e, "");
           }
         } while (mounted && refreshQueued);
       } finally {
         // Clear in the flight's own job so queued callers cannot race settlement.
         refreshFlight = null;
-        refreshing = false;
+        manualRefreshing = false;
       }
     })();
     return refreshFlight;
@@ -267,7 +280,16 @@
     const tone = r.tone ?? "";
     const isPreset = PRESETS.includes(tone);
     const commitTypeSelection = getCommitTypeSelection(r.commit_types);
-    if (!drafts[key])
+    // Re-seed from the saved row when the panel carries no unsaved edits,
+    // so a stale draft cannot shadow the server values on reopen.
+    if (
+      drafts[key] &&
+      JSON.stringify(drafts[key]) === draftBaselines[key]
+    ) {
+      delete drafts[key];
+      delete draftBaselines[key];
+    }
+    if (!drafts[key]) {
       drafts[key] = {
         toneOption: !tone ? "inherit" : isPreset ? tone : "custom",
         customTone: isPreset ? "" : tone,
@@ -289,6 +311,8 @@
         selectedCommitTypes: commitTypeSelection.selected,
         customCommitTypes: commitTypeSelection.custom.join(", "),
       };
+      draftBaselines[key] = JSON.stringify(drafts[key]);
+    }
     openPanel[key] = openPanel[key] === "settings" ? undefined : "settings";
     // Ensure in-repo instructions are loaded.
     loadInRepoInstructions(r);
@@ -297,6 +321,10 @@
   function openGenerate(r: Repo): void {
     const key = repoKey(r);
     generateTag[key] ??= "";
+    // A fresh manual generation carries no webhook lineage.
+    generateFromTag[key] = "";
+    generateProfile[key] = "";
+    generateDisplayVersion[key] = "";
     overwriteConfirm[key] = false;
     force[key] = false;
     publish[key] = false;
@@ -306,13 +334,22 @@
   function retryGeneration(r: Repo, run: GenerationRun): void {
     const key = repoKey(r);
     generateTag[key] = run.to_tag;
+    // Retry the same contract the run used, so named-profile webhook runs
+    // keep their from_tag/profile/display_version.
+    generateFromTag[key] = run.from_tag ?? "";
+    generateProfile[key] = run.profile ?? "";
+    generateDisplayVersion[key] = run.display_version ?? "";
     force[key] ??= false;
     publish[key] ??= false;
     overwriteConfirm[key] = false;
     genTagError[key] = null;
     genError[key] = null;
     notesOut[key] = null;
-    generationMessage[key] = "";
+    // The generate panel keeps its publish/force checkboxes, so say what the
+    // panel will actually do on submit.
+    generationMessage[key] = publish[key]
+      ? "Retrying the same contract — publish is on, so this will publish on success."
+      : "Retrying the same contract in preview — publish is off; review the notes before publishing.";
     openPanel[key] = "generate";
   }
 
@@ -385,10 +422,13 @@
       overwriteConfirm[key] = true;
       return;
     }
-    pending[key] = { ...pending[key], generating: true };
+    pending[key] = { ...(pending[key] ?? {}), generating: true };
     try {
       const result = await generate(r.platform, r.owner, r.repo, {
         to_tag: toTag,
+        from_tag: (generateFromTag[key] ?? "").trim() || null,
+        profile: generateProfile[key] ?? "",
+        display_version: (generateDisplayVersion[key] ?? "").trim() || null,
         force: force[key] ?? false,
         publish: publish[key] ?? false,
       });
@@ -411,7 +451,7 @@
         "Generation did not complete. Check that the tag exists, repository access is configured, and the model provider is reachable.";
       await refresh();
     } finally {
-      pending[key] = { ...pending[key], generating: false };
+      pending[key] = { ...(pending[key] ?? {}), generating: false };
     }
   }
 </script>
@@ -421,10 +461,10 @@
   <SectionHead title="Repositories">
     {#snippet actions()}
       <button
-        disabled={refreshing}
-        onclick={() => refresh()}
+        disabled={manualRefreshing}
+        onclick={() => refresh(false)}
         class="btn btn-secondary"
-        >{refreshing ? "Refreshing…" : "Refresh"}</button
+        >{manualRefreshing ? "Refreshing…" : "Refresh"}</button
       >
       <a href="/repos/add" class="btn btn-primary">Add repositories</a>
     {/snippet}
@@ -437,6 +477,7 @@
   {:else}
     {#if loadError}<ErrorBanner
         message={loadError}
+        detail={loadErrorDetail || undefined}
         actionLabel="Retry"
         onAction={() => refresh()}
       />{/if}
@@ -654,7 +695,7 @@
                               ></span
                             ><input
                               type="number"
-                              step="0.1"
+                              step="any"
                               min="0"
                               max="2"
                               bind:value={d.temperature}

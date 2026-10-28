@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"time"
 )
@@ -35,6 +36,8 @@ func (s *Store) StartRun(run GenerationRun) (int64, error) {
 }
 
 // FinishRun deliberately does not use the cancelled request's context.
+// The AND status = 'running' guard makes the write a no-op for terminal
+// rows; a successful return does not imply a row changed.
 func (s *Store) FinishRun(id int64, fromTag, status, errorCode, warningCode string) error {
 	_, err := s.db.Exec(`UPDATE generation_runs SET from_tag = ?, status = ?, error_code = ?, warning_code = ?, finished_at = ? WHERE id = ? AND status = 'running'`, fromTag, status, strOrNil(errorCode), strOrNil(warningCode), time.Now().UTC().Format(time.RFC3339), id)
 	return err
@@ -76,7 +79,23 @@ func (s *Store) ListRuns(platform, owner, repo string, limit int) ([]GenerationR
 	return scanRuns(rows)
 }
 
-// LatestRuns loads one indexed latest attempt for each managed repository in one query.
+// LatestRun returns the newest accepted attempt for one repository, or
+// (nil, nil) when none exists. It shares the "newest by id" ordering
+// contract with ListRuns and LatestRuns.
+func (s *Store) LatestRun(ctx context.Context, platform, owner, repo string) (*GenerationRun, error) {
+	runs, err := s.ListRuns(platform, owner, repo, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(runs) == 0 {
+		return nil, nil
+	}
+	return &runs[0], nil
+}
+
+// LatestRuns loads one indexed latest attempt for each managed repository in
+// one query. handleListRepos relies on the same per-repo newest-by-id
+// semantics as LatestRun to build its batched list-endpoint map.
 func (s *Store) LatestRuns() ([]GenerationRun, error) {
 	rows, err := s.db.Query(`SELECT ` + runColumns + ` FROM generation_runs WHERE id IN (
 		SELECT (SELECT id FROM generation_runs AS r WHERE r.platform = s.platform AND r.owner = s.owner AND r.repo = s.repo ORDER BY id DESC LIMIT 1) FROM repo_settings AS s

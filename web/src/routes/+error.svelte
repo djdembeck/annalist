@@ -1,5 +1,13 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import { page } from "$app/stores";
+
+  // A same-location soft navigation reloads the page while keeping the SPA
+  // (and its service-worker cache) alive; history.back() can land on an
+  // unrelated state.
+  function tryAgain() {
+    void goto(location.pathname + location.search + location.hash);
+  }
 </script>
 
 <svelte:head>
@@ -39,8 +47,7 @@
       {:else}
         <button
           type="button"
-          onclick={() =>
-            ($page.form ? history.back() : location.reload())}
+          onclick={tryAgain}
           class="btn btn-primary w-full sm:w-auto"
         >
           Try again

@@ -92,7 +92,9 @@
     saving = true;
     error = "";
     const targets = available.filter((r) => selected[repoKey(r)]);
-    const results: BatchResult = {};
+    // Keep "Added" badges from earlier batches; only the current targets
+    // start pending again.
+    const results: BatchResult = { ...rowResults };
     for (const r of targets) {
       results[repoKey(r)] = { status: "pending" };
     }
@@ -267,10 +269,13 @@
             class="field"
             >{#if manualPlatform === null}<option value="" disabled hidden
                 >Select a platform…</option
-              >{/if}{#each SOURCES as s}<option value={s}>{s}{status !== null &&
-              !isSourceEnabled(status, s)
-              ? " (not configured)"
-              : ""}</option>{/each}</select
+              >{/if}{#each SOURCES as s}<option
+                value={s}
+                disabled={status !== null && !isSourceEnabled(status, s)}
+                >{s}{status !== null && !isSourceEnabled(status, s)
+                  ? " (not configured)"
+                  : ""}</option
+              >{/each}</select
           ></label
         >
         <label class="field-group"
@@ -552,10 +557,13 @@
             class="field"
             >{#if manualPlatform === null}<option value="" disabled hidden
                 >Select a platform…</option
-              >{/if}{#each SOURCES as s}<option value={s}>{s}{status !== null &&
-              !isSourceEnabled(status, s)
-              ? " (not configured)"
-              : ""}</option>{/each}</select
+              >{/if}{#each SOURCES as s}<option
+                value={s}
+                disabled={status !== null && !isSourceEnabled(status, s)}
+                >{s}{status !== null && !isSourceEnabled(status, s)
+                  ? " (not configured)"
+                  : ""}</option
+              >{/each}</select
           ></label
         >
         <label class="field-group"

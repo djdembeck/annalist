@@ -178,7 +178,7 @@ const forgejoPayload = `{"action":"created","release":{"id":42,"tag_name":"v0.2.
 func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 	const secret = "forgejo-secret"
 	stub := llmStub(t)
-	pip, _, dataDir := makePipeline(t, stub.URL)
+	pip, store, dataDir := makePipeline(t, stub.URL)
 	handler := New(config.ForgejoConfig{URL: "https://git.example.invalid", Token: "tok", WebhookSecret: secret}).WebhookHandler(pip)
 
 	post := func(t *testing.T, body []byte, sigs map[string]string, event string) *httptest.ResponseRecorder {
@@ -218,6 +218,13 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 		}
 		if !strings.Contains(gn.Notes, "WEBHOOK NOTES") {
 			t.Errorf("notes = %q", gn.Notes)
+		}
+		runs, err := store.ListRuns("", "", "", 20)
+		if err != nil || len(runs) != 1 {
+			t.Fatalf("webhook dispatch created %d generation runs, want 1: %+v (err=%v)", len(runs), runs, err)
+		}
+		if runs[0].Source != "webhook" || runs[0].Status != "published" || runs[0].ToTag != "v0.2.0" {
+			t.Errorf("webhook run = %+v, want webhook/published v0.2.0", runs[0])
 		}
 	})
 

@@ -30,7 +30,6 @@
   --shadow-soft: rgba(48, 43, 38, 0.045);
   --scroll-thumb: #b9a995;
   --focus: #bd431f;
-  --brand-mark: #bd431f;
   --primary-ink: #fff;
 }
 :root[data-theme="dark"] {
@@ -63,7 +62,6 @@
   --shadow-soft: rgba(0, 0, 0, 0.2);
   --scroll-thumb: #8d7d6e;
   --focus: #f1b28b;
-  --brand-mark: #e8a17b;
   --primary-ink: #241d18;
 }
 
@@ -372,6 +370,15 @@
     background: var(--rust-deep);
     border-color: var(--rust-deep);
   }
+  .btn-secondary {
+    background: var(--surface);
+    border: 1px solid var(--control-border);
+    color: var(--ink);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--control-hover);
+    border-color: var(--control-hover-border);
+  }
   .btn-ghost {
     background: transparent;
     border-color: transparent;
@@ -417,6 +424,10 @@
   }
   .banner p + p {
     margin-top: 6px;
+  }
+  .banner .banner-detail {
+    color: var(--muted);
+    font-size: 14px;
   }
   .empty-state {
     padding: 36px 24px;
@@ -479,6 +490,13 @@
   }
   .check-input {
     accent-color: var(--rust);
+  }
+  .accent-mark {
+    accent-color: var(--rust);
+    flex: none;
+  }
+  .source-empty {
+    color: var(--muted);
   }
   .note-paper {
     padding: 18px;

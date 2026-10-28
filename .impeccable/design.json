@@ -261,7 +261,7 @@
         "displayName": "Published Text",
         "canonical": "#263524",
         "canonicalDark": "#edf4e9",
-        "purpose": "Result badge text for observed generation outcomes (published, complete, accepted).",
+        "purpose": "Result badge text for the observed generation outcome of `published` runs.",
         "tonalRamp": [
           "#0b100b",
           "#263524",
@@ -279,7 +279,7 @@
         "displayName": "Published Tint",
         "canonical": "#edf3ea",
         "canonicalDark": "#2e3b2d",
-        "purpose": "Result badge background for the green family: observed outcomes (published, complete, accepted) and the \"Configured\" server fact.",
+        "purpose": "Result badge background for the green family: the observed generation outcome for `published` runs and the \"Configured\" server fact.",
         "tonalRamp": [
           "#0e120e",
           "#2e3b2d",
@@ -492,7 +492,7 @@
       },
       "label": {
         "displayName": "Label",
-        "purpose": "13px muted: table column labels, chips, run metadata, hints."
+        "purpose": "13px muted: chips, run metadata, hints, mobile data-label prefixes."
       },
       "mono": {
         "displayName": "Code",
@@ -551,7 +551,7 @@
       "name": "Committed Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The one committed action per view: copper fill, 8px radius, 44px height; deepens on hover.",
+      "description": "The committed action for one panel or view section: copper fill, 8px radius, 44px height; deepens on hover.",
       "html": "<button class=\"ds-btn\">Add repositories</button>",
       "css": ".ds-btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:9px 15px;border:1px solid #bd431f;border-radius:8px;background:#bd431f;color:#fff;font:550 14px/1.3 \"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif;font-weight:600;cursor:pointer;transition:background-color .14s ease,border-color .14s ease;color:#fff;}.ds-btn:hover{background:#a03616;border-color:#a03616;}.ds-btn:focus-visible{outline:3px solid #bd431f;outline-offset:3px;}.ds-btn:disabled{opacity:.55;cursor:not-allowed;}"
     },
@@ -585,7 +585,7 @@
       "refersTo": "badge",
       "description": "Run-outcome badge: hue-family text, tint, border, and a 14px stroke icon. Published family shown.",
       "html": "<span class=\"ds-badge ds-badge--ok\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"m3 8 3 3 7-7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>Published</span>",
-      "css": ".ds-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:1px solid #d9b1a2;border-radius:5px;font:650 14px/1.35 \"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif;color:#482a22;background:#f8eae5;}.ds-badge svg{width:14px;height:14px;flex:none;}"
+      "css": ".ds-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:1px solid #b7c9b1;border-radius:5px;font:650 14px/1.35 \"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif;color:#263524;background:#edf3ea;}.ds-badge svg{width:14px;height:14px;flex:none;color:#2c5a33;}"
     },
     {
       "name": "Result Badge — Published",
@@ -622,7 +622,6 @@
     {
       "name": "Top Navigation",
       "kind": "nav",
-      "refersTo": "navigation",
       "description": "Quiet top bar: ledger mark, 29px wordmark, 44px links, copper underline on the current route, theme switch at the right.",
       "html": "<div class=\"ds-top\"><a class=\"ds-brand\" href=\"#\"><svg style=\"width:40px;height:40px\" viewBox=\"0 0 40 40\" aria-hidden=\"true\"><path d=\"M20 11c-4-4-10-5-15-3v23c5-2 11-1 15 3 4-4 10-5 15-3V8c-5-2-11-1-15 3Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.3\" stroke-linejoin=\"round\"/><path d=\"M20 11v23M10 14c2 0 4 .5 6 1.5M10 20c2 0 4 .5 6 1.5M10 26c2 0 4 .5 6 1.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><path d=\"M25 14c1.5-.8 3.2-1.2 5-1.2v9l-2.5-1.5L25 23Z\" fill=\"#bd431f\"/></svg><span>Annalist</span></a><nav class=\"ds-nav\"><a aria-current=\"page\">Repositories</a><a>Settings</a><a>Setup</a></nav><div class=\"ds-themes\"><button aria-pressed=\"true\">Light</button><button aria-pressed=\"false\">Dark</button></div></div>",
       "css": ".ds-top{display:flex;align-items:center;gap:44px;max-width:1200px;padding:18px 32px 17px;border-bottom:1px solid #e6dccf;font-family:\"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif;color:#302b26;}.ds-brand{display:inline-flex;align-items:center;gap:12px;text-decoration:none;color:inherit;}.ds-brand span{font-size:29px;line-height:1;font-weight:650;letter-spacing:-0.035em;}.ds-nav{display:flex;align-items:stretch;gap:30px;height:46px;}.ds-nav a{display:flex;align-items:center;padding:0 1px;min-height:44px;color:#6f665c;font-size:15px;text-decoration:none;transition:color .14s ease;}.ds-nav a:hover{color:#302b26;}.ds-nav a[aria-current='page']{color:#302b26;font-weight:600;text-decoration:underline;text-decoration-color:#bd431f;text-decoration-thickness:2px;text-underline-offset:8px;}.ds-themes{margin-left:auto;display:flex;align-items:center;padding:2px;border:1px solid #9c8768;border-radius:7px;}.ds-themes button{display:flex;align-items:center;justify-content:center;min-width:50px;min-height:44px;padding:5px 9px;border:0;border-radius:4px;background:transparent;color:#6f665c;font:400 13px \"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif;cursor:pointer;transition:background-color .14s ease,color .14s ease;}.ds-themes button[aria-pressed='true']{background:#fffaf4;color:#302b26;font-weight:650;}.ds-themes button:focus-visible,.ds-nav a:focus-visible,.ds-brand:focus-visible{outline:3px solid #bd431f;outline-offset:3px;}"

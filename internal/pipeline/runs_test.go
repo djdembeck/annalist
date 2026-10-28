@@ -8,9 +8,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/djdembeck/annalist/internal/db"
 )
+
+func openTestDB(t *testing.T, dataDir string) *sql.DB {
+	t.Helper()
+	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return conn
+}
 
 func onlyRun(t *testing.T, store *db.Store) db.GenerationRun {
 	t.Helper()
@@ -101,16 +112,12 @@ func TestMonitoredCancellationAndValidation(t *testing.T) {
 
 func TestMonitoredCacheReadFailureIsConfiguration(t *testing.T) {
 	pip, stub, f, store := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1}})
-	conn, err := sql.Open("sqlite", "file:"+filepath.Join(pip.Cfg.Data.Dir, "app.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
+	conn := openTestDB(t, pip.Cfg.Data.Dir)
 	if _, err := conn.Exec(`DROP TABLE generated_notes`); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "cache-read-failure"), Options{Source: "manual", Publish: true})
+	_, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "cache-read-failure"), Options{Source: "manual", Publish: true})
 	if err == nil || !strings.Contains(err.Error(), "check generated") {
 		t.Fatalf("err=%v, want generated-cache lookup failure", err)
 	}
@@ -125,11 +132,7 @@ func TestMonitoredCacheReadFailureIsConfiguration(t *testing.T) {
 
 func TestPublishedCacheFailureRemainsPublished(t *testing.T) {
 	pip, _, f, store := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1}})
-	conn, err := sql.Open("sqlite", "file:"+filepath.Join(pip.Cfg.Data.Dir, "app.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
+	conn := openTestDB(t, pip.Cfg.Data.Dir)
 	if _, err := conn.Exec(`CREATE TRIGGER reject_generated BEFORE INSERT ON generated_notes BEGIN SELECT RAISE(FAIL, 'forced cache failure'); END`); err != nil {
 		t.Fatal(err)
 	}
@@ -152,11 +155,7 @@ func TestPublishedCacheFailureRemainsPublished(t *testing.T) {
 
 func TestPublishedTerminalWriteFailureRemainsPublished(t *testing.T) {
 	pip, _, f, store := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1}})
-	conn, err := sql.Open("sqlite", "file:"+filepath.Join(pip.Cfg.Data.Dir, "app.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
+	conn := openTestDB(t, pip.Cfg.Data.Dir)
 	if _, err := conn.Exec(`CREATE TRIGGER reject_finish BEFORE UPDATE ON generation_runs BEGIN SELECT RAISE(FAIL, 'forced terminal failure'); END`); err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +174,88 @@ func TestPublishedTerminalWriteFailureRemainsPublished(t *testing.T) {
 	}
 	if onlyRun(t, store).Status != "interrupted" {
 		t.Fatal("unfinished publication not reconciled")
+	}
+}
+
+// TestMonitoredFailureCodeTaxonomy maps each monitored failure site to its
+// recorded error code: LLM transport → generation, profile/instruction
+// reads → instructions, release-body writes → publication, and a deadline
+// that expires while the generation semaphore is full → timeout.
+func TestMonitoredFailureCodeTaxonomy(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		releases map[string]*Release
+		profile  string
+		opts     Options
+		wantCode string
+		setup    func(t *testing.T, pip *Pipeline, stub *llmStub, f *fakePlatform)
+	}{
+		{
+			name:     "llm 500 is generation",
+			opts:     Options{Source: "manual"},
+			wantCode: "generation",
+			setup: func(t *testing.T, pip *Pipeline, stub *llmStub, f *fakePlatform) {
+				stub.errStatus = 500
+			},
+		},
+		{
+			name:     "profile read failure is instructions",
+			profile:  "technical",
+			opts:     Options{Source: "manual"},
+			wantCode: "instructions",
+			setup: func(t *testing.T, pip *Pipeline, stub *llmStub, f *fakePlatform) {
+				f.readErr = errors.New("profile api down")
+			},
+		},
+		{
+			name:     "release edit failure is publication",
+			releases: map[string]*Release{"v0.2.0": {ID: 1}},
+			opts:     Options{Source: "manual", Publish: true},
+			wantCode: "publication",
+			setup: func(t *testing.T, pip *Pipeline, stub *llmStub, f *fakePlatform) {
+				f.editErr = errors.New("publish api down")
+			},
+		},
+		{
+			name:     "expired deadline under a full semaphore is timeout",
+			opts:     Options{Source: "manual"},
+			wantCode: "timeout",
+			setup: func(t *testing.T, pip *Pipeline, stub *llmStub, f *fakePlatform) {
+				for range cap(pip.sem()) {
+					pip.sem() <- struct{}{}
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pip, stub, f, store := fixtureWithStub(t, newStub("TAXONOMY PROSE"), nil, tc.releases)
+			tc.setup(t, pip, stub, f)
+			spec := genSpec("v0.2.0", "tax-"+tc.name)
+			spec.Profile = tc.profile
+			ctx := context.Background()
+			if tc.wantCode == "timeout" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(context.Background(), 50*time.Millisecond)
+				defer cancel()
+			}
+			_, err := pip.GenerateNotes(ctx, spec, tc.opts)
+			if tc.wantCode == "timeout" {
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("err=%v, want deadline exceeded", err)
+				}
+			} else if err == nil {
+				t.Fatal("expected a generation failure")
+			}
+			run := onlyRun(t, store)
+			if run.Status != "failed" || run.ErrorCode == nil || *run.ErrorCode != tc.wantCode || run.FinishedAt == nil {
+				t.Fatalf("run=%+v, want failed/%s with FinishedAt", run, tc.wantCode)
+			}
+			if tc.wantCode == "timeout" {
+				for range cap(pip.sem()) {
+					<-pip.sem()
+				}
+			}
+		})
 	}
 }
 

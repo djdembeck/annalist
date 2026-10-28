@@ -230,10 +230,13 @@
         // stored as a value that suppresses a level set via config/env;
         // "" (inherit/clear) is the empty string.
         thinking_level: thinkingLevel === "" ? "off" : thinkingLevel,
-        commit_types: commitTypesDirty
-          ? formatCommitTypes(selectedCommitTypes, customCommitTypes)
-          : (settings?.commit_types ?? null),
       };
+      if (commitTypesDirty) {
+        payload.commit_types = formatCommitTypes(
+          selectedCommitTypes,
+          customCommitTypes,
+        );
+      }
       // Only send llm_base_url when the effective value changed (null = revert
       // to env). Only send llm_api_key when the field was touched (null = clear
       // the stored key; a blanked, untouched key is omitted so it's kept).

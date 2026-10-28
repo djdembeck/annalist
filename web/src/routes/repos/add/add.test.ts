@@ -139,20 +139,19 @@ describe("repository intake manual entry", () => {
     expect(select.value).toBe("forgejo");
     const forgejo = Array.from(select.options).find((option) => option.value === "forgejo");
     const github = Array.from(select.options).find((option) => option.value === "github");
+    expect(forgejo?.disabled).toBe(false);
     expect(forgejo?.textContent).toBe("forgejo");
     expect(github).toBeDefined();
-    expect(github?.disabled).toBe(false);
+    // Unconfigured source is labeled and disabled, so manual entry cannot
+    // target it into a server-side failure.
+    expect(github?.disabled).toBe(true);
     expect(github?.textContent).toContain("not configured");
-    fireEvent.change(select, { target: { value: "github" } });
-    await tick();
     inventoryOk = true;
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await screen.findByText("1 repo discoverable");
-    const recoveredSelect = screen.getByRole("combobox", { name: "Platform" }) as HTMLSelectElement;
-    expect(recoveredSelect.value).toBe("github");
   });
 
-  it("defaults the platform to the configured source and keeps unconfigured sources selectable", async () => {
+  it("defaults the platform to the configured source and disables unconfigured sources", async () => {
     stubFetch();
     await mountPage();
     const select = await screen.findByRole("combobox", { name: "Platform" }) as HTMLSelectElement;
@@ -162,14 +161,15 @@ describe("repository intake manual entry", () => {
       expect(select.value).toBe("forgejo");
     });
 
-    // GitHub is not configured, but a legitimate preconfiguration path must
-    // remain open: the option exists, is enabled, and is labeled.
+    // GitHub is not configured: a selectable option would fail server-side,
+    // so it stays labeled and disabled.
     const options = Array.from(
       (select as HTMLSelectElement).options,
     ) as HTMLOptionElement[];
     const github = options.find((o) => o.value === "github");
     expect(github).toBeDefined();
-    expect(github?.disabled).toBe(false);
+    expect(github?.disabled).toBe(true);
+    expect(options.find((o) => o.value === "forgejo")?.disabled).toBe(false);
     // The unconfigured source is explicitly labeled, the configured one is not.
     expect(options.find((o) => o.value === "forgejo")?.textContent).toBe(
       "forgejo",

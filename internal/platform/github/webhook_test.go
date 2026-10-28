@@ -176,7 +176,7 @@ func waitForGenerated(t *testing.T, dataDir, releaseID string) *db.GeneratedNote
 func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 	const secret = "github-secret"
 	stub := llmStub(t)
-	pip, _, dataDir := makePipeline(t, stub.URL)
+	pip, store, dataDir := makePipeline(t, stub.URL)
 	handler := New(config.GitHubConfig{AppID: 1, AppPrivateKeyFile: "", WebhookSecret: secret}).WebhookHandler(pip)
 
 	post := func(t *testing.T, body []byte, sig string, event string) *httptest.ResponseRecorder {
@@ -215,6 +215,13 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 		if gn.Notes == "" {
 			t.Error("notes should have been generated")
 		}
+		runs, err := store.ListRuns("", "", "", 20)
+		if err != nil || len(runs) != 1 {
+			t.Fatalf("webhook dispatch created %d generation runs, want 1: %+v (err=%v)", len(runs), runs, err)
+		}
+		if runs[0].Source != "webhook" || runs[0].Status != "published" || runs[0].ToTag != "v0.2.0" {
+			t.Errorf("webhook run = %+v, want webhook/published v0.2.0", runs[0])
+		}
 	})
 
 	t.Run("ping event is ignored", func(t *testing.T) {
@@ -241,27 +248,39 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 }
 
 func TestGithubWebhookRejectsIncompleteRepositoryIdentity(t *testing.T) {
-	const secret = "github-secret"
-	stub := llmStub(t)
-	pip, store, dataDir := makePipeline(t, stub.URL)
-	handler := New(config.GitHubConfig{AppID: 1, WebhookSecret: secret}).WebhookHandler(pip)
-
-	body := []byte(bytes.Replace([]byte(githubPayload), []byte(`"name":"annalist"`), []byte(`"name":""`), 1))
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-Hub-Signature-256", "sha256="+signGitHub(secret, body))
-	req.Header.Set("X-GitHub-Event", "release")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("incomplete repository identity status=%d, want 200", rec.Code)
+	cases := []struct {
+		name, mutate, old string
+	}{
+		{"empty repository name", `"name":"annalist"`, `"name":""`},
+		{"empty owner login", `"login":"djdembeck"`, `"login":""`},
+		{"empty tag name", `"tag_name":"v0.2.0"`, `"tag_name":""`},
+		{"zero release id", `"id":7`, `"id":0`},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			const secret = "github-secret"
+			stub := llmStub(t)
+			pip, store, dataDir := makePipeline(t, stub.URL)
+			handler := New(config.GitHubConfig{AppID: 1, WebhookSecret: secret}).WebhookHandler(pip)
 
-	runs, err := store.ListRuns("", "", "", 20)
-	if err != nil || len(runs) != 0 {
-		t.Fatalf("incomplete identity created generation history: runs=%+v err=%v", runs, err)
-	}
-	if n, err := countGenerated(dataDir); err != nil || n != 0 {
-		t.Fatalf("incomplete identity dispatched generation: count=%d err=%v", n, err)
+			body := []byte(bytes.Replace([]byte(githubPayload), []byte(tc.old), []byte(tc.mutate), 1))
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("X-Hub-Signature-256", "sha256="+signGitHub(secret, body))
+			req.Header.Set("X-GitHub-Event", "release")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("incomplete repository identity status=%d, want 200", rec.Code)
+			}
+
+			runs, err := store.ListRuns("", "", "", 20)
+			if err != nil || len(runs) != 0 {
+				t.Fatalf("incomplete identity created generation history: runs=%+v err=%v", runs, err)
+			}
+			if n, err := countGenerated(dataDir); err != nil || n != 0 {
+				t.Fatalf("incomplete identity dispatched generation: count=%d err=%v", n, err)
+			}
+		})
 	}
 }
 

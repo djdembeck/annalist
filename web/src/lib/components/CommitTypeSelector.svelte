@@ -7,14 +7,12 @@
     hint,
     ariaLabel,
     showOptions = true,
-    onDirty
   }: {
     selected?: string[];
     custom?: string;
     hint: string;
     ariaLabel: string;
     showOptions?: boolean;
-    onDirty?: () => void;
   } = $props();
 
   const commonTypes = new Set(DEFAULT_COMMIT_TYPES);
@@ -22,12 +20,16 @@
   const otherOptions = COMMIT_TYPE_OPTIONS.filter((option) => !commonTypes.has(option.value));
   const activeOtherTypes = $derived(selected.filter((value) => !commonTypes.has(value)));
   let expanded = $state(false);
+  // Auto-open rule: the <details> stays open while an uncommon type is
+  // selected or the custom field has text, so newly active values stay
+  // visible (the open attribute below short-circuits manual collapse via
+  // ||); once they clear, expanded holds the user's last toggle and
+  // user collapse is respected.
 
   function toggle(option: string, checked: boolean): void {
     selected = checked
       ? [...selected, option]
       : selected.filter((type) => type !== option);
-    onDirty?.();
   }
 </script>
 
@@ -47,7 +49,7 @@
 {/snippet}
 
 {#if showOptions}
-  <div class="commit-type-grid" aria-label={ariaLabel}>
+  <div class="commit-type-grid" role="group" aria-label={ariaLabel}>
     {#each commonOptions as option (option.value)}
       {@render typeOption(option)}
     {/each}
@@ -58,19 +60,18 @@
     ontoggle={(event) => (expanded = event.currentTarget.open)}
   >
     <summary>Less-common and custom types{#if activeOtherTypes.length || custom.trim()}: {[...activeOtherTypes, custom.trim()].filter(Boolean).join(", ")}{/if}</summary>
-    <div class="commit-type-grid" aria-label={`${ariaLabel}: less-common types`}>
+    <div
+      class="commit-type-grid"
+      role="group"
+      aria-label={`${ariaLabel}: less-common types`}
+    >
       {#each otherOptions as option (option.value)}
         {@render typeOption(option)}
       {/each}
     </div>
     <label class="field-group__custom-types">
       <span class="field-group__hint">Additional types (optional)</span>
-      <input
-        bind:value={custom}
-        oninput={() => onDirty?.()}
-        placeholder="security,breaking"
-        class="field"
-      />
+      <input bind:value={custom} placeholder="security,breaking" class="field" />
     </label>
   </details>
 {/if}
@@ -80,10 +81,9 @@
 
 <style>
   .additional-types { margin-top: 8px; }
+  /* min-height/padding/cursor come from the global summary utility; this
+     component only adds wrap for long type strings and the open margin. */
   summary {
-    min-height: 44px;
-    padding-block: 10px;
-    cursor: pointer;
     overflow-wrap: anywhere;
   }
   details[open] > summary { margin-bottom: 8px; }

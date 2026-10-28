@@ -18,6 +18,16 @@ import (
 	"github.com/djdembeck/annalist/internal/pipeline"
 )
 
+func openTestDB(t *testing.T, dataDir string) *sql.DB {
+	t.Helper()
+	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return conn
+}
+
 func TestRunHistoryAuthFiltersAndLimits(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Admin.Token = "secret"
@@ -180,11 +190,7 @@ func TestGenerateRemoteSuccessCacheFailureAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "app.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
+	conn := openTestDB(t, dir)
 	if _, err := conn.Exec(`CREATE TRIGGER reject_generated BEFORE INSERT ON generated_notes BEGIN SELECT RAISE(FAIL, 'forced cache failure'); END`); err != nil {
 		t.Fatal(err)
 	}
