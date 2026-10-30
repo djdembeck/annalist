@@ -1368,6 +1368,58 @@ func TestHandleGenerateMode(t *testing.T) {
 	})
 }
 
+func TestHandleGenerateRangePolicy(t *testing.T) {
+	a, pip, _ := testAPI(t, &config.Config{}, nil)
+
+	t.Run("unknown range_policy is a 400 before any generation", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0","range_policy":"latest"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body %s", w.Code, w.Body.String())
+		}
+		if len(pip.calls) != 0 {
+			t.Errorf("pipeline called %d times on unknown range_policy, want 0", len(pip.calls))
+		}
+	})
+
+	t.Run("previous_published reaches the pipeline verbatim", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0","range_policy":"previous_published"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		// The pipeline sees the policy verbatim: the spec hand-off IS the
+		// contract (the real range behavior is pinned in the pipeline
+		// package's range_policy tests).
+		if len(pip.calls) != 1 || pip.calls[0].RangePolicy != pipeline.RangePreviousPublished {
+			t.Fatalf("spec = %+v, want RangePolicy previous_published", pip.calls)
+		}
+	})
+
+	t.Run("omitted range_policy keeps the legacy behavior", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		if len(pip.calls) != 1 || pip.calls[0].RangePolicy != "" {
+			t.Fatalf("spec = %+v, want omitted range_policy to stay empty (legacy)", pip.calls)
+		}
+	})
+}
+
 func TestHandlePutSettingsMode(t *testing.T) {
 	a, _, store := testAPI(t, &config.Config{}, nil)
 

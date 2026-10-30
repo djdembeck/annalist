@@ -25,17 +25,24 @@
 #      the exact frozen SHA (create-only; a tag is never moved, force-
 #      pushed, or deleted by this workflow).
 #   5. An existing tag is NOT completion. The publish job re-verifies
-#      tag -> frozen source, then creates the release ONCE with complete
-#      notes; a partial failure refills missing notes on rerun and
-#      no-ops when everything is already published.
+#      tag -> frozen source, then reads the release state with ONE
+#      authoritative metadata lookup (body + draft). A completed release
+#      (published, nonempty notes) no-ops without any generation; a draft
+#      is explicitly published once the notes are ready; a failed
+#      metadata read fails the step — it is never treated as "no release"
+#      and cannot overwrite existing notes.
 #
-# Release notes: complete notes are generated BEFORE the release exists
-# (annalist generate API, publish: false) and created in a single request.
+# Release notes: notes are generated via the annalist generate API
+# (publish: false) ONLY when the release is missing or incomplete (draft
+# / empty body), and a new tag creates the release in a single request.
 # The notes range is the annalist `range_policy: previous_published`
 # resolution — the previous PUBLISHED non-draft ancestor release, full
 # history for the first published release. `from_tag` is deliberately
 # OMITTED here: passing the previous reachable tag would reproduce the
 # unfinished-reservation bug (an unreleased tag hides changes behind it).
+# An existing nonempty body is preserved verbatim; a failed release-state
+# read (403/500/network) fails the step (fail-closed) — a completed
+# release's rerun never hits Annalist at all.
 #
 # Concurrency: group `release`, cancel-in-progress: false. Forgejo's
 # concurrency is best-effort and deliberately does NOT copy GitHub's
@@ -307,15 +314,48 @@ jobs:
           REPO="${REPO_FULL#*/}"
           REPO_API="${{ github.server_url }}/api/v1/repos/${REPO_FULL}"
 
-          # Complete notes are generated first (publish: false needs no
-          # release to exist). The notes range is explicitly the previous
-          # PUBLISHED non-draft ancestor release — full history for the first
-          # published release — so an unfinished reservation cannot hide
-          # unreleased changes. from_tag is intentionally omitted.
-          NOTES="$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/forgejo/${OWNER}/${REPO}/generate" \
-            -H "Authorization: Bearer ${ANNALIST_ADMIN_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"publish\":false}" | jq -r .notes)"
+          # One authoritative release lookup BEFORE any decision (the
+          # tags endpoint doubles as body + draft + id provider). Any
+          # unexpected status (403/500/network) fails the step — a failed
+          # read is never treated as "no release", so existing notes can
+          # never be overwritten on a swallowed lookup error.
+          REL_JSON=""
+          HTTP_OK=0
+          HTTP=""
+          curl -sS -o /tmp/release.json -w "%{http_code}" \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "${REPO_API}/releases/tags/${VERSION}" > /tmp/http_code \
+            || { echo "Release state check for ${VERSION} failed (transport)" >&2; exit 1; }
+          HTTP="$(cat /tmp/http_code)"
+          case "$HTTP" in
+          200)
+            REL_JSON="$(cat /tmp/release.json)"
+            HTTP_OK=1
+            ;;
+          404)
+            :   # no release for this tag: open create path.
+            ;;
+          *)
+            echo "Unexpected status ${HTTP} checking release ${VERSION}" >&2
+            exit 1
+            ;;
+          esac
+          BODY=""
+          IS_DRAFT="false"
+          RELEASE_ID=""
+          if [ "$HTTP_OK" -eq 1 ]; then
+            BODY="$(jq -r '.body // empty' <<<"${REL_JSON}")"
+            IS_DRAFT="$(jq -r .draft <<<"${REL_JSON}")"
+            RELEASE_ID="$(jq -r .id <<<"${REL_JSON}")"
+          fi
+
+          if [ -n "${BODY}" ] && [ "${IS_DRAFT}" = "false" ]; then
+            # A published release with nonempty notes IS completion (a tag
+            # alone is NOT): preserve the existing body, no-op — no
+            # regeneration, no annotation.
+            echo "Release ${VERSION} already complete — nothing to do"
+            exit 0
+          fi
 
           # Optional: a named release-note profile (see the GitHub example):
           #   NOTES_CUSTOMER=$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/forgejo/${OWNER}/${REPO}/generate" \
@@ -331,32 +371,52 @@ jobs:
           #     docker push "${REGISTRY}:${VERSION}"
           #   fi
 
-          # Already published? A tag is NOT completion — check the RELEASE,
-          # and refill a release body that was cut short of its notes.
-          HTTP="$(curl -sS -o /tmp/release.json -w "%{http_code}" "${REPO_API}/releases/tags/${VERSION}" \
-            -H "Authorization: token ${FORGEJO_TOKEN}")"
-          if [ "$HTTP" = "200" ]; then
-            BODY="$(jq -r .body /tmp/release.json)"
-            if [ -z "${BODY}" ] || [ "${BODY}" = "null" ]; then
-              RELEASE_ID="$(jq -r .id /tmp/release.json)"
+          # Notes are generated only when the release is incomplete
+          # (tag-only, draft, or empty body): a completed release makes no
+          # LLM call, and a resume refills what is missing without touching
+          # a human-edited body.
+          NOTES=""
+          if [ -z "${BODY}" ]; then
+            # The notes range is the previous PUBLISHED non-draft,
+            # non-prerelease ancestor release — full history for the first
+            # published release — so an unfinished reservation cannot hide
+            # unreleased changes. from_tag is intentionally omitted.
+            NOTES="$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/forgejo/${OWNER}/${REPO}/generate" \
+              -H "Authorization: Bearer ${ANNALIST_ADMIN_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"publish\":false}" | jq -r .notes)"
+          fi
+
+          if [ "$HTTP_OK" -eq 1 ] && [ "${IS_DRAFT}" = "true" ]; then
+            # Existing draft (an earlier rerun, or a left-over draft):
+            # refill missing notes if needed, then publish the draft
+            # explicitly (the field flip and the notes go to the API in
+            # one request).
+            if [ -z "${BODY}" ]; then
               curl -fsS -X PATCH "${REPO_API}/releases/${RELEASE_ID}" \
                 -H "Authorization: token ${FORGEJO_TOKEN}" \
                 -H "Content-Type: application/json" \
-                -d "$(jq -n --arg n "${NOTES}" '{body:$n}')"
-              echo "Release ${VERSION} existed with empty notes — refilled"
+                -d "$(jq -n --arg n "${NOTES}" '{body:$n,draft:false}')"
+              echo "Release ${VERSION} draft was empty — refilled notes and published"
             else
-              echo "Release ${VERSION} already complete — nothing to do"
+              curl -fsS -X PATCH "${REPO_API}/releases/${RELEASE_ID}" \
+                -H "Authorization: token ${FORGEJO_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d '{"draft":false}'
+              echo "Release ${VERSION} draft was ready — published with existing notes"
             fi
-            exit 0
+          elif [ "$HTTP_OK" -eq 1 ]; then
+            # Published release with an empty body: resume by refilling it.
+            curl -fsS -X PATCH "${REPO_API}/releases/${RELEASE_ID}" \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg n "${NOTES}" '{body:$n}')"
+            echo "Release ${VERSION} existed with empty notes — refilled"
+          else
+            # First post: create the release ONCE with the complete body.
+            curl -fsS -X POST "${REPO_API}/releases" \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg v "${VERSION}" --arg n "${NOTES}" '{tag_name:$v,name:("Release "+$v),body:$n,draft:false,prerelease:false}')"
+            echo "Release ${VERSION} created with complete notes"
           fi
-          if [ "$HTTP" != "404" ]; then
-            echo "Unexpected status ${HTTP} checking release ${VERSION}" >&2
-            exit 1
-          fi
-
-          # First post: create the release ONCE with the complete body.
-          curl -fsS -X POST "${REPO_API}/releases" \
-            -H "Authorization: token ${FORGEJO_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n --arg v "${VERSION}" --arg n "${NOTES}" '{tag_name:$v,name:("Release "+$v),body:$n,draft:false,prerelease:false}')"
-          echo "Release ${VERSION} created with complete notes"

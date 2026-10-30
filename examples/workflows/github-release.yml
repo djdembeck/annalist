@@ -21,17 +21,24 @@
 #      the exact frozen SHA (create-only; a tag is never moved, force-
 #      pushed, or deleted by this workflow).
 #   5. An existing tag is NOT completion. The publish job re-verifies
-#      tag -> frozen source, then creates the release ONCE with complete
-#      notes; a partial failure refills missing notes on rerun and
-#      no-ops when everything is already published.
+#      tag -> frozen source, then reads the release state with ONE
+#      authoritative metadata lookup (body + draft). A completed release
+#      (published, nonempty notes) no-ops without any generation; a draft
+#      is explicitly published once the notes are ready; a failed
+#      metadata read fails the step — it is never treated as "no release"
+#      and cannot overwrite existing notes.
 #
-# Release notes: complete notes are generated BEFORE the release exists
-# (annalist generate API, publish: false) and created in a single request.
+# Release notes: notes are generated via the annalist generate API
+# (publish: false) ONLY when the release is missing or incomplete (draft
+# / empty body), and a new tag creates the release in a single request.
 # The notes range is the annalist `range_policy: previous_published`
 # resolution — the previous PUBLISHED non-draft ancestor release, full
 # history for the first published release. `from_tag` is deliberately
 # OMITTED here: passing the previous reachable tag would reproduce the
 # unfinished-reservation bug (an unreleased tag hides changes behind it).
+# An existing nonempty body is preserved verbatim; a failed release-state
+# read (403/500/network) fails the step (fail-closed) — a completed
+# release's rerun never hits Annalist at all.
 # Migrated GitHub apps keep their fill-after webhook path separately;
 # annalist resolves the same range there. No new token is needed.
 #
@@ -314,15 +321,44 @@ jobs:
           OWNER="${{ github.repository_owner }}"
           REPO="${{ github.event.repository.name }}"
 
-          # Complete notes are generated first (publish: false needs no
-          # release to exist). The notes range is explicitly the previous
-          # PUBLISHED non-draft ancestor release — full history for the first
-          # published release — so an unfinished reservation cannot hide
-          # unreleased changes. from_tag is intentionally omitted.
-          NOTES="$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/github/${OWNER}/${REPO}/generate" \
-            -H "Authorization: Bearer ${ANNALIST_ADMIN_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"publish\":false}" | jq -r .notes)"
+          # One authoritative release-metadata lookup BEFORE any decision:
+          # existence, body, and draft state in a single call. A failed read
+          # (authorization, visibility, transport, server error) is fatal,
+          # NOT absence — the only failure that opens the create path is the
+          # CLI's exact absence message, and existing notes are never
+          # overwritten on a swallowed lookup error.
+          META_ERR="$(mktemp)"
+          trap 'rm -f "${META_ERR}"' EXIT
+          META=""
+          if ! META="$(gh release view "${VERSION}" --json body,isDraft 2>"${META_ERR}")"; then
+            # Absence is the gh CLI's exact stderr line for a tag with no
+            # release. Anything else — "Repository not found", authorization
+            # errors, transport failures — must fail the step BEFORE any
+            # release mutation, so it is deliberately NOT absence.
+            if grep -qx "release not found" "${META_ERR}"; then
+              :   # no release for this tag: open create path.
+            else
+              echo "::error::cannot verify release ${VERSION} — refusing to modify it:"
+              cat "${META_ERR}" >&2
+              exit 1
+            fi
+          fi
+          EXISTS="false"
+          BODY=""
+          IS_DRAFT="false"
+          if [ -n "${META}" ]; then
+            EXISTS="true"
+            BODY="$(jq -r '.body // empty' <<<"${META}")"
+            IS_DRAFT="$(jq -r .isDraft <<<"${META}")"
+          fi
+
+          if [ "${EXISTS}" = "true" ] && [ -n "${BODY}" ] && [ "${IS_DRAFT}" = "false" ]; then
+            # A published release with nonempty notes IS completion (a tag
+            # alone is NOT): preserve the existing body, no-op — no
+            # regeneration, no annotation.
+            echo "Release ${VERSION} already complete — nothing to do"
+            exit 0
+          fi
 
           # Optional: a named release-note profile. Define profiles in the
           # repo at .annalist/release-notes.yaml (one prompt file per
@@ -343,22 +379,42 @@ jobs:
           # (Pushing to GHCR needs `packages: write` on the top-level
           # permissions block.)
 
-          if gh release view "${VERSION}" >/dev/null 2>&1; then
-            # Tag or release pre-exists. A tag is NOT completion: if the
-            # release body is still empty, refill it (resume); otherwise
-            # everything is published and the rerun no-ops.
-            BODY="$(gh release view "${VERSION}" --json body -q .body || true)"
-            if [ -z "${BODY}" ]; then
-              gh release edit "${VERSION}" --notes "${NOTES}"
-              echo "Release ${VERSION} existed with empty notes — refilled"
-            else
-              echo "Release ${VERSION} already complete — nothing to do"
-            fi
-            exit 0
+          # Notes are generated only when the release is incomplete
+          # (tag-only, draft, or empty body): a completed release makes no
+          # LLM call, and a resume refills what is missing without touching
+          # a human-edited body.
+          NOTES=""
+          if [ -z "${BODY}" ]; then
+            # The notes range is the last published non-draft,
+            # non-prerelease ancestor release — full history for the first
+            # published release — so an unfinished reservation cannot hide
+            # unreleased changes. from_tag is intentionally omitted.
+            NOTES="$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/github/${OWNER}/${REPO}/generate" \
+              -H "Authorization: Bearer ${ANNALIST_ADMIN_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"publish\":false}" | jq -r .notes)"
           fi
 
-          # First post: create the release ONCE with the complete body.
-          gh release create "${VERSION}" \
-            --title "Release ${VERSION}" \
-            --notes "${NOTES}"
-          echo "Release ${VERSION} created with complete notes"
+          if [ "${EXISTS}" = "false" ]; then
+            # First publish (tag-only): create the release ONCE with the
+            # complete body.
+            gh release create "${VERSION}" \
+              --title "Release ${VERSION}" \
+              --notes "${NOTES}"
+            echo "Release ${VERSION} created with complete notes"
+          elif [ "${IS_DRAFT}" = "true" ]; then
+            # Existing draft (an earlier rerun, or a left-over draft): refill
+            # missing notes if needed, then publish the draft explicitly.
+            if [ -z "${BODY}" ]; then
+              gh release edit "${VERSION}" --notes "${NOTES}" --draft=false
+              echo "Release ${VERSION} draft was empty — refilled notes and published"
+            else
+              gh release edit "${VERSION}" --draft=false
+              echo "Release ${VERSION} draft was ready — published with existing notes"
+            fi
+          elif [ -z "${BODY}" ]; then
+            # Published release with an empty body: resume by refilling it —
+            # edit the EXISTING release, never create it again.
+            gh release edit "${VERSION}" --notes "${NOTES}"
+            echo "Release ${VERSION} existed with empty notes — refilled"
+          fi

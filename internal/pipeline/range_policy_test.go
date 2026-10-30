@@ -259,3 +259,64 @@ func TestRangePolicyTargetTagMissingFailsClosed(t *testing.T) {
 		t.Errorf("err = %v, want ErrPreviousPublishedResolution (target tag absent, fail closed)", err)
 	}
 }
+
+// A published release strictly BETWEEN the floor and the target, sitting on
+// a branch that never merged, must not become the floor: it is not an
+// ancestor of the target's commit. The ancestors-only guard (not just the
+// strictly-lower version guard) is what excludes it.
+func TestRangePolicyNonAncestorReleaseIsExcluded(t *testing.T) {
+	origin := buildReservationOrigin(t, t.TempDir())
+	// c1 -- c2 -- c3
+	// The ancestor floor is the PUBLISHED v0.9.0 release at c1; the target
+	// is c3. A side release at c2 sits strictly between them on a branch
+	// that never merges.
+	if out, err := gitRun(origin, "tag", "v0.9.0", "HEAD~2"); err != nil {
+		t.Fatalf("tag v0.9.0: %v\n%s", err, out)
+	}
+	if out, err := gitRun(origin, "tag", "v1.0.0"); err != nil {
+		t.Fatalf("tag v1.0.0: %v\n%s", err, out)
+	}
+	// A side release off c2: higher than the floor, lower than the target,
+	// published, but reachable only from a branch that never merges.
+	if out, err := gitRun(origin, "checkout", "-q", "-b", "side", "HEAD~1"); err != nil {
+		t.Fatalf("checkout side: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(origin, "f.txt"), []byte("side work"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, arg := range [][]string{
+		{"add", "-A"}, {"commit", "-q", "-m", "unmerged release work"}, {"tag", "v0.9.5"},
+		{"checkout", "-q", "-"},
+	} {
+		if out, err := gitRun(origin, arg...); err != nil {
+			t.Fatalf("git %v: %v\n%s", arg, err, out)
+		}
+	}
+	pip, stub, _ := fixtureWithList(t, origin,
+		[]ReleaseMeta{
+			publishedMeta("v0.9.0"), // the ancestor floor
+			publishedMeta("v0.9.5"), // HIGHER, published, NOT an ancestor
+			{Tag: "v0.8.6"},         // published, tag absent from the clone
+			publishedMeta("v1.0.0"), // the target's own release
+		},
+		map[string]*Release{"v1.0.0": {ID: 1, Body: ""}})
+
+	spec := genSpec("v1.0.0", "rp-nonanc")
+	spec.RangePolicy = RangePreviousPublished
+	res, err := pip.GenerateNotes(context.Background(), spec, Options{})
+	if err != nil {
+		t.Fatalf("GenerateNotes: %v", err)
+	}
+	// v0.9.5 loses on ancestry (v.compare excludes >= target, so only the
+	// ancestor guard can drop it): floor = v0.9.0.
+	if res.FromTag != "v0.9.0" {
+		t.Fatalf("FromTag = %q, want v0.9.0 (unmerged v0.9.5 must stay excluded)", res.FromTag)
+	}
+	ug := stub.user()
+	if !strings.Contains(ug, "hidden fix behind reservation") {
+		t.Errorf("user message = %q, want the ancestor c2 commit in the range", ug)
+	}
+	if strings.Contains(ug, "unmerged release work") {
+		t.Errorf("user message = %q, the unmerged side commit must not be in the range", ug)
+	}
+}

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -625,7 +624,7 @@ func (p *Pipeline) resolvePreviousPublished(ctx context.Context, platform Platfo
 
 	targetPrefix, targetV, targetParsed := releaseVersion(spec.ToTag)
 	var bestTag string
-	var best version
+	var best engine.Version
 	haveBest := false
 	for _, m := range metas {
 		if m.Tag == "" || m.Draft || m.Prerelease {
@@ -642,7 +641,7 @@ func (p *Pipeline) resolvePreviousPublished(ctx context.Context, platform Platfo
 		// Mirror the legacy strictly-lower rule: a floor at or above the
 		// target's own version (e.g. an out-of-order v1.0.0 release on an
 		// ancestor commit) is never a sensible previous release.
-		if targetParsed && v.compare(targetV) >= 0 {
+		if targetParsed && v.Compare(targetV) >= 0 {
 			continue
 		}
 		tagSHA := engine.TagCommitSHA(ctx, workdir, m.Tag)
@@ -655,7 +654,7 @@ func (p *Pipeline) resolvePreviousPublished(ctx context.Context, platform Platfo
 		if !engine.IsAncestorCommit(ctx, workdir, tagSHA, targetSHA) {
 			continue
 		}
-		if !haveBest || v.compare(best) > 0 {
+		if !haveBest || v.Compare(best) > 0 {
 			best, bestTag, haveBest = v, m.Tag, true
 		}
 	}
@@ -665,68 +664,18 @@ func (p *Pipeline) resolvePreviousPublished(ctx context.Context, platform Platfo
 	return bestTag, nil
 }
 
-func releaseVersion(tag string) (string, version, bool) {
-	if slash := strings.LastIndexByte(tag, '/'); slash >= 0 {
-		v, ok := parseSemver(tag[slash+1:])
-		if ok {
-			return tag[:slash+1], v, true
-		}
-		return "", version{}, false
+// releaseVersion splits a release tag into (prefix, version, ok), the prefix
+// keeping its trailing "/". It delegates to the engine's canonical tag parser
+// (engine.SplitPrefixedTag + engine.ParseTagVersion), so the range floor and
+// the legacy tag resolution share ONE accepted-tag corpus — the two can no
+// longer drift.
+func releaseVersion(tag string) (string, engine.Version, bool) {
+	if prefix, ver, ok := engine.SplitPrefixedTag(tag); ok {
+		v, _ := engine.ParseTagVersion(ver) // SplitPrefixedTag already validated it
+		return prefix, v, true
 	}
-	v, ok := parseSemver(tag)
+	v, ok := engine.ParseTagVersion(tag)
 	return "", v, ok
-}
-
-// version is a parsed numeric semver triple (mirrors engine's own, kept local
-// so the pipeline doesn't reach into engine internals for name-only comparison).
-type version struct {
-	major, minor, patch int
-}
-
-// compare returns -1, 0, or 1 comparing v against o numerically.
-func (v version) compare(o version) int {
-	for _, pair := range [][2]int{
-		{v.major, o.major},
-		{v.minor, o.minor},
-		{v.patch, o.patch},
-	} {
-		if pair[0] != pair[1] {
-			if pair[0] < pair[1] {
-				return -1
-			}
-			return 1
-		}
-	}
-	return 0
-}
-
-// parseSemver accepts the same optional-v numeric prefix as the legacy
-// engine comparison; trailing prerelease/build text does not change its floor.
-func parseSemver(tag string) (version, bool) {
-	tag = strings.TrimPrefix(tag, "v")
-	var parts [3]int
-	cursor := 0
-	for i := range parts {
-		start := cursor
-		for cursor < len(tag) && tag[cursor] >= '0' && tag[cursor] <= '9' {
-			cursor++
-		}
-		if cursor == start {
-			return version{}, false
-		}
-		value, err := strconv.Atoi(tag[start:cursor])
-		if err != nil {
-			return version{}, false
-		}
-		parts[i] = value
-		if i < len(parts)-1 {
-			if cursor == len(tag) || tag[cursor] != '.' {
-				return version{}, false
-			}
-			cursor++
-		}
-	}
-	return version{major: parts[0], minor: parts[1], patch: parts[2]}, true
 }
 
 // appliedRangePolicy reports the range-resolution policy in effect for the

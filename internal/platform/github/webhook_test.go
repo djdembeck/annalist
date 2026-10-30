@@ -82,6 +82,12 @@ func makeOrigin(t *testing.T) string {
 		gitNoAsk(t, origin, "commit", "-q", "-m", subject)
 		if i == 0 {
 			gitNoAsk(t, origin, "tag", "v0.1.0")
+			// Unfinished reservation: a real tag, reachable from the
+			// target, higher than the published floor — but never published
+			// (absent from the fake platform's release list). Legacy
+			// previous-tag resolution lands on THIS tag; the
+			// previous_published floor must stay at v0.1.0.
+			gitNoAsk(t, origin, "tag", "v0.1.5")
 		} else {
 			gitNoAsk(t, origin, "tag", "v0.2.0")
 		}
@@ -107,8 +113,10 @@ func makePipeline(t *testing.T, baseURL string) (*pipeline.Pipeline, *db.Store, 
 	f := &fakePlatform{
 		origin:   makeOrigin(t),
 		releases: map[string]*pipeline.Release{"v0.2.0": {ID: 7, Body: ""}},
-		// Both tags are published: the target (v0.2.0) itself must be
-		// excluded, and v0.1.0 is the previous published ancestor.
+		// The repository lists v0.1.0 (published floor) and v0.2.0 (the
+		// target, which must be excluded). v0.1.5 — a real tag in the
+		// origin, strictly between the floor and the target — is NOT in
+		// the list: it is an unfinished reservation.
 		list: []pipeline.ReleaseMeta{
 			{Tag: "v0.1.0", Draft: false, Prerelease: false},
 			{Tag: "v0.2.0", Draft: false, Prerelease: false},
@@ -229,6 +237,12 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 		}
 		if gn.Notes == "" {
 			t.Error("notes should have been generated")
+		}
+		// The real stage: the persisted floor is the last PUBLISHED
+		// ancestor (v0.1.0), NOT the unfinished reservation v0.1.5 that
+		// legacy previous-tag resolution would pick.
+		if gn.FromTag != "v0.1.0" {
+			t.Errorf("persisted FromTag = %q, want v0.1.0 (reservation v0.1.5 must not be the floor)", gn.FromTag)
 		}
 	})
 

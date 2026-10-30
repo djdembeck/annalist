@@ -130,6 +130,8 @@ Annalist supports two ways to fill a release body:
 
 Ready-to-copy workflows are [`examples/workflows/forgejo-release.yml`](examples/workflows/forgejo-release.yml) and [`examples/workflows/github-release.yml`](examples/workflows/github-release.yml). The examples pack also includes a prompt file for Forgejo (`.forgejo/release-notes.md`) or GitHub (`.github/release-notes-instructions.md`). An in-repository prompt overrides dashboard and global instructions.
 
+Both workflows check the release's existing state before they ask Annalist for anything, so reruns are safe: a published release with nonempty notes is a no-op that generates nothing; a published release with empty notes and an empty draft get only their missing notes filled, never a human-edited body; a draft is published explicitly once its notes are ready. A release-metadata read failure (forbidden, not found at the repository level, server error) fails the step before it changes any release — only the platform's exact "no release for this tag" response opens the create path.
+
 Forgejo v17 [ignores job permissions](https://forgejo.org/docs/v17.0/user/actions/github-actions/): its [automatic repository token is write-capable](https://forgejo.org/docs/v17.0/user/actions/basic-concepts/#automatic-token) in every job. The Forgejo preflight performs no mutations but is not a read-only credential boundary; the GitHub example does scope preflight credentials.
 
 ## Usage
