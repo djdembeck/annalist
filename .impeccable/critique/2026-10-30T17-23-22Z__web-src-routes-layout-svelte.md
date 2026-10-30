@@ -10,6 +10,7 @@ target_fingerprint: "sha256:a8b5f0fc2767e817d2c276e22f1b1e8b39c30b2b05b076eef16c
 target_path: /home/djdembeck/orca/workspaces/annalist/feat-quiet-workspace/web/src/routes/+layout.svelte
 timestamp: 2026-10-30T17-23-22Z
 slug: web-src-routes-layout-svelte
+closed: true
 ---
 # Design Critique — Annalist top-bar theme switch
 
