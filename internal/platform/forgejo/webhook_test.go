@@ -32,6 +32,9 @@ import (
 type fakePlatform struct {
 	origin   string
 	releases map[string]*pipeline.Release
+	// list is the platform's full release list (for the previous-
+	// published range-policy resolution); empty = nothing listed.
+	list []pipeline.ReleaseMeta
 }
 
 func (f *fakePlatform) ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error) {
@@ -42,6 +45,9 @@ func (f *fakePlatform) GetReleaseByTag(ctx context.Context, owner, repo, tag str
 		return rl, nil
 	}
 	return nil, fmt.Errorf("%w: %s", pipeline.ErrNotFound, tag)
+}
+func (f *fakePlatform) ListReleases(ctx context.Context, owner, repo string) ([]pipeline.ReleaseMeta, error) {
+	return f.list, nil
 }
 func (f *fakePlatform) EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error {
 	return nil
@@ -100,7 +106,16 @@ func makePipeline(t *testing.T, baseURL string) (*pipeline.Pipeline, *db.Store, 
 			BaseURL: baseURL, APIKey: "k", Model: "m", Temperature: 0.5, MaxTokens: 4096,
 		},
 	}
-	f := &fakePlatform{origin: makeOrigin(t), releases: map[string]*pipeline.Release{"v0.2.0": {ID: 42, Body: ""}}}
+	f := &fakePlatform{
+		origin:   makeOrigin(t),
+		releases: map[string]*pipeline.Release{"v0.2.0": {ID: 42, Body: ""}},
+		// Both tags are published: the target (v0.2.0) itself must be
+		// excluded, and v0.1.0 is the previous published ancestor.
+		list: []pipeline.ReleaseMeta{
+			{Tag: "v0.1.0", Draft: false, Prerelease: false},
+			{Tag: "v0.2.0", Draft: false, Prerelease: false},
+		},
+	}
 	return pipeline.New(cfg, store, llm.New(cfg.LLM), nil, f), store, dataDir
 }
 

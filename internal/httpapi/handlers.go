@@ -554,6 +554,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ToTag          string  `json:"to_tag"`
 		FromTag        *string `json:"from_tag"`
+		RangePolicy    string  `json:"range_policy"`
 		Force          bool    `json:"force"`
 		Publish        *bool   `json:"publish"`
 		Mode           string  `json:"mode"`
@@ -570,6 +571,13 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validMode(req.Mode) {
 		writeErr(w, http.StatusBadRequest, "invalid mode")
+		return
+	}
+	// Optional range policy: empty keeps the legacy previous-tag resolution
+	// for requests that omit it; "previous_published" resolves the previous
+	// published non-draft ancestor release (full history when none exists).
+	if req.RangePolicy != "" && req.RangePolicy != pipeline.RangePreviousPublished {
+		writeErr(w, http.StatusBadRequest, "invalid range_policy (expected previous_published)")
 		return
 	}
 
@@ -601,6 +609,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		Repo:           repo,
 		ToTag:          req.ToTag,
 		FromTag:        fromTag,
+		RangePolicy:    req.RangePolicy,
 		ReleaseID:      releaseID,
 		Profile:        req.Profile,
 		DisplayVersion: displayVersion,
@@ -624,6 +633,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		"profile":         result.Profile,
 		"display_version": result.DisplayVersion,
 		"from_tag":        result.FromTag,
+		"range_policy":    result.RangePolicy,
 		"to_tag":          result.ToTag,
 		"config_digest":   result.ConfigDigest,
 	})

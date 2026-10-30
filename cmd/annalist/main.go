@@ -124,12 +124,13 @@ func cmdGenerate(cfg *config.Config, args []string) {
 	repo := fs.String("repo", "", "repository name")
 	toTag := fs.String("to-tag", "", "tag to generate notes for")
 	fromTag := fs.String("from-tag", "", "previous tag (optional; auto-resolved if empty)")
+	rangePolicy := fs.String("range-policy", "", "auto-resolution policy when --from-tag is empty: previous_published (previous published non-draft ancestor release, full history when none); empty = legacy previous tag")
 	publish := fs.Bool("publish", false, "publish the generated notes to the release body")
 	mode := fs.String("mode", "", "generation mode: lite (default) or deep (commit log + diff)")
 	profile := fs.String("profile", "", "named release-note profile from .annalist/release-notes.yaml (default: legacy provider-specific instructions)")
 	displayVersion := fs.String("display-version", "", "presentation version shown in the notes (default: the source tag)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: annalist generate --platform <github|forgejo> --owner <owner> --repo <repo> --to-tag <tag> [--from-tag <tag>] [--mode <lite|deep>] [--profile <name>] [--display-version <text>] [--publish]")
+		fmt.Fprintln(os.Stderr, "usage: annalist generate --platform <github|forgejo> --owner <owner> --repo <repo> --to-tag <tag> [--from-tag <tag> | --range-policy previous_published] [--mode <lite|deep>] [--profile <name>] [--display-version <text>] [--publish]")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
@@ -140,6 +141,10 @@ func cmdGenerate(cfg *config.Config, args []string) {
 	}
 	if *mode != "" && *mode != engine.ModeLite && *mode != engine.ModeDeep {
 		fmt.Fprintf(os.Stderr, "unknown mode %q (want lite|deep)\n", *mode)
+		os.Exit(1)
+	}
+	if *rangePolicy != "" && *rangePolicy != pipeline.RangePreviousPublished {
+		fmt.Fprintf(os.Stderr, "unknown range policy %q (want previous_published)\n", *rangePolicy)
 		os.Exit(1)
 	}
 	if cfg.LLM.BaseURL == "" {
@@ -182,6 +187,7 @@ func cmdGenerate(cfg *config.Config, args []string) {
 		Repo:           *repo,
 		ToTag:          *toTag,
 		FromTag:        *fromTag,
+		RangePolicy:    *rangePolicy,
 		ReleaseID:      releaseID,
 		Profile:        *profile,
 		DisplayVersion: *displayVersion,

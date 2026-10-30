@@ -27,16 +27,17 @@ import (
 // fakePlatform satisfies pipeline.Platform without any network. It points the
 // clone at a local git repository and serves repo files / releases from maps.
 type fakePlatform struct {
-	origin     string // local dir used as the clone source
-	files      map[string]string
-	releases   map[string]*Release // keyed by tag
-	edited     string
-	cloneErr   error // if set, CloneInfo returns it
-	editErr    error // if set, EditReleaseBody returns it
-	readErr    error // if set, ReadRepoFile returns it (before checking files)
-	releaseErr error // if set, GetReleaseByTag returns it (before checking releases)
-	readMu     sync.Mutex
-	reads      []readRec // (path, ref) of every ReadRepoFile call, in order
+	origin      string // local dir used as the clone source
+	files       map[string]string
+	releases    map[string]*Release // keyed by tag
+	releaseList []ReleaseMeta       // for ListReleases; nil = nothing listed
+	edited      string
+	cloneErr    error // if set, CloneInfo returns it
+	editErr     error // if set, EditReleaseBody returns it
+	readErr     error // if set, ReadRepoFile returns it (before checking files)
+	releaseErr  error // if set, GetReleaseByTag returns it (before checking releases)
+	readMu      sync.Mutex
+	reads       []readRec // (path, ref) of every ReadRepoFile call, in order
 }
 
 // readRec records a single repo-file read so tests can assert tag-pinning.
@@ -90,6 +91,10 @@ func (f *fakePlatform) GetReleaseByTag(ctx context.Context, owner, repo, tag str
 		return rl, nil
 	}
 	return nil, fmt.Errorf("%w: %s", ErrNotFound, tag)
+}
+
+func (f *fakePlatform) ListReleases(ctx context.Context, owner, repo string) ([]ReleaseMeta, error) {
+	return f.releaseList, nil
 }
 
 func (f *fakePlatform) EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error {

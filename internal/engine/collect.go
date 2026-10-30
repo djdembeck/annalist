@@ -198,6 +198,60 @@ func ResolvePrevTag(ctx context.Context, workdir, current string) string {
 	return bestTag
 }
 
+// TagCommitSHA returns the commit SHA that tag Points to in workdir,
+// resolving annotated tags to their target commit. Returns "" on git
+// failure, for a tag absent from the clone, or for an invalid ref name.
+func TagCommitSHA(ctx context.Context, workdir, tag string) string {
+	if !validGitRef(tag) {
+		return ""
+	}
+	out, err := runGit(ctx, workdir, "rev-list", "-n", "1", tag+"^{commit}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// TargetCommitSHA resolves a git ref (usually the target release tag, which
+// must exist when notes are generated for it) to the full commit SHA it
+// points at, unwrapping annotated tags. Returns "" on git failure or for an
+// invalid ref name.
+func TargetCommitSHA(ctx context.Context, workdir, ref string) string {
+	if !validGitRef(ref) {
+		return ""
+	}
+	out, err := runGit(ctx, workdir, "rev-list", "-n", "1", ref+"^{commit}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// IsAncestorCommit reports whether commit ancestor is reachable from commit
+// descendant. Both must be full SHAs already in workdir. Returns false on
+// git failure (malformed SHAs, unborn objects) — callers treating an
+// unverifiable candidate as non-ancestor are the common, fail-closed use.
+func IsAncestorCommit(ctx context.Context, workdir, ancestor, descendant string) bool {
+	if !isFullSHA(ancestor) || !isFullSHA(descendant) {
+		return false
+	}
+	_, err := runGit(ctx, workdir, "merge-base", "--is-ancestor", ancestor, descendant)
+	return err == nil
+}
+
+// isFullSHA reports whether s is a 40-character lowercase hex SHA-1.
+func isFullSHA(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // DefaultCommitTypes is the commit-type filter used when no saved repo or
 // global setting and no config value specify one. It must stay in sync
 // with DEFAULT_COMMIT_TYPES in web/src/lib/commitTypes.ts, which the

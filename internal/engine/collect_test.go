@@ -266,6 +266,69 @@ func TestResolvePrevTagPrefixed(t *testing.T) {
 	}
 }
 
+func TestTagCommitSHA(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "first")
+	// Lightly tagged: the commit itself.
+	gitTa(t, dir, "tag", "light")
+	// Annotated: must unwrap to the same commit.
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "second")
+	gitTa(t, dir, "tag", "-a", "annot", "-m", "tag message")
+
+	firstSHA := gitTaOut(t, dir, "rev-parse", "HEAD~1")
+	secondSHA := gitTaOut(t, dir, "rev-parse", "HEAD")
+
+	if got := TagCommitSHA(ctx, dir, "light"); got != firstSHA {
+		t.Errorf("TagCommitSHA(light) = %q, want %q", got, firstSHA)
+	}
+	if got := TagCommitSHA(ctx, dir, "annot"); got != secondSHA {
+		t.Errorf("TagCommitSHA(annot) = %q, want %q (annotated unwrap)", got, secondSHA)
+	}
+	if got := TagCommitSHA(ctx, dir, "missing"); got != "" {
+		t.Errorf("TagCommitSHA(missing) = %q, want empty", got)
+	}
+	if got := TagCommitSHA(ctx, dir, "ref/../x"); got != "" {
+		t.Errorf("TagCommitSHA(bad ref) = %q, want empty", got)
+	}
+}
+
+func TestIsAncestorCommit(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "a")
+	a := gitTaOut(t, dir, "rev-parse", "HEAD")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "b")
+	b := gitTaOut(t, dir, "rev-parse", "HEAD")
+	// A detached side branch: c is not an ancestor of b.
+	base := gitTaOut(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	gitTa(t, dir, "checkout", "-q", "--orphan", "side")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "c")
+	c := gitTaOut(t, dir, "rev-parse", "HEAD")
+	gitTa(t, dir, "checkout", "-q", base)
+
+	if !IsAncestorCommit(ctx, dir, a, a) {
+		t.Error("a commit is its own ancestor: want true")
+	}
+	if !IsAncestorCommit(ctx, dir, a, b) {
+		t.Error("a is ancestor of b: want true")
+	}
+	if IsAncestorCommit(ctx, dir, b, a) {
+		t.Error("b is NOT ancestor of a: want false")
+	}
+	if IsAncestorCommit(ctx, dir, c, b) {
+		t.Error("unrelated c is NOT ancestor of b: want false")
+	}
+	if IsAncestorCommit(ctx, dir, "not-a-sha", b) {
+		t.Error("malformed sha: want false (fail closed)")
+	}
+	if IsAncestorCommit(ctx, dir, a, "0000000000000000000000000000000000000000") {
+		t.Error("unborn object: want false (fail closed)")
+	}
+}
+
 func TestResolvePrevTagNoTags(t *testing.T) {
 	dir := t.TempDir()
 	gitTa(t, dir, "init", "-q")
