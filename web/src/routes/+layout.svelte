@@ -95,18 +95,32 @@
         >Setup</a
       >
     </nav>
-    <div class="theme-switch" role="group" aria-label="Color theme">
-      <button
-        type="button"
-        aria-pressed={theme === "light"}
-        onclick={() => chooseTheme("light")}>Light</button
+    <button
+      type="button"
+      class="theme-switch"
+      role="switch"
+      aria-checked={theme === "dark"}
+      aria-label="Dark theme"
+      title={theme === "dark"
+        ? "Switch to light theme"
+        : "Switch to dark theme"}
+      onclick={() => chooseTheme(theme === "dark" ? "light" : "dark")}
+    >
+      <!-- One flat icon per plan, chosen by the app root like the lockup:
+           no hydration swap, and the icon is right before first paint. -->
+      <svg
+        class="theme-switch-icon theme-switch-icon--sun"
+        viewBox="0 0 16 16"
+        aria-hidden="true"><circle cx="8" cy="8" r="2.7" /><path
+          d="M8 1.2v1.5M8 13.3v1.5M1.2 8h1.5M13.3 8h1.5M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1"
+        /></svg
       >
-      <button
-        type="button"
-        aria-pressed={theme === "dark"}
-        onclick={() => chooseTheme("dark")}>Dark</button
+      <svg
+        class="theme-switch-icon theme-switch-icon--moon"
+        viewBox="0 0 16 16"
+        aria-hidden="true"><path d="M8 2a4 4 0 0 0 6 6 6 6 0 1 1-6-6Z" /></svg
       >
-    </div>
+    </button>
   </header>
   <main id="main-content" class="shell-main">{@render children()}</main>
 </div>

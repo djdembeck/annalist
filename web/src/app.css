@@ -236,35 +236,47 @@
   .theme-switch {
     display: flex;
     align-items: center;
+    justify-content: center;
     margin-left: auto;
-    padding: 2px;
-    border: 1px solid var(--control-border);
-    border-radius: 7px;
     flex: none;
-  }
-  .theme-switch button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
     transition:
       background-color 0.14s ease,
+      border-color 0.14s ease,
       color 0.14s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 50px;
-    min-height: 44px;
-    padding: 5px 9px;
-    border: 0;
-    border-radius: 4px;
-    color: var(--muted);
-    background: transparent;
-    font-size: 13px;
   }
-  .theme-switch button[aria-pressed="true"] {
+  .theme-switch:hover {
     background: var(--control-hover);
+    border-color: var(--control-hover-border);
     color: var(--ink);
-    font-weight: 650;
   }
-  .theme-switch button:hover {
-    color: var(--ink);
+  .theme-switch svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    /* An 18px render of the 16-unit grid: 1.6 reads as the badges' 1.8px. */
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* WebKit does not inherit color-scheme into embedded SVG media queries, so
+     the app root picks the icon, exactly as it picks the brand lockup. */
+  .theme-switch .theme-switch-icon--moon {
+    display: none;
+  }
+  :root[data-theme="dark"] .theme-switch .theme-switch-icon--sun {
+    display: none;
+  }
+  :root[data-theme="dark"] .theme-switch .theme-switch-icon--moon {
+    display: block;
   }
   .shell-main {
     max-width: 1200px;
@@ -1276,10 +1288,6 @@
     }
     .brand img {
       height: 40px;
-    }
-    .theme-switch button {
-      min-width: 44px;
-      padding-inline: 6px;
     }
   }
   .commit-type-grid {

@@ -64,7 +64,6 @@ typography:
 rounded:
   xs: "4px"
   sm: "5px"
-  md: "7px"
   control: "8px"
   surface: "12px"
 spacing:
@@ -147,7 +146,7 @@ Copper (`--rust`) marks the actions that commit work; the Gather mark and outlin
 
 ## Colors
 
-Two complete plans share one token set: the light paper plan is the `:root` default; the dark charcoal plan is `:root[data-theme="dark"]`, toggled by the top-right switch, stored in `localStorage`, and defaulted from `prefers-color-scheme` by the same-origin `/theme.js` script in the document head before first paint. Every value below is the light plan; the matching dark value is carried in `.impeccable/design.json` beside each token.
+Two complete plans share one token set: the light paper plan is the `:root` default; the dark charcoal plan is `:root[data-theme="dark"]`, toggled by the top-right sun/moon switch, stored in `localStorage`, and defaulted from `prefers-color-scheme` by the same-origin `/theme.js` script in the document head before first paint. Every value below is the light plan; the matching dark value is carried in `.impeccable/design.json` beside each token.
 
 ### Primary
 - **Copper** (`#bd431f` / dark `#e8a17b`): the committed action — primary buttons, the Gather mark, caret, checkbox accent, running-state badge text, markdown links. The outlined Annalist wordmark uses ink (`#302b26` / dark `#f4eade`), not copper. Its hover is **Copper Deep** (`#a03616` / dark `#d88b63`). In dark mode the copper lightens so it sits on charcoal; the white primary ink flips to near-charcoal (`#241d18`).
@@ -201,7 +200,7 @@ Two complete plans share one token set: the light paper plan is the `:root` defa
 
 ## Layout
 
-A centered 1200px shell (`max-width: 1200px`, `margin: auto`) with 32px inline gutters — 16px below 980px and 20px for the top bar on mobile. The top bar is a hairline-capped band: the combined Gather lockup, displayed 48px high (44px at ≤980px; 40px at ≤360px), quiet nav links, and the theme switch at the right. The brand link has a 44px minimum height; it carries two flat images, `/annalist-logo-light.svg` and `/annalist-logo-dark.svg`, each with intrinsic dimensions 984×256, `width: auto`, and decorative empty alt because the link is labeled “Annalist home.” CSS selects exactly one by the app root `data-theme` — the light image by default, the dark image under `data-theme="dark"` — because WebKit does not inherit `color-scheme` into embedded SVG media queries.
+A centered 1200px shell (`max-width: 1200px`, `margin: auto`) with 32px inline gutters — 16px below 980px and 20px for the top bar on mobile. The top bar is a hairline-capped band: the combined Gather lockup, displayed 48px high (44px at ≤980px; 40px at ≤360px), quiet nav links, and the 44px sun/moon theme switch at the right. The brand link has a 44px minimum height; it carries two flat images, `/annalist-logo-light.svg` and `/annalist-logo-dark.svg`, each with intrinsic dimensions 984×256, `width: auto`, and decorative empty alt because the link is labeled “Annalist home.” CSS selects exactly one by the app root `data-theme` — the light image by default, the dark image under `data-theme="dark"` — because WebKit does not inherit `color-scheme` into embedded SVG media queries.
 
 The mainspace rhythm is 20px between workspace blocks; a panel's own interior is 24px (20px below 600px). The repository register uses fixed columns — Repository 27%, Latest generation 29%, Automation 19%, Actions 25% — with 22px cell padding relaxing to 14px between 980–1100px. Row content sits on 19px/18px vertical pad under a 1px divider; the failure copy insets under the Repository column at `calc(27% + 22px)`, while the run-history panel spans the full row at 24px padding.
 
@@ -220,7 +219,7 @@ Depth is a hairline plus a whisper of shadow. Panels and grouped containers (`pl
 
 ## Shapes
 
-The radius ladder is 4px (inline code), 5px (badges, chips), 7px (theme switch), 8px (controls, fields, mode choices, setup steps), 11px (mobile planes, where inset content unsticks the corner), and 12px (panels, banners, grouped registers). Borders are 1px: line for structure, line-strong for controls. The system has no clipped silhouettes and no pill controls.
+The radius ladder is 4px (inline code), 5px (badges, chips), 8px (controls, fields, mode choices, setup steps, theme switch), 11px (mobile planes, where inset content unsticks the corner), and 12px (panels, banners, grouped registers). Borders are 1px: line for structure, line-strong for controls. The system has no clipped silhouettes and no pill controls.
 
 ## Components
 
@@ -255,7 +254,7 @@ The radius ladder is 4px (inline code), 5px (badges, chips), 7px (theme switch),
 ### Navigation
 - **Top bar:** 1px line border below, 44px-tall links in 15px muted; hover shifts to ink. The current route is ink at weight 600 with a 2px copper underline offset 8px (`aria-current="page"` drives it).
 - **Gather lockup:** One visible full lockup in the brand link, chosen by CSS from two flat 984×256 images — `/annalist-logo-light.svg` (copper symbol #bd431f, ink wordmark #302b26) and `/annalist-logo-dark.svg` (copper symbol #e8a17b, cream wordmark #f4eade) — displayed 48px high on desktop, 44px at ≤980px, and 40px at ≤360px, with automatic width and a 44px minimum-height link. The light image shows by default; `data-theme="dark"` on the app root shows only the dark image, independent of the OS color scheme, because WebKit does not inherit `color-scheme` into embedded SVG media queries. The copper symbol is two entry bars and a continuous returning contour whose bottom arm forms the third entry; the outlined humanist Annalist wordmark is neutral ink (#302b26 light / #f4eade dark). Use a decorative empty alt inside the link labeled “Annalist home.” Use the full lockup in navigation and README, and the standalone Gather symbol for favicons, app icons, and avatars. Neither belongs in action buttons or outcome badges; never split-color the symbol or use a copper wordmark.
-- **Theme switch:** 7px-radius group with a 1px strong border; the pressed side fills with control-hover at weight 650, 50px minimum hit width.
+- **Theme switch:** one 44px square button with a 1px strong border and the 8px control radius, unfilled at rest so the top bar keeps a single surface and only hover warms the plate. The glyph is a 16-unit authored icon rendered at 18px with a 1.6 stroke, so it lands on the same 1.8px rendered stroke as the badges: sun in the light plan, moon in the dark plan, chosen by the app root `data-theme` exactly as the lockup is, so the right icon is painted before hydration. The icon is muted at rest and ink on hover; the button carries a destination tooltip (“Switch to dark theme” / “Switch to light theme”) so a sighted user learns what a click will do, while `role="switch"`, `aria-checked`, and the stable accessible name “Dark theme” carry the state for assistive technology. The switch is an on/off control, not a two-choice group: no pressed-word segments, no group chrome.
 
 ### Workflow and Draft State
 - **Setup:** discovery is explicit. One continuation control remains available with no selection, filtered/empty results, discovery errors, and partial-add errors; pending repository writes block continuation. Platform badges carry configuration status without a repeated subtitle.
@@ -266,7 +265,7 @@ The radius ladder is 4px (inline code), 5px (badges, chips), 7px (theme switch),
 - **404 recovery:** the primary action returns to Repositories rather than retrying the unavailable address. Preview/raw views and overwrite confirmation retain their publication safeguards.
 
 ### Accessibility and Motion
-Skip link first, then `aria-current` on nav, `aria-pressed` on the theme switch, `role="status"` / `role="alert"` banners (error in the failed tint, warning in the cached tint), and labeled 44px controls. State transitions run 140ms ease — background, border, and color only; nothing moves. `prefers-reduced-motion: reduce` kills all animation, transitions, and smooth scrolling.
+Skip link first, then `aria-current` on nav, `role="switch"` with `aria-checked` on the theme switch, `role="status"` / `role="alert"` banners (error in the failed tint, warning in the cached tint), and labeled 44px controls. State transitions run 140ms ease — background, border, and color only; nothing moves. `prefers-reduced-motion: reduce` kills all animation, transitions, and smooth scrolling.
 
 ## Do's and Don'ts
 
