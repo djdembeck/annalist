@@ -95,6 +95,20 @@ var migrations = []string{
 		thinking_level TEXT,
 		PRIMARY KEY (platform, owner, repo)
 	)`,
+	// generation_runs is deliberately retained unbounded: history is small
+	// (one row per accepted release attempt per repo) and a retention policy
+	// is not yet implemented.
+	`CREATE TABLE IF NOT EXISTS generation_runs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		platform TEXT NOT NULL, owner TEXT NOT NULL, repo TEXT NOT NULL,
+		source TEXT NOT NULL CHECK(source IN ('manual', 'webhook')),
+		to_tag TEXT NOT NULL, from_tag TEXT NOT NULL, profile TEXT NOT NULL,
+		display_version TEXT NOT NULL,
+		status TEXT NOT NULL CHECK(status IN ('running', 'published', 'generated', 'cached', 'preserved', 'failed', 'interrupted')),
+		error_code TEXT, warning_code TEXT,
+		started_at TEXT NOT NULL, finished_at TEXT
+	)`,
+	`CREATE INDEX IF NOT EXISTS generation_runs_repo_latest ON generation_runs(platform, owner, repo, id DESC)`,
 	`CREATE TABLE IF NOT EXISTS generated_notes (
 		cache_key TEXT PRIMARY KEY,
 		platform TEXT NOT NULL,

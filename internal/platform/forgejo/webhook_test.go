@@ -173,12 +173,30 @@ func waitForGenerated(t *testing.T, dataDir, releaseID string) *db.GeneratedNote
 	return nil
 }
 
+// waitForRunTerminal polls until the dispatch run is no longer "running". The
+// generated record can be committed before the dispatch goroutine's deferred
+// FinishRun lands, so the record's presence alone is not enough to observe
+// the terminal status.
+func waitForRunTerminal(t *testing.T, store *db.Store, platform, owner, repo string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, err := store.ListRuns(platform, owner, repo, 20)
+		if err == nil && len(runs) == 1 && runs[0].Status != "running" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	runs, err := store.ListRuns(platform, owner, repo, 20)
+	t.Fatalf("timed out waiting for webhook run to become terminal: %+v (err=%v)", runs, err)
+}
+
 const forgejoPayload = `{"action":"created","release":{"id":42,"tag_name":"v0.2.0","draft":false},"repository":{"full_name":"djdembeck/annalist","name":"annalist","owner":{"login":"djdembeck","username":"djdembeck"}}}`
 
 func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 	const secret = "forgejo-secret"
 	stub := llmStub(t)
-	pip, _, dataDir := makePipeline(t, stub.URL)
+	pip, store, dataDir := makePipeline(t, stub.URL)
 	handler := New(config.ForgejoConfig{URL: "https://git.example.invalid", Token: "tok", WebhookSecret: secret}).WebhookHandler(pip)
 
 	post := func(t *testing.T, body []byte, sigs map[string]string, event string) *httptest.ResponseRecorder {
@@ -218,6 +236,14 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 		}
 		if !strings.Contains(gn.Notes, "WEBHOOK NOTES") {
 			t.Errorf("notes = %q", gn.Notes)
+		}
+		waitForRunTerminal(t, store, "forgejo", "djdembeck", "annalist")
+		runs, err := store.ListRuns("", "", "", 20)
+		if err != nil || len(runs) != 1 {
+			t.Fatalf("webhook dispatch created %d generation runs, want 1: %+v (err=%v)", len(runs), runs, err)
+		}
+		if runs[0].Source != "webhook" || runs[0].Status != "published" || runs[0].ToTag != "v0.2.0" {
+			t.Errorf("webhook run = %+v, want webhook/published v0.2.0", runs[0])
 		}
 	})
 

@@ -76,7 +76,7 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if pl.Release.Draft {
+		if pl.Release.Draft || pl.Release.TagName == "" || pl.Release.ID == 0 || pl.Repository.Owner.Login == "" || pl.Repository.Name == "" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -107,10 +107,10 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 			defer cancel()
-			if _, err := p.GenerateNotes(ctx, spec, pipeline.Options{Publish: true}); err != nil {
+			if result, err := p.GenerateNotes(ctx, spec, pipeline.Options{Source: "webhook", Publish: true}); err != nil {
 				log.Printf("annalist: generate %s/%s %s: %v", spec.Owner, spec.Repo, spec.ToTag, err)
 			} else {
-				log.Printf("annalist: published notes for %s/%s %s", spec.Owner, spec.Repo, spec.ToTag)
+				log.Printf("annalist: %s notes for %s/%s %s", result.Outcome, spec.Owner, spec.Repo, spec.ToTag)
 			}
 		}()
 	})

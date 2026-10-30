@@ -130,10 +130,10 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 			defer cancel()
-			if _, err := p.GenerateNotes(ctx, spec, pipeline.Options{Publish: true}); err != nil {
+			if result, err := p.GenerateNotes(ctx, spec, pipeline.Options{Source: "webhook", Publish: true}); err != nil {
 				log.Printf("annalist: generate %s/%s %s: %v", owner, repo, payload.Release.TagName, err)
 			} else {
-				log.Printf("annalist: published notes for %s/%s %s", owner, repo, payload.Release.TagName)
+				log.Printf("annalist: %s notes for %s/%s %s", result.Outcome, owner, repo, payload.Release.TagName)
 			}
 		}()
 	})
