@@ -45,7 +45,7 @@ Operators typically run it on their own server next to the CI that ships their r
 - Name: "Annalist" (displayed as "Annalist" in the dashboard nav).
 - License: UNLICENSED. Distributed from `github.com/djdembeck/annalist`.
 - Voice promise, stated in the README: "consistent, human-sounding release notes."
-- Visual identity: the approved Quiet Workspace direction uses a ledger mark and prominent Annalist wordmark, warm light/dark work planes, copper actions, and quiet top navigation. Repository outcomes are labeled operational evidence, not marketing or health claims. DESIGN.md and `.impeccable/design.json` record the built system.
+- Visual identity: the approved Quiet Workspace direction uses the Gather mark—two entry bars and a continuous returning contour whose bottom arm is a third entry—with a copper symbol and neutral outlined humanist Annalist wordmark. Warm light/dark work planes, copper actions, and quiet top navigation remain unchanged. Repository outcomes are labeled operational evidence, not marketing or health claims. DESIGN.md and `.impeccable/design.json` record the built system.
 
 ## Evidence on Hand
 

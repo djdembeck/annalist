@@ -1,1 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-labelledby="title"><title id="title">Annalist ledger</title><rect width="40" height="40" rx="8" fill="#f5eee5"/><path d="M20 11c-4-4-10-5-15-3v23c5-2 11-1 15 3 4-4 10-5 15-3V8c-5-2-11-1-15 3Z" fill="none" stroke="#302b26" stroke-width="2.3" stroke-linejoin="round"/><path d="M20 11v23M10 14c2 0 4 .5 6 1.5M10 20c2 0 4 .5 6 1.5M10 26c2 0 4 .5 6 1.5" fill="none" stroke="#302b26" stroke-width="2" stroke-linecap="round"/><path d="M25 14c1.5-.8 3.2-1.2 5-1.2v9l-2.5-1.5L25 23Z" fill="#bd431f"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Annalist Gather</title>
+  <style>
+    @media (prefers-color-scheme: dark) {
+      #mark { fill: #e8a17b; }
+    }
+  </style>
+  <path id="mark" fill="#bd431f" d="M32 32H112V64H32Z M32 112H160V144H32Z M144 32H176A48 48 0 0 1 224 80V176A48 48 0 0 1 176 224H32V192H176A16 16 0 0 0 192 176V80A16 16 0 0 0 176 64H144Z"/>
+</svg>

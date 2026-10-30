@@ -66,27 +66,20 @@
       class="brand"
       aria-label="Annalist home"
     >
-      <svg viewBox="0 0 40 40" aria-hidden="true">
-        <path
-          d="M20 11c-4-4-10-5-15-3v23c5-2 11-1 15 3 4-4 10-5 15-3V8c-5-2-11-1-15 3Z"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.3"
-          stroke-linejoin="round"
-        />
-        <path
-          d="M20 11v23M10 14c2 0 4 .5 6 1.5M10 20c2 0 4 .5 6 1.5M10 26c2 0 4 .5 6 1.5"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-        />
-        <path
-          d="M25 14c1.5-.8 3.2-1.2 5-1.2v9l-2.5-1.5L25 23Z"
-          fill="var(--rust)"
-        />
-      </svg>
-      <span class="brand-name">Annalist</span>
+      <img
+        class="brand-logo--light"
+        src="/annalist-logo-light.svg"
+        alt=""
+        width="984"
+        height="256"
+      />
+      <img
+        class="brand-logo--dark"
+        src="/annalist-logo-dark.svg"
+        alt=""
+        width="984"
+        height="256"
+      />
     </a>
     <nav class="topnav" aria-label="Primary">
       {#if token}

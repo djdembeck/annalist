@@ -173,6 +173,24 @@ func waitForGenerated(t *testing.T, dataDir, releaseID string) *db.GeneratedNote
 	return nil
 }
 
+// waitForRunTerminal polls until the dispatch run is no longer "running". The
+// generated record can be committed before the dispatch goroutine's deferred
+// FinishRun lands, so the record's presence alone is not enough to observe
+// the terminal status.
+func waitForRunTerminal(t *testing.T, store *db.Store, platform, owner, repo string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, err := store.ListRuns(platform, owner, repo, 20)
+		if err == nil && len(runs) == 1 && runs[0].Status != "running" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	runs, err := store.ListRuns(platform, owner, repo, 20)
+	t.Fatalf("timed out waiting for webhook run to become terminal: %+v (err=%v)", runs, err)
+}
+
 func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 	const secret = "github-secret"
 	stub := llmStub(t)
@@ -215,6 +233,10 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 		if gn.Notes == "" {
 			t.Error("notes should have been generated")
 		}
+		// The generated row's presence does not imply the dispatch goroutine
+		// has finished, so wait for its deferred FinishRun before reading the
+		// run rows.
+		waitForRunTerminal(t, store, "github", "djdembeck", "annalist")
 		runs, err := store.ListRuns("", "", "", 20)
 		if err != nil || len(runs) != 1 {
 			t.Fatalf("webhook dispatch created %d generation runs, want 1: %+v (err=%v)", len(runs), runs, err)

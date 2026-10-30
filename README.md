@@ -1,7 +1,10 @@
 # Annalist
 
 <p align="center">
-  <img src="web/static/annalist-mark.svg" alt="Annalist" width="72">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="web/static/annalist-logo-dark.svg">
+    <img src="web/static/annalist-logo-light.svg" alt="Annalist" width="320">
+  </picture>
 </p>
 
 AI-generated release notes for GitHub and Forgejo. Annalist listens for release webhooks, clones the repository, summarizes commit history through an OpenAI-compatible LLM, and writes the notes back into the release body. It also ships an embedded admin dashboard for manual generation and per-repository settings.

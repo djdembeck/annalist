@@ -136,7 +136,7 @@ components:
 
 Annalist is a warm working interface for release outcomes and automation configuration. A warm paper canvas holds a white work plane in light mode; tobacco charcoal and cream in dark mode. The operator's job is comparison — a repository, its latest observed generation, its configured triggers, and a way to act — so the layout behaves like a register: aligned columns at desktop width, labeled rows below 980px, and nothing on the screen competing with the data.
 
-Copper (`--rust`) marks the actions that commit work; the ledger mark and wordmark give the product its identity. Result badges are the system's voice: high-contrast text over a restrained tint, a same-hue border, and a small 14px icon, so that Published, Cached, Failed, and the other run states read at a glance without noise. Configuration is never presented as a health claim, and the empty states say what is empty rather than decorate it.
+Copper (`--rust`) marks the actions that commit work; the Gather mark and outlined wordmark give the product its identity. The mark uses two entry bars and a continuous returning contour whose bottom arm is a third entry. In light mode its symbol is copper (#bd431f) and its humanist outlined Annalist wordmark is ink (#302b26); in dark mode they are #e8a17b and #f4eade. Use the full lockup in navigation and README, and the standalone Gather symbol for favicons, app icons, and avatars. Neither belongs in action buttons or outcome badges; never split-color the symbol or make the wordmark copper. Result badges are the system's voice: high-contrast text over a restrained tint, a same-hue border, and a small 14px icon, so that Published, Cached, Failed, and the other run states read at a glance without noise. Configuration is never presented as a health claim, and the empty states say what is empty rather than decorate it.
 
 **Key Characteristics:**
 - Warm paper canvas (#f5eee5) with white work planes in light; tobacco charcoal (#211d19) with cream (#f4eade) ink in dark.
@@ -150,7 +150,7 @@ Copper (`--rust`) marks the actions that commit work; the ledger mark and wordma
 Two complete plans share one token set: the light paper plan is the `:root` default; the dark charcoal plan is `:root[data-theme="dark"]`, toggled by the top-right switch, stored in `localStorage`, and defaulted from `prefers-color-scheme` by the same-origin `/theme.js` script in the document head before first paint. Every value below is the light plan; the matching dark value is carried in `.impeccable/design.json` beside each token.
 
 ### Primary
-- **Copper** (`#bd431f` / dark `#e8a17b`): the committed action — primary buttons, the ledger mark's stamped bookmark, caret, checkbox accent, running-state badge text, markdown links. Its hover is **Copper Deep** (`#a03616` / dark `#d88b63`). In dark mode the copper lightens so it sits on charcoal; the white primary ink flips to near-charcoal (`#241d18`).
+- **Copper** (`#bd431f` / dark `#e8a17b`): the committed action — primary buttons, the Gather mark, caret, checkbox accent, running-state badge text, markdown links. The outlined Annalist wordmark uses ink (`#302b26` / dark `#f4eade`), not copper. Its hover is **Copper Deep** (`#a03616` / dark `#d88b63`). In dark mode the copper lightens so it sits on charcoal; the white primary ink flips to near-charcoal (`#241d18`).
 - **Focus** (`#bd431f` / dark `#f1b28b`): the 3px keyboard-focus outline and its 3px offset. Dark mode uses the lighter tone; light mode reuses the copper itself.
 
 ### Neutral
@@ -201,7 +201,7 @@ Two complete plans share one token set: the light paper plan is the `:root` defa
 
 ## Layout
 
-A centered 1200px shell (`max-width: 1200px`, `margin: auto`) with 32px inline gutters — 16px below 980px and 20px for the top bar on mobile. The top bar is a hairline-capped band: 40px ledger mark, 29px wordmark (weight 650, letter-spacing -0.035em), quiet nav links, and the theme switch at the right.
+A centered 1200px shell (`max-width: 1200px`, `margin: auto`) with 32px inline gutters — 16px below 980px and 20px for the top bar on mobile. The top bar is a hairline-capped band: the combined Gather lockup, displayed 48px high (44px at ≤980px; 40px at ≤360px), quiet nav links, and the theme switch at the right. The brand link has a 44px minimum height; it carries two flat images, `/annalist-logo-light.svg` and `/annalist-logo-dark.svg`, each with intrinsic dimensions 984×256, `width: auto`, and decorative empty alt because the link is labeled “Annalist home.” CSS selects exactly one by the app root `data-theme` — the light image by default, the dark image under `data-theme="dark"` — because WebKit does not inherit `color-scheme` into embedded SVG media queries.
 
 The mainspace rhythm is 20px between workspace blocks; a panel's own interior is 24px (20px below 600px). The repository register uses fixed columns — Repository 27%, Latest generation 29%, Automation 19%, Actions 25% — with 22px cell padding relaxing to 14px between 980–1100px. Row content sits on 19px/18px vertical pad under a 1px divider; the failure copy insets under the Repository column at `calc(27% + 22px)`, while the run-history panel spans the full row at 24px padding.
 
@@ -254,7 +254,7 @@ The radius ladder is 4px (inline code), 5px (badges, chips), 7px (theme switch),
 
 ### Navigation
 - **Top bar:** 1px line border below, 44px-tall links in 15px muted; hover shifts to ink. The current route is ink at weight 600 with a 2px copper underline offset 8px (`aria-current="page"` drives it).
-- **Ledger mark:** 40px (38px mobile) 40-unit SVG — an open book stroked in text color at 2.3/2px round joins, a center spine, three leader lines, and a copper bookmark stamp. The wordmark beside it is 29px at 650 with -0.035em tracking — the quiet, prominent identity the nav must keep.
+- **Gather lockup:** One visible full lockup in the brand link, chosen by CSS from two flat 984×256 images — `/annalist-logo-light.svg` (copper symbol #bd431f, ink wordmark #302b26) and `/annalist-logo-dark.svg` (copper symbol #e8a17b, cream wordmark #f4eade) — displayed 48px high on desktop, 44px at ≤980px, and 40px at ≤360px, with automatic width and a 44px minimum-height link. The light image shows by default; `data-theme="dark"` on the app root shows only the dark image, independent of the OS color scheme, because WebKit does not inherit `color-scheme` into embedded SVG media queries. The copper symbol is two entry bars and a continuous returning contour whose bottom arm forms the third entry; the outlined humanist Annalist wordmark is neutral ink (#302b26 light / #f4eade dark). Use a decorative empty alt inside the link labeled “Annalist home.” Use the full lockup in navigation and README, and the standalone Gather symbol for favicons, app icons, and avatars. Neither belongs in action buttons or outcome badges; never split-color the symbol or use a copper wordmark.
 - **Theme switch:** 7px-radius group with a 1px strong border; the pressed side fills with control-hover at weight 650, 50px minimum hit width.
 
 ### Workflow and Draft State

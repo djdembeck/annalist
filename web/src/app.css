@@ -188,20 +188,24 @@
   .brand {
     display: inline-flex;
     align-items: center;
-    gap: 12px;
+    min-height: 44px;
     text-decoration: none;
     flex: none;
   }
-  .brand svg {
-    width: 40px;
-    height: 40px;
+  .brand img {
+    height: 48px;
+    width: auto;
     display: block;
   }
-  .brand-name {
-    font-size: 29px;
-    line-height: 1;
-    font-weight: 650;
-    letter-spacing: -0.035em;
+  /* WebKit does not inherit color-scheme into embedded SVG media queries. */
+  .brand .brand-logo--dark {
+    display: none;
+  }
+  :root[data-theme="dark"] .brand .brand-logo--light {
+    display: none;
+  }
+  :root[data-theme="dark"] .brand .brand-logo--dark {
+    display: block;
   }
   .topnav {
     display: flex;
@@ -1080,14 +1084,9 @@
     .brand {
       grid-column: 1;
       grid-row: 1;
-      gap: 10px;
     }
-    .brand svg {
-      width: 38px;
-      height: 38px;
-    }
-    .brand-name {
-      font-size: 27px;
+    .brand img {
+      height: 44px;
     }
     .theme-switch {
       grid-column: 2;
@@ -1275,11 +1274,8 @@
       padding-inline: max(16px, env(safe-area-inset-left))
         max(16px, env(safe-area-inset-right));
     }
-    .brand {
-      gap: 6px;
-    }
-    .brand-name {
-      font-size: 25px;
+    .brand img {
+      height: 40px;
     }
     .theme-switch button {
       min-width: 44px;
