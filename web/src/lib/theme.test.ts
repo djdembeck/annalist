@@ -1,7 +1,9 @@
-// Theme resolution contract for the inline bootstrap in theme.js, run in
-// jsdom against the actual script text (not a re-implementation). jsdom's
+// Theme resolution contract for the inline bootstrap in static/theme.js, run
+// in jsdom against the actual script text (not a re-implementation). jsdom's
 // window has no matchMedia, which is precisely the environment theme.js
-// must survive.
+// must survive. Lives under src/lib/ (not static/) so the test is
+// type-checked by the tsconfig include while staying out of the public
+// static/ assets that ship in the client build.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -9,10 +11,12 @@ import { join } from "node:path";
 
 function themePath(): string {
   try {
-    return fileURLToPath(new URL("./theme.js", import.meta.url));
+    // From src/lib/ the script is two hops up into the public directory.
+    return fileURLToPath(new URL("../../static/theme.js", import.meta.url));
   } catch {
-    // vitest inlines modules as data: URLs; from the web root the script
-    // is a fixed relative hop away.
+    // A loader that hands back a data: URL (or otherwise defeats
+    // import.meta.url) skips the relative hop: from the web root the
+    // script is a fixed relative hop away.
     return join(process.cwd(), "static", "theme.js");
   }
 }
@@ -25,14 +29,10 @@ function runTheme(): { theme: string; meta: string | null } {
   // The script references bare localStorage/window/document, so it runs
   // against jsdom's own globals.
   new Function(themeScript)();
+  const color = document.querySelector('meta[name="theme-color"]');
   return {
     theme: document.documentElement.dataset.theme ?? "",
-    meta:
-      document.querySelector('meta[name="theme-color"]') instanceof HTMLMetaElement
-        ? document
-            .querySelector('meta[name="theme-color"]')
-            .content
-        : null,
+    meta: color instanceof HTMLMetaElement ? color.content : null,
   };
 }
 
@@ -48,7 +48,7 @@ describe("static/theme.js", () => {
   afterEach(() => {
     meta?.remove();
     meta = undefined;
-    delete window.matchMedia;
+    delete (window as unknown as Record<string, unknown>).matchMedia;
   });
 
   it("follows the stored dark choice", () => {
@@ -66,13 +66,25 @@ describe("static/theme.js", () => {
   });
 
   it("follows a dark media preference when nothing is stored", () => {
-    window.matchMedia = () => ({ matches: true });
+    window.matchMedia = () =>
+      ({
+        media: "",
+        matches: true,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList;
     const { theme } = runTheme();
     expect(theme).toBe("dark");
   });
 
   it("falls back to light when the media preference is light", () => {
-    window.matchMedia = () => ({ matches: false });
+    window.matchMedia = () =>
+      ({
+        media: "",
+        matches: false,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList;
     const { theme } = runTheme();
     expect(theme).toBe("light");
   });
@@ -88,7 +100,13 @@ describe("static/theme.js", () => {
   it("applies the theme when no theme-color element exists", () => {
     meta?.remove();
     meta = undefined;
-    window.matchMedia = () => ({ matches: true });
+    window.matchMedia = () =>
+      ({
+        media: "",
+        matches: true,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList;
     const { theme } = runTheme();
     expect(theme).toBe("dark");
     // No theme-color element, so the script leaves the color untouched.

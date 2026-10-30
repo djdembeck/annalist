@@ -222,4 +222,42 @@ describe("repository intake manual entry", () => {
       });
     });
   });
+
+  it("blocks manual entry on an instance with no configured platforms", async () => {
+    stubFetch();
+    // Neither source is configured, so load() never defaults manualPlatform.
+    const posts: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: string, init?: JsonInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (method === "GET" && url.endsWith("/api/status"))
+          return jsonResponse({ github: false, forgejo: false, admin: true });
+        if (method === "GET" && url.endsWith("/api/repos/available"))
+          return jsonResponse([]);
+        if (method === "POST" && url.endsWith("/api/repos")) {
+          posts.push(url);
+          return jsonResponse({ id: 1 }, 201);
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }) as typeof fetch,
+    );
+    await mountPage();
+    await screen.findByText("No platform is configured.");
+    const select = screen.getByRole("combobox", { name: "Platform" });
+    expect((select as HTMLSelectElement).value).toBe("");
+    fireEvent.input(screen.getByRole("textbox", { name: "Owner" }), {
+      target: { value: "acme" },
+    });
+    fireEvent.input(screen.getByRole("textbox", { name: "Repository" }), {
+      target: { value: "svc" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add manually" }));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Choose a platform before adding."),
+      ).toBeInstanceOf(HTMLElement),
+    );
+    expect(posts).toHaveLength(0);
+  });
 });

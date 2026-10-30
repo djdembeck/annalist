@@ -220,3 +220,26 @@ func TestGenerateRemoteSuccessCacheFailureAPI(t *testing.T) {
 		t.Fatalf("run=%+v", runs[0])
 	}
 }
+
+func TestHandleListReposHistoryLoadFailure(t *testing.T) {
+	dir := t.TempDir()
+	store, err := db.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	// Drop the history table after setup so LatestRuns fails; ListRepoSettings
+	// still succeeds, so the handler reaches the history-load branch.
+	conn := openTestDB(t, dir)
+	if _, err := conn.Exec(`DROP TABLE generation_runs`); err != nil {
+		t.Fatal(err)
+	}
+	a := &api{cfg: &config.Config{}, store: store, pip: newFakePip()}
+	w := do(a.handleListRepos, newReq(http.MethodGet, "/api/repos", "", nil))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "could not load generation history") {
+		t.Fatalf("body=%s", w.Body.String())
+	}
+}

@@ -262,7 +262,9 @@
     height: 18px;
     fill: none;
     stroke: currentColor;
-    /* An 18px render of the 16-unit grid: 1.6 reads as the badges' 1.8px. */
+    /* An 18px render of the 16-unit grid: the 1.6 stroke reads as 1.8px on
+       screen; the badge icons sit on the same 16-unit grid at 14px, so an
+       authored 1.8 stroke there reads as 1.575px. */
     stroke-width: 1.6;
     stroke-linecap: round;
     stroke-linejoin: round;

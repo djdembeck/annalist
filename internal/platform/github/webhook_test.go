@@ -271,7 +271,7 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 
 func TestGithubWebhookRejectsIncompleteRepositoryIdentity(t *testing.T) {
 	cases := []struct {
-		name, mutate, old string
+		name, old, mutate string
 	}{
 		{"empty repository name", `"name":"annalist"`, `"name":""`},
 		{"empty owner login", `"login":"djdembeck"`, `"login":""`},
@@ -285,7 +285,15 @@ func TestGithubWebhookRejectsIncompleteRepositoryIdentity(t *testing.T) {
 			pip, store, dataDir := makePipeline(t, stub.URL)
 			handler := New(config.GitHubConfig{AppID: 1, WebhookSecret: secret}).WebhookHandler(pip)
 
-			body := []byte(bytes.Replace([]byte(githubPayload), []byte(tc.old), []byte(tc.mutate), 1))
+			old, mutate := []byte(tc.old), []byte(tc.mutate)
+			payload := []byte(githubPayload)
+			if n := bytes.Count(payload, old); n != 1 {
+				t.Fatalf("mutation %q matches %d fragment(s) in payload, want exactly 1; case is not exercising the rejection", tc.old, n)
+			}
+			body := bytes.Replace(payload, old, mutate, 1)
+			if bytes.Contains(body, old) || !bytes.Contains(body, mutate) {
+				t.Fatalf("payload not mutated: old fragment %q still present, new fragment %q present=%v", tc.old, tc.mutate, bytes.Contains(body, mutate))
+			}
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 			req.Header.Set("X-Hub-Signature-256", "sha256="+signGitHub(secret, body))
 			req.Header.Set("X-GitHub-Event", "release")

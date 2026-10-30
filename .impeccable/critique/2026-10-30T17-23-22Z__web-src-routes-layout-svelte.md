@@ -1,6 +1,6 @@
 ---
 target: top-bar theme switch
-total_score: 34
+total_score: 36
 max_score: 40
 na_heuristics: 
 p0_count: 0
@@ -22,16 +22,16 @@ Target: `web/src/routes/+layout.svelte` (`.theme-switch`, `.topbar`), rendered a
 | # | Heuristic | Score | Key Issue |
 |---|-----------|-------|-----------|
 | 1 | Visibility of System Status | 4 | Clicking changes the palette, the glyph, and `aria-checked` together. |
-| 2 | Match System / Real World | 3 | Sun and moon are familiar, but the glyph shows the current plan rather than naming the action. |
+| 2 | Match System / Real World | 3 | Sun and moon are familiar, but the glyph shows the current plan rather than naming the action. *(Resolved: the shipped destination tooltip names the action on hover and flips with the plan.)* |
 | 3 | User Control and Freedom | 4 | One click changes the plan; the same control reverses it. |
 | 4 | Consistency and Standards | 4 | 44px square, 8px radius, strong border, hover treatment all match the documented system. |
 | 5 | Error Prevention | 4 | Low-risk, immediately reversible preference. |
-| 6 | Recognition Rather Than Recall | 3 | Glyph is recognizable; no visible label identifies the control for a sighted first-timer. |
+| 6 | Recognition Rather Than Recall | 3 | Glyph is recognizable; the destination tooltip names the action on hover. |
 | 7 | Flexibility and Efficiency | 2 | Pointer and keyboard both work; no shortcut, but this is an infrequent preference. |
 | 8 | Aesthetic and Minimalist Design | 4 | Unfilled plate and a quiet hover keep the bar restrained in both plans. |
 | 9 | Error Recovery | 4 | Same control restores the prior plan; no recovery flow needed. |
-| 10 | Help and Documentation | 2 | No visible label or tooltip explains the control. |
-| **Total** | | **34/40** | **Good (85%)** |
+| 10 | Help and Documentation | 4 | The stable accessible name "Dark theme" plus the destination tooltip ("Switch to light/dark theme") name the control and the action. |
+| **Total** | | **36/40** | **Good (90%)** |
 
 ## Design Specificity Verdict
 
@@ -53,13 +53,13 @@ Calm, legible, and system-true in both plans: the control reads as one reversibl
 
 ## Priority Issues
 
-1. **[P2] No visible name for the control.** At both widths the control is only a glyph in a square; its accessible name is not visible. A first-timer may not recognize it as the theme control. **Fix:** a concise action tooltip rather than restoring the two-button group.
-2. **[P3] Glyph states the plan, not the action.** The light plan shows a sun, so the icon communicates the current plan but not what a click will do. **Fix:** name the destination on hover and keyboard focus ("Switch to dark theme").
+1. **[P2, resolved] No visible name for the control.** At both widths the control is only a glyph in a square; its accessible name is not visible. A first-timer may not recognize it as the theme control. **Fix:** a concise action tooltip rather than restoring the two-button group. **Resolution:** the shipped control carries the stable name "Dark theme" plus a destination tooltip ("Switch to light/dark theme"), closing this item — it was left open below against a pre-shipment revision.
+2. **[P3, resolved] Glyph states the plan, not the action.** The light plan shows a sun, so the icon communicates the current plan but not what a click will do. **Fix:** name the destination on hover and keyboard focus ("Switch to dark theme"). **Resolution:** the shipped destination tooltip ("Switch to light/dark theme") flips with the plan and names the click's destination, closing this item.
 3. **[P3] Category-neutral glyph.** The header is distinctly Annalist; the control is not. **Fix:** if more character is wanted, use the product's paper/charcoal plan language in the tooltip; keep the control itself neutral.
 
 ## Persona Red Flags
 
-- **First-timer:** the unlabeled glyph may look like a status indicator; no visible explanatory cue.
+- **First-timer:** the unlabeled glyph may look like a status indicator; no visible explanatory cue. *(Resolved: the shipped control carries the destination tooltip naming the action.)*
 - **Power user:** no shortcut, but the switch is one action and keyboard-operable — minor for an infrequent preference.
 - **Keyboard-only / screen-reader user:** no material issue; focus is visible and the switch role, checked state, and name are exposed.
 
@@ -74,3 +74,9 @@ Calm, legible, and system-true in both plans: the control reads as one reversibl
 - Should the glyph represent the selected plan, as it does now, or the destination plan?
 - Can a visible "Theme" cue fit while preserving the quiet single-button treatment?
 - Would paper/charcoal wording add useful product character, or is the switch better left deliberately neutral?
+
+---
+
+## Correction (2026-10-30)
+
+The `target_fingerprint` above does not match any revision of `+layout.svelte` in the branch; this record inspected a pre-shipment version of the control. The shipped control includes the stable accessible name "Dark theme" and a destination tooltip (`Switch to light/dark theme`), so the "no visible label or tooltip" observation describes an earlier state. Heuristic 10, the total, and the P2 status were updated to match the shipped behavior; the destination tooltip also implements the P3 destination-naming suggestion (item 2). No new fingerprint is recorded.

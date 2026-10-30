@@ -252,6 +252,10 @@
           try {
             const incoming = await getRepos();
             if (!mounted) return;
+            // A user read queued while this fetch was in flight is
+            // authoritative: drop this older snapshot without touching
+            // repos/loadState and loop so the queued read gets a fresh one.
+            if (refreshQueued) continue;
             repos = incoming;
             loadState = "success";
             if (refreshModels) void loadModels();

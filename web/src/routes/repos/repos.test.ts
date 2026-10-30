@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/dom";
 import { mount, unmount, tick } from "$lib/svelte-client";
+import { within } from "@testing-library/svelte";
 import type { GenerationRun, Repo } from "$lib/api";
 import RepositoriesPage from "./+page.svelte";
 
@@ -571,5 +572,175 @@ describe("repository operator transitions", () => {
           "could not be saved. Check server storage before generating again.",
       );
     });
+  });
+
+  it("renders the to_tag fallback for an empty display version and No runs yet for a null latest_run", async () => {
+    const publishedRun: GenerationRun = {
+      ...failedRun,
+      id: 40,
+      status: "published",
+      error_code: null,
+      display_version: "",
+      to_tag: "v9.9.9",
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/repos"))
+          return json([
+            repository(publishedRun),
+            repository(null, { repo: "empty" }),
+          ]);
+        if (url.endsWith("/api/models")) return json([]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    await mountPage();
+    // The Latest generation cell shows the shipped status label plus the
+    // version text: the to_tag stands in for an empty display_version.
+    expect(
+      screen.getByText("v9.9.9", { exact: true }),
+    ).toBeInstanceOf(HTMLElement);
+    expect(screen.getByText("Published", { exact: true })).toBeInstanceOf(
+      HTMLElement,
+    );
+    // A row whose latest_run is null renders the empty status label.
+    expect(screen.getByText("No runs yet", { exact: true })).toBeInstanceOf(
+      HTMLElement,
+    );
+  });
+
+  it.each([
+    [
+      "configuration",
+      "failed",
+      "Check server configuration, local state, the data directory, and " +
+        "server logs, then try again.",
+    ],
+    [
+      "repository",
+      "failed",
+      "Check repository access and that the release tag exists, then try again.",
+    ],
+    [
+      "instructions",
+      "failed",
+      "Check repository instructions and access permissions, then try again.",
+    ],
+    [
+      "generation",
+      "failed",
+      "The model could not generate notes. Check the provider and model " +
+        "settings, then try again.",
+    ],
+    [
+      "publication",
+      "failed",
+      "Notes could not be published. Check release permissions and try again.",
+    ],
+    ["timeout", "failed", "The request timed out. Check the provider and try again."],
+    [
+      "cancelled",
+      "failed",
+      "The request was cancelled. Start another generation when ready.",
+    ],
+    [
+      "interrupted",
+      "interrupted",
+      "The server stopped before this run finished. Check the release before " +
+        "retrying.",
+    ],
+    [
+      "unknown-fault",
+      "failed",
+      "This attempt did not complete. Check repository and provider settings " +
+        "before retrying.",
+    ],
+  ] as const)(
+    "shows the %s failure guidance and status label in the Recent runs drawer",
+    async (code, status, sentence) => {
+      // The interrupted row carries no error_code: the drawer derives its
+      // guidance from the status itself.
+      const run: GenerationRun = {
+        ...failedRun,
+        status,
+        error_code:
+          status === "interrupted" ? null : (code as string | null),
+      };
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.endsWith("/api/repos")) return json([repository(run)]);
+          if (url.endsWith("/api/models")) return json([]);
+          if (url.includes("/api/runs?")) return json([run]);
+          throw new Error(`Unexpected request: ${url}`);
+        }),
+      );
+      await mountPage();
+      await fireEvent.click(screen.getByRole("button", { name: "Recent runs" }));
+      // Both the failure table row and the drawer item repeat the sentence
+      // and status label, so scope the lookups to the drawer region.
+      const drawer = screen.getByRole("region", {
+        name: "Recent runs for team/app",
+      });
+      await waitFor(() =>
+        expect(within(drawer).getByText(sentence, { exact: true })).toBeInstanceOf(
+          HTMLElement,
+        ),
+      );
+      expect(
+        within(drawer).getByText(status === "interrupted" ? "Interrupted" : "Failed", {
+          exact: true,
+        }),
+      ).toBeInstanceOf(HTMLElement);
+    },
+  );
+
+  it("recovers run history from a failed initial load via the Retry history action", async () => {
+    let runsReads = 0;
+    const retryRuns = Promise.withResolvers<Response>();
+    let resolveRetryRuns: (() => void) | undefined;
+    const recoveredRun: GenerationRun = {
+      ...failedRun,
+      id: 55,
+      status: "published",
+      error_code: null,
+      display_version: "2.1",
+      to_tag: "v2.1.0",
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/repos")) return json([repository(failedRun)]);
+        if (url.endsWith("/api/models")) return json([]);
+        if (url.includes("/api/runs?")) {
+          runsReads++;
+          if (runsReads === 1) return json({ error: "boom" }, 500);
+          resolveRetryRuns = () => retryRuns.resolve(json([recoveredRun]));
+          return retryRuns.promise;
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    await mountPage();
+    await fireEvent.click(screen.getByRole("button", { name: "Recent runs" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Could not load recent runs. Check your connection and retry.",
+    );
+    await fireEvent.click(screen.getByRole("button", { name: "Retry history" }));
+    await waitFor(() => expect(runsReads).toBe(2));
+    // Toggling the drawer while the retry flight is pending must not fire a
+    // duplicate request: loadHistory bails on historyPending.
+    await fireEvent.click(screen.getByRole("button", { name: "Recent runs" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Recent runs" }));
+    expect(runsReads).toBe(2);
+    resolveRetryRuns?.();
+    await waitFor(() =>
+      expect(
+        screen.getByText("v2.1.0", { exact: true }),
+      ).toBeInstanceOf(HTMLElement),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

@@ -16,9 +16,21 @@
   const isActive = (path: string) =>
     $page.url.pathname === path || $page.url.pathname.startsWith(`${path}/`);
 
+  // Applies the plan to the document and keeps the browser chrome in step
+  // with the app surface.
+  function applyTheme(value: "light" | "dark") {
+    theme = value;
+    document.documentElement.dataset.theme = value;
+    const meta = document.querySelector<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    );
+    if (meta) meta.content = value === "dark" ? "#211d19" : "#f5eee5";
+  }
+
   onMount(() => {
-    theme =
-      document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+    applyTheme(
+      document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+    );
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const followSystem = () => {
       let choice: string | null = null;
@@ -28,8 +40,7 @@
         /* Storage may be unavailable. */
       }
       if (choice !== "light" && choice !== "dark") {
-        theme = media.matches ? "dark" : "light";
-        document.documentElement.dataset.theme = theme;
+        applyTheme(media.matches ? "dark" : "light");
       }
     };
     media.addEventListener("change", followSystem);
@@ -37,13 +48,7 @@
   });
 
   function chooseTheme(value: "light" | "dark") {
-    theme = value;
-    document.documentElement.dataset.theme = value;
-    // Keep the browser chrome in step with the app surface.
-    const meta = document.querySelector<HTMLMetaElement>(
-      'meta[name="theme-color"]',
-    );
-    if (meta) meta.content = value === "dark" ? "#211d19" : "#f5eee5";
+    applyTheme(value);
     try {
       localStorage.setItem("annalist-theme", value);
     } catch {

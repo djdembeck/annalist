@@ -272,3 +272,24 @@ func TestMonitoringCreationFailurePreventsRemoteWork(t *testing.T) {
 		t.Fatal("remote work performed without history")
 	}
 }
+
+// TestInvalidSourceRejectedBeforeRecording verifies a source outside
+// manual/webhook is rejected before the run starts: no history row exists and
+// no remote work runs.
+func TestInvalidSourceRejectedBeforeRecording(t *testing.T) {
+	pip, stub, f, store := fixture(t, nil, nil)
+	_, err := pip.GenerateNotes(context.Background(), genSpec("v0.2.0", "cli-source"), Options{Source: "cli", Publish: true})
+	if err == nil || !strings.Contains(err.Error(), "invalid generation source") {
+		t.Fatalf("err=%v, want invalid generation source", err)
+	}
+	runs, err := store.ListRuns("", "", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("invalid source recorded a run: %+v", runs)
+	}
+	if stub.calls != 0 || f.edited != "" || len(f.reads) != 0 {
+		t.Fatal("remote work performed for rejected source")
+	}
+}
