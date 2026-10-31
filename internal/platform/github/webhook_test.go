@@ -173,10 +173,28 @@ func waitForGenerated(t *testing.T, dataDir, releaseID string) *db.GeneratedNote
 	return nil
 }
 
+// waitForRunTerminal polls until the dispatch run is no longer "running". The
+// generated record can be committed before the dispatch goroutine's deferred
+// FinishRun lands, so the record's presence alone is not enough to observe
+// the terminal status.
+func waitForRunTerminal(t *testing.T, store *db.Store, platform, owner, repo string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, err := store.ListRuns(platform, owner, repo, 20)
+		if err == nil && len(runs) == 1 && runs[0].Status != "running" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	runs, err := store.ListRuns(platform, owner, repo, 20)
+	t.Fatalf("timed out waiting for webhook run to become terminal: %+v (err=%v)", runs, err)
+}
+
 func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 	const secret = "github-secret"
 	stub := llmStub(t)
-	pip, _, dataDir := makePipeline(t, stub.URL)
+	pip, store, dataDir := makePipeline(t, stub.URL)
 	handler := New(config.GitHubConfig{AppID: 1, AppPrivateKeyFile: "", WebhookSecret: secret}).WebhookHandler(pip)
 
 	post := func(t *testing.T, body []byte, sig string, event string) *httptest.ResponseRecorder {
@@ -215,6 +233,17 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 		if gn.Notes == "" {
 			t.Error("notes should have been generated")
 		}
+		// The generated row's presence does not imply the dispatch goroutine
+		// has finished, so wait for its deferred FinishRun before reading the
+		// run rows.
+		waitForRunTerminal(t, store, "github", "djdembeck", "annalist")
+		runs, err := store.ListRuns("", "", "", 20)
+		if err != nil || len(runs) != 1 {
+			t.Fatalf("webhook dispatch created %d generation runs, want 1: %+v (err=%v)", len(runs), runs, err)
+		}
+		if runs[0].Source != "webhook" || runs[0].Status != "published" || runs[0].ToTag != "v0.2.0" {
+			t.Errorf("webhook run = %+v, want webhook/published v0.2.0", runs[0])
+		}
 	})
 
 	t.Run("ping event is ignored", func(t *testing.T) {
@@ -238,6 +267,51 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 			t.Fatal("expected the earlier record to remain")
 		}
 	})
+}
+
+func TestGithubWebhookRejectsIncompleteRepositoryIdentity(t *testing.T) {
+	cases := []struct {
+		name, old, mutate string
+	}{
+		{"empty repository name", `"name":"annalist"`, `"name":""`},
+		{"empty owner login", `"login":"djdembeck"`, `"login":""`},
+		{"empty tag name", `"tag_name":"v0.2.0"`, `"tag_name":""`},
+		{"zero release id", `"id":7`, `"id":0`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			const secret = "github-secret"
+			stub := llmStub(t)
+			pip, store, dataDir := makePipeline(t, stub.URL)
+			handler := New(config.GitHubConfig{AppID: 1, WebhookSecret: secret}).WebhookHandler(pip)
+
+			old, mutate := []byte(tc.old), []byte(tc.mutate)
+			payload := []byte(githubPayload)
+			if n := bytes.Count(payload, old); n != 1 {
+				t.Fatalf("mutation %q matches %d fragment(s) in payload, want exactly 1; case is not exercising the rejection", tc.old, n)
+			}
+			body := bytes.Replace(payload, old, mutate, 1)
+			if bytes.Contains(body, old) || !bytes.Contains(body, mutate) {
+				t.Fatalf("payload not mutated: old fragment %q still present, new fragment %q present=%v", tc.old, tc.mutate, bytes.Contains(body, mutate))
+			}
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("X-Hub-Signature-256", "sha256="+signGitHub(secret, body))
+			req.Header.Set("X-GitHub-Event", "release")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("incomplete repository identity status=%d, want 200", rec.Code)
+			}
+
+			runs, err := store.ListRuns("", "", "", 20)
+			if err != nil || len(runs) != 0 {
+				t.Fatalf("incomplete identity created generation history: runs=%+v err=%v", runs, err)
+			}
+			if n, err := countGenerated(dataDir); err != nil || n != 0 {
+				t.Fatalf("incomplete identity dispatched generation: count=%d err=%v", n, err)
+			}
+		})
+	}
 }
 
 // TestGithubWebhookPreDispatchRejections covers every branch the handler

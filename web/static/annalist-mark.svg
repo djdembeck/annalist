@@ -1,7 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">Annalist mark</title>
-  <desc id="desc">Three cyan lines with a copper signal dot on a dark panel.</desc>
-  <rect width="64" height="64" rx="12" fill="#0b0f14"/>
-  <path d="M14 17h36M14 31h23M14 45h36" fill="none" stroke="#59c3c3" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="45" cy="31" r="5" fill="#f06a3a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Annalist Gather</title>
+  <style>
+    @media (prefers-color-scheme: dark) {
+      #mark { fill: #e8a17b; }
+    }
+  </style>
+  <path id="mark" fill="#bd431f" d="M32 32H112V64H32Z M32 112H160V144H32Z M144 32H176A48 48 0 0 1 224 80V176A48 48 0 0 1 176 224H32V192H176A16 16 0 0 0 192 176V80A16 16 0 0 0 176 64H144Z"/>
 </svg>

@@ -17,8 +17,8 @@
 //     share one runtime universe.
 //
 // `$lib/...` resolves natively via the SvelteKit-generated tsconfig
-// `paths`; `$app/navigation` (imported only by the auth-error path these
-// tests never hit) is mocked. Vitest (`bunx vitest run`) gets the
+// `paths`; `$app/navigation` is mocked so component tests can register and
+// exercise navigation guards without mounting the SvelteKit router. Vitest (`bunx vitest run`) gets the
 // equivalent setup from the `test` block in vite.config.ts + the
 // sveltekit() plugin, so it does not read this file.
 import { JSDOM } from "jsdom";
@@ -27,7 +27,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>", {
-  url: "http://localhost/",
+  // error.test.ts asserts the recovery CTA renavigates to the exact
+  // failed location (path + query + hash); under bun window.location is
+  // unconfigurable and jsdom does not implement cross-document
+  // navigation, so the document loads at the failed URL directly.
+  url: "http://localhost/x?y=1#z",
+  pretendToBeVisual: true,
 });
 
 const w = dom.window as unknown as Record<string, unknown>;
@@ -52,6 +57,17 @@ globalThis.requestAnimationFrame = (cb: FrameRequestCallback) =>
 import { mock as bunMock } from "bun:test";
 bunMock.module("$app/navigation", () => ({
   goto: () => Promise.resolve(),
+  beforeNavigate: bunMock(() => {}),
+}));
+// `+error.svelte` reads $app/stores.page; the error test mirrors the page
+// state it wants into this global before mounting.
+bunMock.module("$app/stores", () => ({
+  page: {
+    subscribe: (run: (value: unknown) => void): (() => void) => {
+      run((globalThis as Record<string, unknown>).__annalist_page_state);
+      return () => {};
+    },
+  },
 }));
 
 const webRoot = new URL(".", import.meta.url);
