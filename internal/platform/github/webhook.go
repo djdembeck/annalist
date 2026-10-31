@@ -81,12 +81,17 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 			return
 		}
 
+		// Fill-after resolves the notes range to the previous PUBLISHED
+		// non-draft ancestor release (full history when none exists), so
+		// an unfinished earlier reservation cannot hide unreleased
+		// changes behind its tag.
 		spec := pipeline.Spec{
-			Platform:  "github",
-			Owner:     pl.Repository.Owner.Login,
-			Repo:      pl.Repository.Name,
-			ToTag:     pl.Release.TagName,
-			ReleaseID: "github:" + fmt.Sprintf("%d", pl.Release.ID),
+			Platform:    "github",
+			Owner:       pl.Repository.Owner.Login,
+			Repo:        pl.Repository.Name,
+			ToTag:       pl.Release.TagName,
+			RangePolicy: pipeline.RangePreviousPublished,
+			ReleaseID:   "github:" + fmt.Sprintf("%d", pl.Release.ID),
 		}
 
 		enabled, _, _, err := p.Resolve(context.Background(), spec.Platform, spec.Owner, spec.Repo)

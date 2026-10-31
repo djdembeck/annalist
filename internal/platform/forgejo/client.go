@@ -197,6 +197,32 @@ func (c *Client) ReadRepoFile(ctx context.Context, owner, repo, path, ref string
 	return resp.Content, nil
 }
 
+// ListReleases returns every release listed for the repository (drafts and
+// prereleases included), paginated over all pages.
+func (c *Client) ListReleases(ctx context.Context, owner, repo string) ([]pipeline.ReleaseMeta, error) {
+	prefix := "/repos/" + apiPath(owner) + "/" + apiPath(repo) + "/releases?limit=" +
+		strconv.Itoa(defaultReposPerPage)
+	var out []pipeline.ReleaseMeta
+	page := 1
+	for {
+		var batch []struct {
+			TagName    string `json:"tag_name"`
+			Draft      bool   `json:"draft"`
+			Prerelease bool   `json:"prerelease"`
+		}
+		if err := c.do(ctx, http.MethodGet, prefix+"&page="+strconv.Itoa(page), nil, &batch); err != nil {
+			return nil, err
+		}
+		for _, r := range batch {
+			out = append(out, pipeline.ReleaseMeta{Tag: r.TagName, Draft: r.Draft, Prerelease: r.Prerelease})
+		}
+		if len(batch) < defaultReposPerPage {
+			return out, nil
+		}
+		page++
+	}
+}
+
 // GetReleaseByTag fetches a release by its tag. A 404 is surfaced as
 // pipeline.ErrNotFound.
 func (c *Client) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*pipeline.Release, error) {
