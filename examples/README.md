@@ -35,8 +35,8 @@ Node/Deno/Bun web app, a Rust CLI, a static site, or anything else unchanged.
    trigger branch, and set the `ANNALIST_URL` env at the top.
 4. **Add the secret.** In the consuming repo's settings, add
    `ANNALIST_ADMIN_TOKEN` with the same value as the annalist `ADMIN_TOKEN`.
-   (Forgejo also needs a `FORGEJO_TOKEN` with release write access; on GitHub
-   `GH_TOKEN` is automatic.)
+   Forgejo also needs a `FORGEJO_TOKEN` with release write access; on GitHub
+   `GH_TOKEN` is automatic.
 
 ## How the pieces fit
 
@@ -46,12 +46,54 @@ complete notes with `"publish": false` **before** the release exists, then
 creates the release once with the full body. No empty release, no webhook
 round-trip, no polling.
 
-The workflows also implement automatic versioning: every push to the trigger
-branch bumps the version from conventional commits (`BREAKING CHANGE` /
-`feat!` → major, `feat` → minor, else patch), with `workflow_dispatch` inputs
-(`version`, `bump`) for manual control. Re-runs are idempotent — a re-dispatch
-after a partial failure reuses the existing tag and only completes the missing
-release.
+The workflows also implement **automatic versioning with an immutable,
+create-only reservation**:
+
+1. A **read-only preflight** freezes the single source SHA for the
+   invocation (push: the pushed commit; dispatch: the tip of the selected
+   branch, after rejecting a wrong-branch dispatch) and decides the version
+   from the baseline — the highest valid semver-ish tag reachable from the
+   frozen SHA, **including unfinished reservations** (a failed number stays
+   reserved; it is never recirculated). The first release is `v0.1.0`.
+2. The **reserve job** is the only writer of version tags: it creates the
+   decided number as an annotated tag built **against the exact frozen SHA**
+   (create-only; never moved, force-pushed, or deleted). If the tag already
+   points exactly at this source, the reservation is **reused** — a rerun of
+   the same source, even after newer releases exist. A tag at a different
+   SHA is a **collision: the run fails**, it never moves the ref.
+3. The **publish job** re-verifies the tag → frozen source, then creates the
+   release **once** with complete notes. A missing tag at publish time is
+   itself a failure (tags are only ever created by reserve).
+
+The notes range is annalist's `range_policy: "previous_published"`
+resolution — the previous published, non-draft ancestor release, full
+history for the first published release. The request deliberately **omits
+`from_tag`**: passing the previous reachable tag would reproduce the
+unfinished-reservation bug (an unreleased tag hides the changes behind it).
+Migrated GitHub apps keep their fill-after webhook path separately; the same
+policy applies there. No new token is needed.
+
+Versioning is conventional-commit based (`BREAKING CHANGE` / `feat!` →
+major, `feat` → minor, else patch) with `workflow_dispatch` inputs
+(`version`, `bump`) for manual control. A push that adds no reachable commit
+past the newest reservation stops successfully (coalescing, not failure).
+
+An **existing tag is not completion**: a release with an empty body is
+refilled on rerun; a fully published release no-ops. Re-runs are idempotent.
+The release job exposes `source` (the 40-character SHA), `tag` (`vX.Y.Z`),
+and `version` (`X.Y.Z`) outputs for native downstream adapters.
+
+GitHub: `concurrency: { group: release, cancel-in-progress: false,
+queue: max }` (the documented pending queue; a queued manual dispatch is not
+replaced by later pushes). actionlint v1.7.12 has a known parser gap on the
+documented `queue: max` key (rhysd/actionlint#657) — keep the key.
+Forgejo: best-effort `concurrency` without the `queue` key; Forgejo's queued-run
+retention is unverified, so until that retention proof exists keep a
+manual-only (dispatch-only) repository on the flow the team has verified,
+and do not assume automatic-mode parity with GitHub.
+
+**Dispatch-only mode:** delete the `push:` trigger block — the
+`workflow_dispatch` entry then runs on its own.
 
 ## Named release-note profiles
 
@@ -94,5 +136,5 @@ for the full contract.
   idempotent `docker build`/`push`; add it if the repo ships an image. The
   release step itself does not build anything.
 - **One-time or manual releases:** if you don't want every merge to release,
-  remove the `push:` trigger and release via `workflow_dispatch` only — the
-  versioning and notes generation still work.
+  delete the `push:` trigger block and release via `workflow_dispatch` only —
+  the exact-source reservation and notes generation work unchanged.

@@ -27,16 +27,17 @@ import (
 // fakePlatform satisfies pipeline.Platform without any network. It points the
 // clone at a local git repository and serves repo files / releases from maps.
 type fakePlatform struct {
-	origin     string // local dir used as the clone source
-	files      map[string]string
-	releases   map[string]*Release // keyed by tag
-	edited     string
-	cloneErr   error // if set, CloneInfo returns it
-	editErr    error // if set, EditReleaseBody returns it
-	readErr    error // if set, ReadRepoFile returns it (before checking files)
-	releaseErr error // if set, GetReleaseByTag returns it (before checking releases)
-	readMu     sync.Mutex
-	reads      []readRec // (path, ref) of every ReadRepoFile call, in order
+	origin      string // local dir used as the clone source
+	files       map[string]string
+	releases    map[string]*Release // keyed by tag
+	releaseList []ReleaseMeta       // for ListReleases; nil = nothing listed
+	edited      string
+	cloneErr    error // if set, CloneInfo returns it
+	editErr     error // if set, EditReleaseBody returns it
+	readErr     error // if set, ReadRepoFile returns it (before checking files)
+	releaseErr  error // if set, GetReleaseByTag returns it (before checking releases)
+	readMu      sync.Mutex
+	reads       []readRec // (path, ref) of every ReadRepoFile call, in order
 }
 
 // readRec records a single repo-file read so tests can assert tag-pinning.
@@ -90,6 +91,10 @@ func (f *fakePlatform) GetReleaseByTag(ctx context.Context, owner, repo, tag str
 		return rl, nil
 	}
 	return nil, fmt.Errorf("%w: %s", ErrNotFound, tag)
+}
+
+func (f *fakePlatform) ListReleases(ctx context.Context, owner, repo string) ([]ReleaseMeta, error) {
+	return f.releaseList, nil
 }
 
 func (f *fakePlatform) EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error {
@@ -1240,14 +1245,14 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 
 	t.Run("fetch release error propagates", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, nil) // no releases map -> tag missing
-		err := pip.Publish(context.Background(), published("notes", "v0.1.0"), genSpec("v0.2.0", "rel-fetch"), f, false)
+		_, err := pip.Publish(context.Background(), published("notes", "v0.1.0"), genSpec("v0.2.0", "rel-fetch"), f, false)
 		if err == nil || !strings.Contains(err.Error(), "pipeline: fetch release") {
 			t.Fatalf("err = %v, want fetch-release error", err)
 		}
 	})
 	t.Run("human-edited body not clobbered without force", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
-		err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
+		_, err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
 		if err != nil {
 			t.Fatalf("Publish: %v", err)
 		}
@@ -1257,7 +1262,7 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 	})
 	t.Run("force overrides don't-clobber guard", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
-		err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, true)
+		_, err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, true)
 		if err != nil {
 			t.Fatalf("Publish: %v", err)
 		}
@@ -1269,7 +1274,7 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 	t.Run("edit release body error propagates", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
 		f.editErr = errors.New("api down")
-		err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
+		_, err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
 		if err == nil || !strings.Contains(err.Error(), "pipeline: edit release body") {
 			t.Fatalf("err = %v, want edit-release-body error", err)
 		}

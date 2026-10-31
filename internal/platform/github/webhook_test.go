@@ -30,6 +30,9 @@ import (
 type fakePlatform struct {
 	origin   string
 	releases map[string]*pipeline.Release
+	// list is the platform's full release list (for the previous-
+	// published range-policy resolution); empty = nothing listed.
+	list []pipeline.ReleaseMeta
 }
 
 func (f *fakePlatform) ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error) {
@@ -40,6 +43,9 @@ func (f *fakePlatform) GetReleaseByTag(ctx context.Context, owner, repo, tag str
 		return rl, nil
 	}
 	return nil, fmt.Errorf("%w: %s", pipeline.ErrNotFound, tag)
+}
+func (f *fakePlatform) ListReleases(ctx context.Context, owner, repo string) ([]pipeline.ReleaseMeta, error) {
+	return f.list, nil
 }
 func (f *fakePlatform) EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error {
 	return nil
@@ -76,6 +82,12 @@ func makeOrigin(t *testing.T) string {
 		gitNoAsk(t, origin, "commit", "-q", "-m", subject)
 		if i == 0 {
 			gitNoAsk(t, origin, "tag", "v0.1.0")
+			// Unfinished reservation: a real tag, reachable from the
+			// target, higher than the published floor — but never published
+			// (absent from the fake platform's release list). Legacy
+			// previous-tag resolution lands on THIS tag; the
+			// previous_published floor must stay at v0.1.0.
+			gitNoAsk(t, origin, "tag", "v0.1.5")
 		} else {
 			gitNoAsk(t, origin, "tag", "v0.2.0")
 		}
@@ -98,7 +110,18 @@ func makePipeline(t *testing.T, baseURL string) (*pipeline.Pipeline, *db.Store, 
 			BaseURL: baseURL, APIKey: "k", Model: "m", Temperature: 0.5, MaxTokens: 4096,
 		},
 	}
-	f := &fakePlatform{origin: makeOrigin(t), releases: map[string]*pipeline.Release{"v0.2.0": {ID: 7, Body: ""}}}
+	f := &fakePlatform{
+		origin:   makeOrigin(t),
+		releases: map[string]*pipeline.Release{"v0.2.0": {ID: 7, Body: ""}},
+		// The repository lists v0.1.0 (published floor) and v0.2.0 (the
+		// target, which must be excluded). v0.1.5 — a real tag in the
+		// origin, strictly between the floor and the target — is NOT in
+		// the list: it is an unfinished reservation.
+		list: []pipeline.ReleaseMeta{
+			{Tag: "v0.1.0", Draft: false, Prerelease: false},
+			{Tag: "v0.2.0", Draft: false, Prerelease: false},
+		},
+	}
 	return pipeline.New(cfg, store, llm.New(cfg.LLM), f, nil), store, dataDir
 }
 
@@ -173,10 +196,28 @@ func waitForGenerated(t *testing.T, dataDir, releaseID string) *db.GeneratedNote
 	return nil
 }
 
+// waitForRunTerminal polls until the dispatch run is no longer "running". The
+// generated record can be committed before the dispatch goroutine's deferred
+// FinishRun lands, so the record's presence alone is not enough to observe
+// the terminal status.
+func waitForRunTerminal(t *testing.T, store *db.Store, platform, owner, repo string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, err := store.ListRuns(platform, owner, repo, 20)
+		if err == nil && len(runs) == 1 && runs[0].Status != "running" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	runs, err := store.ListRuns(platform, owner, repo, 20)
+	t.Fatalf("timed out waiting for webhook run to become terminal: %+v (err=%v)", runs, err)
+}
+
 func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 	const secret = "github-secret"
 	stub := llmStub(t)
-	pip, _, dataDir := makePipeline(t, stub.URL)
+	pip, store, dataDir := makePipeline(t, stub.URL)
 	handler := New(config.GitHubConfig{AppID: 1, AppPrivateKeyFile: "", WebhookSecret: secret}).WebhookHandler(pip)
 
 	post := func(t *testing.T, body []byte, sig string, event string) *httptest.ResponseRecorder {
@@ -215,6 +256,23 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 		if gn.Notes == "" {
 			t.Error("notes should have been generated")
 		}
+		// The real stage: the persisted floor is the last PUBLISHED
+		// ancestor (v0.1.0), NOT the unfinished reservation v0.1.5 that
+		// legacy previous-tag resolution would pick.
+		if gn.FromTag != "v0.1.0" {
+			t.Errorf("persisted FromTag = %q, want v0.1.0 (reservation v0.1.5 must not be the floor)", gn.FromTag)
+		}
+		// The generated row's presence does not imply the dispatch goroutine
+		// has finished, so wait for its deferred FinishRun before reading the
+		// run rows.
+		waitForRunTerminal(t, store, "github", "djdembeck", "annalist")
+		runs, err := store.ListRuns("", "", "", 20)
+		if err != nil || len(runs) != 1 {
+			t.Fatalf("webhook dispatch created %d generation runs, want 1: %+v (err=%v)", len(runs), runs, err)
+		}
+		if runs[0].Source != "webhook" || runs[0].Status != "published" || runs[0].ToTag != "v0.2.0" {
+			t.Errorf("webhook run = %+v, want webhook/published v0.2.0", runs[0])
+		}
 	})
 
 	t.Run("ping event is ignored", func(t *testing.T) {
@@ -238,6 +296,51 @@ func TestGithubWebhookSignatureAndDispatch(t *testing.T) {
 			t.Fatal("expected the earlier record to remain")
 		}
 	})
+}
+
+func TestGithubWebhookRejectsIncompleteRepositoryIdentity(t *testing.T) {
+	cases := []struct {
+		name, old, mutate string
+	}{
+		{"empty repository name", `"name":"annalist"`, `"name":""`},
+		{"empty owner login", `"login":"djdembeck"`, `"login":""`},
+		{"empty tag name", `"tag_name":"v0.2.0"`, `"tag_name":""`},
+		{"zero release id", `"id":7`, `"id":0`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			const secret = "github-secret"
+			stub := llmStub(t)
+			pip, store, dataDir := makePipeline(t, stub.URL)
+			handler := New(config.GitHubConfig{AppID: 1, WebhookSecret: secret}).WebhookHandler(pip)
+
+			old, mutate := []byte(tc.old), []byte(tc.mutate)
+			payload := []byte(githubPayload)
+			if n := bytes.Count(payload, old); n != 1 {
+				t.Fatalf("mutation %q matches %d fragment(s) in payload, want exactly 1; case is not exercising the rejection", tc.old, n)
+			}
+			body := bytes.Replace(payload, old, mutate, 1)
+			if bytes.Contains(body, old) || !bytes.Contains(body, mutate) {
+				t.Fatalf("payload not mutated: old fragment %q still present, new fragment %q present=%v", tc.old, tc.mutate, bytes.Contains(body, mutate))
+			}
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("X-Hub-Signature-256", "sha256="+signGitHub(secret, body))
+			req.Header.Set("X-GitHub-Event", "release")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("incomplete repository identity status=%d, want 200", rec.Code)
+			}
+
+			runs, err := store.ListRuns("", "", "", 20)
+			if err != nil || len(runs) != 0 {
+				t.Fatalf("incomplete identity created generation history: runs=%+v err=%v", runs, err)
+			}
+			if n, err := countGenerated(dataDir); err != nil || n != 0 {
+				t.Fatalf("incomplete identity dispatched generation: count=%d err=%v", n, err)
+			}
+		})
+	}
 }
 
 // TestGithubWebhookPreDispatchRejections covers every branch the handler

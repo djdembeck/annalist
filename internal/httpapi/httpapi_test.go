@@ -27,18 +27,21 @@ import (
 // either a recorded notes string or a forced error, and records every
 // GenerateNotes call for assertions.
 type fakePip struct {
-	notes      string
-	err        error
-	resolveErr error
-	eff        engine.Resolved
-	calls      []pipeline.Spec
-	opts       []pipeline.Options
+	outcome     string
+	warningCode string
+	notes       string
+	err         error
+	resolveErr  error
+	eff         engine.Resolved
+	calls       []pipeline.Spec
+	opts        []pipeline.Options
 }
 
 func newFakePip() *fakePip {
 	return &fakePip{
-		notes: "generated notes",
-		eff:   engine.Resolved{Tone: "t0", Instructions: "i0", Model: "m0", Temperature: 0.5, MaxTokens: 4096, ThinkingLevel: "low"},
+		outcome: "generated",
+		notes:   "generated notes",
+		eff:     engine.Resolved{Tone: "t0", Instructions: "i0", Model: "m0", Temperature: 0.5, MaxTokens: 4096, ThinkingLevel: "low"},
 	}
 }
 
@@ -57,6 +60,8 @@ func (f *fakePip) GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pi
 		return pipeline.Result{}, f.err
 	}
 	return pipeline.Result{
+		Outcome:        f.outcome,
+		WarningCode:    f.warningCode,
 		Notes:          f.notes,
 		Profile:        spec.Profile,
 		DisplayVersion: spec.DisplayVersion,
@@ -673,6 +678,17 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 	if item.Instructions != "" {
 		t.Errorf("instructions = %q, want cleared by explicit null", item.Instructions)
 	}
+	// A fresh repo has no generation history on the mutating response yet.
+	if item.LatestRun != nil {
+		t.Errorf("fresh repo latest_run = %+v, want nil", item.LatestRun)
+	}
+	runID, err := store.StartRun(db.GenerationRun{Platform: "github", Owner: "djdembeck", Repo: "annalist", Source: "manual", ToTag: "v2.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishRun(runID, "v1.0.0", "published", "", ""); err != nil {
+		t.Fatal(err)
+	}
 
 	// Verify it persisted in the store.
 	row, err := store.GetRepoSettings("github", "djdembeck", "annalist")
@@ -816,6 +832,20 @@ func TestHandlePutRepoSettingsRoundTrip(t *testing.T) {
 	wBadKnob := do(a.handlePutRepoSettings, rBadKnob)
 	if wBadKnob.Code != http.StatusBadRequest {
 		t.Fatalf("invalid thinking_level PUT status = %d, want 400", wBadKnob.Code)
+	}
+
+	// A completed run must appear on the mutating response.
+	rLatest := newReq(http.MethodPut, "/api/repos/github/djdembeck/annalist/settings",
+		`{"tone":"terse"}`,
+		map[string]string{"platform": "github", "owner": "djdembeck", "repo": "annalist"})
+	wLatest := do(a.handlePutRepoSettings, rLatest)
+	if wLatest.Code != http.StatusOK {
+		t.Fatalf("latest_run PUT status = %d, want 200", wLatest.Code)
+	}
+	var itemLatest repoItemResp
+	_ = json.Unmarshal(wLatest.Body.Bytes(), &itemLatest)
+	if itemLatest.LatestRun == nil || itemLatest.LatestRun.ID != runID || itemLatest.LatestRun.Status != "published" {
+		t.Fatalf("latest_run = %+v, want published run %d", itemLatest.LatestRun, runID)
 	}
 }
 
@@ -1086,6 +1116,8 @@ func TestHandleGenerate(t *testing.T) {
 	a, pip, _ := testAPI(t, &config.Config{}, nil)
 
 	t.Run("success", func(t *testing.T) {
+		pip.outcome = "published"
+		t.Cleanup(func() { pip.outcome = "generated" })
 		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate", `{"to_tag":"v1.0.0","from_tag":"v0.9.0","force":true,"publish":true}`,
 			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
 		w := do(a.handleGenerate, r)
@@ -1364,6 +1396,58 @@ func TestHandleGenerateMode(t *testing.T) {
 		}
 		if len(pip.calls) != 0 {
 			t.Errorf("pipeline called %d times on invalid mode, want 0", len(pip.calls))
+		}
+	})
+}
+
+func TestHandleGenerateRangePolicy(t *testing.T) {
+	a, pip, _ := testAPI(t, &config.Config{}, nil)
+
+	t.Run("unknown range_policy is a 400 before any generation", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0","range_policy":"latest"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body %s", w.Code, w.Body.String())
+		}
+		if len(pip.calls) != 0 {
+			t.Errorf("pipeline called %d times on unknown range_policy, want 0", len(pip.calls))
+		}
+	})
+
+	t.Run("previous_published reaches the pipeline verbatim", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0","range_policy":"previous_published"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		// The pipeline sees the policy verbatim: the spec hand-off IS the
+		// contract (the real range behavior is pinned in the pipeline
+		// package's range_policy tests).
+		if len(pip.calls) != 1 || pip.calls[0].RangePolicy != pipeline.RangePreviousPublished {
+			t.Fatalf("spec = %+v, want RangePolicy previous_published", pip.calls)
+		}
+	})
+
+	t.Run("omitted range_policy keeps the legacy behavior", func(t *testing.T) {
+		pip.calls = nil
+		pip.opts = nil
+		r := newReq(http.MethodPost, "/api/repos/github/o/r/generate",
+			`{"to_tag":"v1.0.0"}`,
+			map[string]string{"platform": "github", "owner": "o", "repo": "r"})
+		w := do(a.handleGenerate, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		if len(pip.calls) != 1 || pip.calls[0].RangePolicy != "" {
+			t.Fatalf("spec = %+v, want omitted range_policy to stay empty (legacy)", pip.calls)
 		}
 	})
 }

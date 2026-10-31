@@ -195,6 +195,34 @@ func (c *Client) ReadRepoFile(ctx context.Context, owner, repo, path, ref string
 	return content, nil
 }
 
+// ListReleases returns every release the platform lists for owner/repo
+// (drafts and prereleases included), paginated fully via Link headers.
+func (c *Client) ListReleases(ctx context.Context, owner, repo string) ([]pipeline.ReleaseMeta, error) {
+	client, err := c.repoClient(ctx, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+	var out []pipeline.ReleaseMeta
+	page := 1
+	for {
+		batch, resp, err := client.Repositories.ListReleases(ctx, owner, repo, &gogithub.ListOptions{Page: page, PerPage: 100})
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range batch {
+			out = append(out, pipeline.ReleaseMeta{
+				Tag:        r.GetTagName(),
+				Draft:      r.GetDraft(),
+				Prerelease: r.GetPrerelease(),
+			})
+		}
+		if resp == nil || resp.NextPage == 0 {
+			return out, nil
+		}
+		page = resp.NextPage
+	}
+}
+
 // GetReleaseByTag fetches a release by tag, wrapping a missing release in
 // pipeline.ErrNotFound.
 func (c *Client) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*pipeline.Release, error) {

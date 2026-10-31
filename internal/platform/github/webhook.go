@@ -76,17 +76,22 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if pl.Release.Draft {
+		if pl.Release.Draft || pl.Release.TagName == "" || pl.Release.ID == 0 || pl.Repository.Owner.Login == "" || pl.Repository.Name == "" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
+		// Fill-after resolves the notes range to the previous PUBLISHED
+		// non-draft ancestor release (full history when none exists), so
+		// an unfinished earlier reservation cannot hide unreleased
+		// changes behind its tag.
 		spec := pipeline.Spec{
-			Platform:  "github",
-			Owner:     pl.Repository.Owner.Login,
-			Repo:      pl.Repository.Name,
-			ToTag:     pl.Release.TagName,
-			ReleaseID: "github:" + fmt.Sprintf("%d", pl.Release.ID),
+			Platform:    "github",
+			Owner:       pl.Repository.Owner.Login,
+			Repo:        pl.Repository.Name,
+			ToTag:       pl.Release.TagName,
+			RangePolicy: pipeline.RangePreviousPublished,
+			ReleaseID:   "github:" + fmt.Sprintf("%d", pl.Release.ID),
 		}
 
 		enabled, _, _, err := p.Resolve(context.Background(), spec.Platform, spec.Owner, spec.Repo)
@@ -107,10 +112,10 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 			defer cancel()
-			if _, err := p.GenerateNotes(ctx, spec, pipeline.Options{Publish: true}); err != nil {
+			if result, err := p.GenerateNotes(ctx, spec, pipeline.Options{Source: "webhook", Publish: true}); err != nil {
 				log.Printf("annalist: generate %s/%s %s: %v", spec.Owner, spec.Repo, spec.ToTag, err)
 			} else {
-				log.Printf("annalist: published notes for %s/%s %s", spec.Owner, spec.Repo, spec.ToTag)
+				log.Printf("annalist: %s notes for %s/%s %s", result.Outcome, spec.Owner, spec.Repo, spec.ToTag)
 			}
 		}()
 	})

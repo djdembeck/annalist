@@ -62,20 +62,21 @@ func randomSuffix() string {
 	return "-" + hex.EncodeToString(b)
 }
 
-// version is a parsed numeric semver triple.
-type version struct {
-	major, minor, patch int
+// Version is a parsed numeric semver triple — the one canonical release-tag
+// semver in this codebase; the pipeline's range floor compares with it.
+type Version struct {
+	Major, Minor, Patch int
 }
 
-// compare returns -1, 0, or 1 comparing v against o numerically.
-func (v version) compare(o version) int {
-	if v.major != o.major {
-		return cmpInt(v.major, o.major)
+// Compare returns -1, 0, or 1 comparing v against o numerically.
+func (v Version) Compare(o Version) int {
+	if v.Major != o.Major {
+		return cmpInt(v.Major, o.Major)
 	}
-	if v.minor != o.minor {
-		return cmpInt(v.minor, o.minor)
+	if v.Minor != o.Minor {
+		return cmpInt(v.Minor, o.Minor)
 	}
-	return cmpInt(v.patch, o.patch)
+	return cmpInt(v.Patch, o.Patch)
 }
 
 func cmpInt(a, b int) int {
@@ -94,31 +95,34 @@ func cmpInt(a, b int) int {
 // first three components just need to be digits.
 var versionRe = regexp.MustCompile(`^v?([0-9]+)\.([0-9]+)\.([0-9]+)`)
 
-func parseVersion(tag string) (version, bool) {
+// ParseTagVersion parses a tag (or a tag's version segment) as a Version.
+// ok is false when the leading component is not a v?X.Y.Z triple; a trailing
+// prerelease/build suffix never changes the result.
+func ParseTagVersion(tag string) (Version, bool) {
 	m := versionRe.FindStringSubmatch(tag)
 	if m == nil {
-		return version{}, false
+		return Version{}, false
 	}
 	major, err1 := strconv.Atoi(m[1])
 	minor, err2 := strconv.Atoi(m[2])
 	patch, err3 := strconv.Atoi(m[3])
 	if err1 != nil || err2 != nil || err3 != nil {
-		return version{}, false
+		return Version{}, false
 	}
-	return version{major: major, minor: minor, patch: patch}, true
+	return Version{Major: major, Minor: minor, Patch: patch}, true
 }
 
-// splitPrefixedTag splits a prefixed release tag (<prefix>/vX.Y.Z, e.g.
+// SplitPrefixedTag splits a prefixed release tag (<prefix>/vX.Y.Z, e.g.
 // "ggsimpleads/v1.0.2") into its prefix — including the trailing "/" — and its
 // version part. ok is false for tags without a prefix or whose trailing segment
 // is not a v?X.Y.Z version.
-func splitPrefixedTag(tag string) (prefix, ver string, ok bool) {
+func SplitPrefixedTag(tag string) (prefix, ver string, ok bool) {
 	i := strings.LastIndex(tag, "/")
 	if i < 0 || i == len(tag)-1 {
 		return "", "", false
 	}
 	p, v := tag[:i+1], tag[i+1:]
-	if _, ok := parseVersion(v); !ok {
+	if _, ok := ParseTagVersion(v); !ok {
 		return "", "", false
 	}
 	return p, v, true
@@ -145,26 +149,26 @@ func ResolvePrevTag(ctx context.Context, workdir, current string) string {
 	}
 
 	var bestTag string
-	var best version
+	var best Version
 	haveBest := false
 
-	if prefix, ver, ok := splitPrefixedTag(current); ok {
+	if prefix, ver, ok := SplitPrefixedTag(current); ok {
 		// Same-prefix comparison: only this stream's tags are candidates.
-		cur, _ := parseVersion(ver)
+		cur, _ := ParseTagVersion(ver)
 		for _, line := range strings.Split(string(out), "\n") {
 			tag := strings.TrimSpace(line)
 			if tag == "" {
 				continue
 			}
-			p, v, ok := splitPrefixedTag(tag)
+			p, v, ok := SplitPrefixedTag(tag)
 			if !ok || p != prefix {
 				continue
 			}
-			pv, _ := parseVersion(v)
-			if pv.compare(cur) >= 0 {
+			pv, _ := ParseTagVersion(v)
+			if pv.Compare(cur) >= 0 {
 				continue
 			}
-			if !haveBest || pv.compare(best) > 0 {
+			if !haveBest || pv.Compare(best) > 0 {
 				best, bestTag, haveBest = pv, tag, true
 			}
 		}
@@ -174,21 +178,21 @@ func ResolvePrevTag(ctx context.Context, workdir, current string) string {
 		return bestTag
 	}
 
-	cur, curOK := parseVersion(current)
+	cur, curOK := ParseTagVersion(current)
 	for _, line := range strings.Split(string(out), "\n") {
 		tag := strings.TrimSpace(line)
 		if tag == "" {
 			continue
 		}
-		v, ok := parseVersion(tag)
+		v, ok := ParseTagVersion(tag)
 		if !ok {
 			continue
 		}
-		if curOK && v.compare(cur) >= 0 {
+		if curOK && v.Compare(cur) >= 0 {
 			// Not strictly less than current: not a candidate.
 			continue
 		}
-		if !haveBest || v.compare(best) > 0 {
+		if !haveBest || v.Compare(best) > 0 {
 			best, bestTag, haveBest = v, tag, true
 		}
 	}
@@ -196,6 +200,60 @@ func ResolvePrevTag(ctx context.Context, workdir, current string) string {
 		return ""
 	}
 	return bestTag
+}
+
+// TagCommitSHA returns the commit SHA that tag Points to in workdir,
+// resolving annotated tags to their target commit. Returns "" on git
+// failure, for a tag absent from the clone, or for an invalid ref name.
+func TagCommitSHA(ctx context.Context, workdir, tag string) string {
+	if !validGitRef(tag) {
+		return ""
+	}
+	out, err := runGit(ctx, workdir, "rev-list", "-n", "1", tag+"^{commit}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// TargetCommitSHA resolves a git ref (usually the target release tag, which
+// must exist when notes are generated for it) to the full commit SHA it
+// points at, unwrapping annotated tags. Returns "" on git failure or for an
+// invalid ref name.
+func TargetCommitSHA(ctx context.Context, workdir, ref string) string {
+	if !validGitRef(ref) {
+		return ""
+	}
+	out, err := runGit(ctx, workdir, "rev-list", "-n", "1", ref+"^{commit}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// IsAncestorCommit reports whether commit ancestor is reachable from commit
+// descendant. Both must be full SHAs already in workdir. Returns false on
+// git failure (malformed SHAs, unborn objects) — callers treating an
+// unverifiable candidate as non-ancestor are the common, fail-closed use.
+func IsAncestorCommit(ctx context.Context, workdir, ancestor, descendant string) bool {
+	if !isFullSHA(ancestor) || !isFullSHA(descendant) {
+		return false
+	}
+	_, err := runGit(ctx, workdir, "merge-base", "--is-ancestor", ancestor, descendant)
+	return err == nil
+}
+
+// isFullSHA reports whether s is a 40-character lowercase hex SHA-1.
+func isFullSHA(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // DefaultCommitTypes is the commit-type filter used when no saved repo or

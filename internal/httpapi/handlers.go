@@ -145,20 +145,21 @@ type effective struct {
 
 // repoItemResp is the JSON shape for a repo in /api/repos and the settings PUT.
 type repoItemResp struct {
-	Platform      string    `json:"platform"`
-	Owner         string    `json:"owner"`
-	Repo          string    `json:"repo"`
-	Enabled       bool      `json:"enabled"`
-	Tone          string    `json:"tone"`
-	Instructions  string    `json:"instructions"`
-	Model         string    `json:"model"`
-	Temperature   *float64  `json:"temperature"`
-	Trigger       string    `json:"trigger"`
-	CommitTypes   string    `json:"commit_types"`
-	Mode          string    `json:"mode"`
-	MaxTokens     int       `json:"max_tokens"`
-	ThinkingLevel string    `json:"thinking_level"`
-	Effective     effective `json:"effective"`
+	LatestRun     *db.GenerationRun `json:"latest_run"`
+	Platform      string            `json:"platform"`
+	Owner         string            `json:"owner"`
+	Repo          string            `json:"repo"`
+	Enabled       bool              `json:"enabled"`
+	Tone          string            `json:"tone"`
+	Instructions  string            `json:"instructions"`
+	Model         string            `json:"model"`
+	Temperature   *float64          `json:"temperature"`
+	Trigger       string            `json:"trigger"`
+	CommitTypes   string            `json:"commit_types"`
+	Mode          string            `json:"mode"`
+	MaxTokens     int               `json:"max_tokens"`
+	ThinkingLevel string            `json:"thinking_level"`
+	Effective     effective         `json:"effective"`
 }
 
 // repoItem builds the response for a repo_settings row, computing the
@@ -241,6 +242,17 @@ func (a *api) handleListRepos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	latest, err := a.store.LatestRuns()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not load generation history")
+		return
+	}
+	type identity struct{ platform, owner, repo string }
+	latestByRepo := make(map[identity]*db.GenerationRun, len(latest))
+	for i := range latest {
+		run := &latest[i]
+		latestByRepo[identity{run.Platform, run.Owner, run.Repo}] = run
+	}
 	items := make([]repoItemResp, len(rows))
 	eg, egCtx := errgroup.WithContext(ctx)
 	sem := make(chan struct{}, runtime.NumCPU())
@@ -254,6 +266,7 @@ func (a *api) handleListRepos(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
+			item.LatestRun = latestByRepo[identity{row.Platform, row.Owner, row.Repo}]
 			items[i] = item
 			return nil
 		})
@@ -390,7 +403,7 @@ func (a *api) handleAddRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := a.repoItem(r.Context(), setting)
+	item, err := a.repoItemWithLatest(r.Context(), setting)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -533,7 +546,7 @@ func (a *api) handlePutRepoSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := a.repoItem(r.Context(), setting)
+	item, err := a.repoItemWithLatest(r.Context(), setting)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -554,6 +567,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ToTag          string  `json:"to_tag"`
 		FromTag        *string `json:"from_tag"`
+		RangePolicy    string  `json:"range_policy"`
 		Force          bool    `json:"force"`
 		Publish        *bool   `json:"publish"`
 		Mode           string  `json:"mode"`
@@ -570,6 +584,13 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validMode(req.Mode) {
 		writeErr(w, http.StatusBadRequest, "invalid mode")
+		return
+	}
+	// Optional range policy: empty keeps the legacy previous-tag resolution
+	// for requests that omit it; "previous_published" resolves the previous
+	// published non-draft ancestor release (full history when none exists).
+	if req.RangePolicy != "" && req.RangePolicy != pipeline.RangePreviousPublished {
+		writeErr(w, http.StatusBadRequest, "invalid range_policy (expected previous_published)")
 		return
 	}
 
@@ -601,10 +622,11 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		Repo:           repo,
 		ToTag:          req.ToTag,
 		FromTag:        fromTag,
+		RangePolicy:    req.RangePolicy,
 		ReleaseID:      releaseID,
 		Profile:        req.Profile,
 		DisplayVersion: displayVersion,
-	}, pipeline.Options{Force: req.Force, Publish: publish, Mode: req.Mode})
+	}, pipeline.Options{Source: "manual", Force: req.Force, Publish: publish, Mode: req.Mode})
 	if err != nil {
 		switch {
 		case errors.Is(err, pipeline.ErrInvalidProfile), errors.Is(err, pipeline.ErrInvalidDisplayVersion):
@@ -620,10 +642,13 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"notes":           result.Notes,
 		"release_id":      releaseID,
-		"published":       publish,
+		"published":       result.Outcome == "published",
+		"outcome":         result.Outcome,
+		"warning_code":    nullableCode(result.WarningCode),
 		"profile":         result.Profile,
 		"display_version": result.DisplayVersion,
 		"from_tag":        result.FromTag,
+		"range_policy":    result.RangePolicy,
 		"to_tag":          result.ToTag,
 		"config_digest":   result.ConfigDigest,
 	})

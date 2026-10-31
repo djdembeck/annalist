@@ -32,6 +32,9 @@ import (
 type fakePlatform struct {
 	origin   string
 	releases map[string]*pipeline.Release
+	// list is the platform's full release list (for the previous-
+	// published range-policy resolution); empty = nothing listed.
+	list []pipeline.ReleaseMeta
 }
 
 func (f *fakePlatform) ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error) {
@@ -42,6 +45,9 @@ func (f *fakePlatform) GetReleaseByTag(ctx context.Context, owner, repo, tag str
 		return rl, nil
 	}
 	return nil, fmt.Errorf("%w: %s", pipeline.ErrNotFound, tag)
+}
+func (f *fakePlatform) ListReleases(ctx context.Context, owner, repo string) ([]pipeline.ReleaseMeta, error) {
+	return f.list, nil
 }
 func (f *fakePlatform) EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error {
 	return nil
@@ -78,6 +84,12 @@ func makeOrigin(t *testing.T) string {
 		gitNoAsk(t, origin, "commit", "-q", "-m", subject)
 		if i == 0 {
 			gitNoAsk(t, origin, "tag", "v0.1.0")
+			// Unfinished reservation: a real tag, reachable from the
+			// target, higher than the published floor — but never published
+			// (absent from the fake platform's release list). Legacy
+			// previous-tag resolution lands on THIS tag; the
+			// previous_published floor must stay at v0.1.0.
+			gitNoAsk(t, origin, "tag", "v0.1.5")
 		} else {
 			gitNoAsk(t, origin, "tag", "v0.2.0")
 		}
@@ -100,7 +112,18 @@ func makePipeline(t *testing.T, baseURL string) (*pipeline.Pipeline, *db.Store, 
 			BaseURL: baseURL, APIKey: "k", Model: "m", Temperature: 0.5, MaxTokens: 4096,
 		},
 	}
-	f := &fakePlatform{origin: makeOrigin(t), releases: map[string]*pipeline.Release{"v0.2.0": {ID: 42, Body: ""}}}
+	f := &fakePlatform{
+		origin:   makeOrigin(t),
+		releases: map[string]*pipeline.Release{"v0.2.0": {ID: 42, Body: ""}},
+		// The repository lists v0.1.0 (published floor) and v0.2.0 (the
+		// target, which must be excluded). v0.1.5 — a real tag in the
+		// origin, strictly between the floor and the target — is NOT in
+		// the list: it is an unfinished reservation.
+		list: []pipeline.ReleaseMeta{
+			{Tag: "v0.1.0", Draft: false, Prerelease: false},
+			{Tag: "v0.2.0", Draft: false, Prerelease: false},
+		},
+	}
 	return pipeline.New(cfg, store, llm.New(cfg.LLM), nil, f), store, dataDir
 }
 
@@ -173,12 +196,30 @@ func waitForGenerated(t *testing.T, dataDir, releaseID string) *db.GeneratedNote
 	return nil
 }
 
+// waitForRunTerminal polls until the dispatch run is no longer "running". The
+// generated record can be committed before the dispatch goroutine's deferred
+// FinishRun lands, so the record's presence alone is not enough to observe
+// the terminal status.
+func waitForRunTerminal(t *testing.T, store *db.Store, platform, owner, repo string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, err := store.ListRuns(platform, owner, repo, 20)
+		if err == nil && len(runs) == 1 && runs[0].Status != "running" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	runs, err := store.ListRuns(platform, owner, repo, 20)
+	t.Fatalf("timed out waiting for webhook run to become terminal: %+v (err=%v)", runs, err)
+}
+
 const forgejoPayload = `{"action":"created","release":{"id":42,"tag_name":"v0.2.0","draft":false},"repository":{"full_name":"djdembeck/annalist","name":"annalist","owner":{"login":"djdembeck","username":"djdembeck"}}}`
 
 func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 	const secret = "forgejo-secret"
 	stub := llmStub(t)
-	pip, _, dataDir := makePipeline(t, stub.URL)
+	pip, store, dataDir := makePipeline(t, stub.URL)
 	handler := New(config.ForgejoConfig{URL: "https://git.example.invalid", Token: "tok", WebhookSecret: secret}).WebhookHandler(pip)
 
 	post := func(t *testing.T, body []byte, sigs map[string]string, event string) *httptest.ResponseRecorder {
@@ -218,6 +259,20 @@ func TestForgejoWebhookSignatureAndDispatch(t *testing.T) {
 		}
 		if !strings.Contains(gn.Notes, "WEBHOOK NOTES") {
 			t.Errorf("notes = %q", gn.Notes)
+		}
+		// The persisted floor is the last PUBLISHED ancestor (v0.1.0),
+		// NOT the unfinished reservation v0.1.5 that legacy previous-tag
+		// resolution would pick.
+		if gn.FromTag != "v0.1.0" {
+			t.Errorf("persisted FromTag = %q, want v0.1.0 (reservation v0.1.5 must not be the floor)", gn.FromTag)
+		}
+		waitForRunTerminal(t, store, "forgejo", "djdembeck", "annalist")
+		runs, err := store.ListRuns("", "", "", 20)
+		if err != nil || len(runs) != 1 {
+			t.Fatalf("webhook dispatch created %d generation runs, want 1: %+v (err=%v)", len(runs), runs, err)
+		}
+		if runs[0].Source != "webhook" || runs[0].Status != "published" || runs[0].ToTag != "v0.2.0" {
+			t.Errorf("webhook run = %+v, want webhook/published v0.2.0", runs[0])
 		}
 	})
 

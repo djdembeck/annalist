@@ -11,7 +11,32 @@ export type Status = {
   admin: boolean;
 };
 
+export type GenerationRun = {
+  id: number;
+  platform: string;
+  owner: string;
+  repo: string;
+  source: "webhook" | "manual";
+  to_tag: string;
+  from_tag: string;
+  profile: string;
+  display_version: string;
+  status:
+    | "running"
+    | "published"
+    | "generated"
+    | "cached"
+    | "preserved"
+    | "failed"
+    | "interrupted";
+  error_code: string | null;
+  warning_code: string | null;
+  started_at: string;
+  finished_at: string | null;
+};
+
 export type Repo = {
+  latest_run: GenerationRun | null;
   platform: string;
   owner: string;
   repo: string;
@@ -65,9 +90,12 @@ export type GenerateResult = {
   notes: string;
   release_id: string | null;
   published: boolean;
+  outcome: "published" | "generated" | "cached" | "preserved";
+  warning_code: string | null;
   profile: string;
   display_version: string;
   from_tag: string;
+  range_policy: string;
   to_tag: string;
   config_digest: string;
 };
@@ -75,6 +103,14 @@ export type GenerateResult = {
 export type GenerateRequest = {
   to_tag: string;
   from_tag?: string | null;
+  /**
+   * Range floor resolution when from_tag is omitted:
+   *   - omitted (default): legacy previous valid semver-ish tag
+   *   - "previous_published": previous published non-draft ancestor
+   *     release (full history when none exists)
+   * An exact nonempty from_tag always wins over the policy.
+   */
+  range_policy?: "" | "previous_published";
   force?: boolean;
   publish?: boolean;
   mode?: string;
@@ -169,6 +205,17 @@ export function getStatus(): Promise<Status> {
 
 export function getRepos(): Promise<Repo[]> {
   return apiFetch<Repo[]>("/api/repos");
+}
+
+export function getRuns(
+  identity?: { platform: string; owner: string; repo: string },
+  limit = 20,
+): Promise<GenerationRun[]> {
+  const query = new URLSearchParams({
+    limit: String(limit),
+    ...(identity ?? {}),
+  });
+  return apiFetch<GenerationRun[]>(`/api/runs?${query}`);
 }
 
 export function getAvailableRepos(): Promise<AvailableRepo[]> {
