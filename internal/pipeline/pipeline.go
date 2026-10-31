@@ -82,6 +82,8 @@ type Spec struct {
 // Result is the structured output of GenerateNotes: the notes text plus the
 // generation-contract metadata needed for cache identity and API responses.
 type Result struct {
+	Outcome        string
+	WarningCode    string
 	Notes          string
 	Profile        string
 	DisplayVersion string
@@ -96,8 +98,9 @@ type Result struct {
 
 // Options controls generation behavior.
 type Options struct {
-	Force   bool // bypass idempotency and the don't-clobber guard
-	Publish bool // write the notes into the release body
+	Source  string // manual or webhook for daemon monitoring; empty leaves CLI unmonitored
+	Force   bool   // bypass idempotency and the don't-clobber guard
+	Publish bool   // write the notes into the release body
 	// Mode overrides the resolved mode for this invocation only; empty = use resolved.
 	Mode string
 }
@@ -434,7 +437,7 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 // of the key. Generation is bounded by a semaphore; per-contract locks make
 // identical concurrent requests share one LLM call, and per-release publish
 // locks serialize release-body replacement.
-func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (Result, error) {
+func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (out Result, runErr error) {
 	// Shared request validation (used by the API and the CLI alike).
 	if err := validateProfileRequest(spec.Profile); err != nil {
 		return Result{}, fmt.Errorf("pipeline: %w", err)
@@ -445,6 +448,33 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 			return Result{}, fmt.Errorf("pipeline: %w", err)
 		}
 		spec.DisplayVersion = dv
+	}
+
+	if opts.Source != "" && opts.Source != "manual" && opts.Source != "webhook" {
+		return Result{}, errors.New("pipeline: invalid generation source")
+	}
+	stage := "configuration"
+	from := spec.FromTag
+	if opts.Source != "" {
+		id, err := p.DB.StartRun(db.GenerationRun{Platform: spec.Platform, Owner: spec.Owner, Repo: spec.Repo, Source: opts.Source, ToTag: spec.ToTag, FromTag: from, Profile: spec.Profile, DisplayVersion: displayVersionFor(spec)})
+		if err != nil {
+			return Result{}, fmt.Errorf("pipeline: start generation run: %w", err)
+		}
+		defer func() {
+			status, code := out.Outcome, ""
+			if runErr != nil || status == "" {
+				status, code = "failed", stage
+				if errors.Is(runErr, context.DeadlineExceeded) {
+					code = "timeout"
+				}
+				if errors.Is(runErr, context.Canceled) {
+					code = "cancelled"
+				}
+			}
+			if err := p.DB.FinishRun(id, from, status, code, out.WarningCode); err != nil {
+				log.Printf("pipeline: persist terminal generation run %d (remote outcome %s): %v", id, status, err)
+			}
+		}()
 	}
 
 	select {
@@ -475,6 +505,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		return Result{}, err
 	}
 
+	stage = "repository"
 	cloneURL, header, err := platform.CloneInfo(ctx, spec.Owner, spec.Repo)
 	if err != nil {
 		return Result{}, fmt.Errorf("pipeline: clone info: %w", err)
@@ -489,7 +520,6 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	// Resolve the range floor. An exact non-empty FromTag always wins;
 	// the policy (legacy previous-tag, or previous published release)
 	// applies only when FromTag is empty.
-	from := spec.FromTag
 	switch {
 	case from != "":
 		// Exact tag, honored verbatim (legacy last-call-requested behavior).
@@ -512,6 +542,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		resolved.Mode = opts.Mode
 	}
 
+	stage = "instructions"
 	// Instructions are pinned to the source tag so the prompt a release was
 	// generated with is the prompt that existed at that tag.
 	if spec.Profile != "" {
@@ -543,6 +574,10 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	configDigest := p.configDigest(eff.BaseURL, resolved)
 	cacheKey := p.cacheKey(spec, from, configDigest)
 
+	// Instructions resolution is complete; failures while consulting the
+	// generated-output cache are configuration failures, not instruction
+	// failures. Keep this assignment adjacent to the lookup stage boundary.
+	stage = "configuration"
 	// Acquire the per-contract generation lock, then recheck the cache: the
 	// key already encodes the resolved range and prompt identity, and the
 	// lock makes the check-then-generate atomic for identical requests.
@@ -557,6 +592,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		}
 		if existing != nil {
 			return Result{
+				Outcome:        "cached",
 				Notes:          existing.Notes,
 				Profile:        spec.Profile,
 				DisplayVersion: displayVersionFor(spec),
@@ -568,6 +604,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		}
 	}
 
+	stage = "generation"
 	commitLog := engine.CollectCommitLog(ctx, workdir, from, spec.ToTag, resolved.CommitTypes)
 
 	var notes string
@@ -585,6 +622,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	}
 
 	result := Result{
+		Outcome:        "generated",
 		Notes:          notes,
 		Profile:        spec.Profile,
 		DisplayVersion: displayVersionFor(spec),
@@ -595,8 +633,18 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	}
 
 	if opts.Publish {
-		if err := p.Publish(ctx, result, spec, platform, opts.Force); err != nil {
+		stage = "publication"
+		published, err := p.Publish(ctx, result, spec, platform, opts.Force)
+		if published {
+			result.Outcome = "published"
+			if err != nil {
+				result.WarningCode = "cache_persistence"
+				log.Printf("pipeline: release published but generation cache persistence failed: %v", err)
+			}
+		} else if err != nil {
 			return Result{}, err
+		} else {
+			result.Outcome = "preserved"
 		}
 	}
 
@@ -785,7 +833,9 @@ func publishLockKey(spec Spec) string {
 	return spec.Platform + "/" + spec.Owner + "/" + spec.Repo + "@" + spec.ToTag
 }
 
-func (p *Pipeline) Publish(ctx context.Context, result Result, spec Spec, platform Platform, force bool) error {
+// Publish reports whether the remote body was written, even if saving its cache fails.
+// A false result with no error means the human-authored body was preserved.
+func (p *Pipeline) Publish(ctx context.Context, result Result, spec Spec, platform Platform, force bool) (bool, error) {
 	pub := p.pubInflight()
 	lockKey := publishLockKey(spec)
 	pub.Lock(lockKey)
@@ -793,12 +843,12 @@ func (p *Pipeline) Publish(ctx context.Context, result Result, spec Spec, platfo
 
 	release, err := platform.GetReleaseByTag(ctx, spec.Owner, spec.Repo, spec.ToTag)
 	if err != nil {
-		return fmt.Errorf("pipeline: fetch release: %w", err)
+		return false, fmt.Errorf("pipeline: fetch release: %w", err)
 	}
 
 	if !force && release.Body != "" && !strings.Contains(release.Body, marker) {
 		log.Printf("pipeline: %s/%s %s: human-edited release body; leaving it alone", spec.Owner, spec.Repo, spec.ToTag)
-		return nil
+		return false, nil
 	}
 
 	body := result.Notes
@@ -806,7 +856,7 @@ func (p *Pipeline) Publish(ctx context.Context, result Result, spec Spec, platfo
 		body = body + "\n" + marker
 	}
 	if err := platform.EditReleaseBody(ctx, spec.Owner, spec.Repo, release.ID, body); err != nil {
-		return fmt.Errorf("pipeline: edit release body: %w", err)
+		return false, fmt.Errorf("pipeline: edit release body: %w", err)
 	}
 
 	note := db.GeneratedNote{
@@ -823,7 +873,7 @@ func (p *Pipeline) Publish(ctx context.Context, result Result, spec Spec, platfo
 		Notes:          result.Notes,
 	}
 	if err := p.DB.MarkGenerated(note); err != nil {
-		return fmt.Errorf("pipeline: record generated: %w", err)
+		return true, fmt.Errorf("pipeline: record generated: %w", err)
 	}
-	return nil
+	return true, nil
 }

@@ -1,62 +1,80 @@
 ---
 name: Annalist
-description: Self-hosted AI release-note automation for GitHub and Forgejo/Gitea — the Release Trace Wall.
+description: Self-hosted AI release-note automation for GitHub and Forgejo/Gitea — the Quiet Workspace.
 colors:
-  page: "#0b0f14"
-  panel: "#18212b"
-  raised: "#202d38"
-  panel-warm: "#1b2831"
-  raised-warm: "#25343e"
-  line: "#33434f"
-  line-strong: "#4a5d68"
-  focus: "#59c3c3"
-  ink: "#f3eee5"
-  muted: "#aeb8bd"
-  ink-soft: "#96a4aa"
-  control: "#263640"
-  control-hover: "#30444f"
-  copper: "#f06a3a"
-  copper-hover: "#f58b5f"
-  heat: "#f4c95d"
-  cyan: "#59c3c3"
-  green: "#86b574"
-  red: "#d55c51"
-  paper-edge: "#c2c0b8"
+  canvas: "#f5eee5"
+  surface: "#fff"
+  control-hover: "#fffaf4"
+  line: "#e6dccf"
+  line-strong: "#9c8768"
+  ink: "#302b26"
+  muted: "#6f665c"
+  copper: "#bd431f"
+  copper-deep: "#a03616"
+  focus: "#bd431f"
+  primary-ink: "#fff"
+  selection: "#eadbc9"
+  skeleton: "#e0d2bf"
+  scroll-thumb: "#b9a995"
+  published: "#263524"
+  published-bg: "#edf3ea"
+  published-border: "#b7c9b1"
+  published-icon: "#2c5a33"
+  failed: "#482a22"
+  failed-bg: "#f8eae5"
+  failed-border: "#d9b1a2"
+  failed-icon: "#8c351e"
+  cached: "#3c342b"
+  cached-bg: "#eee8df"
+  cached-border: "#c9bda9"
+  cached-icon: "#62533d"
 typography:
   display:
-    fontFamily: '"Saira Stencil One", "Saira", ui-sans-serif, system-ui, sans-serif'
-    fontSize: "clamp(2.75rem, 7vw, 5.75rem)"
-    fontWeight: 400
-    lineHeight: 0.95
-    letterSpacing: "-0.035em"
-  headline:
-    fontFamily: '"Saira", ui-sans-serif, system-ui, sans-serif'
-    fontSize: "1rem"
-    fontWeight: 600
+    fontFamily: "\"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif"
+    fontSize: "31px"
+    fontWeight: 650
+    lineHeight: 1.16
+    letterSpacing: "-0.028em"
+  heading-sm:
+    fontFamily: "\"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif"
+    fontSize: "21px"
+    fontWeight: 650
     lineHeight: 1.3
+    letterSpacing: "-0.015em"
   body:
-    fontFamily: '"Saira", ui-sans-serif, system-ui, sans-serif'
-    fontSize: "0.875rem"
+    fontFamily: "\"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif"
+    fontSize: "15px"
     fontWeight: 400
     lineHeight: 1.5
+  text:
+    fontFamily: "\"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.3
   label:
-    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace"
-    fontSize: "0.6875rem"
-    fontWeight: 600
-    lineHeight: 1.2
-    letterSpacing: "0.1em"
-  mono:
-    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace"
-    fontSize: "0.75rem"
+    fontFamily: "\"Avenir Next\", \"Segoe UI\", Cantarell, system-ui, sans-serif"
+    fontSize: "13px"
     fontWeight: 400
-    lineHeight: 1.5
+    lineHeight: 1.4
+  mono:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.65
 rounded:
-  paper: "2px"
-  sm: "4px"
-  full: "9999px"
+  xs: "4px"
+  sm: "5px"
+  control: "8px"
+  surface: "12px"
 spacing:
+  # Tailwind v4 base spacing token: --spacing = .25rem (4px). Utility steps
+  # below are n x --spacing, verified against the generated
+  # `calc(var(--spacing) * n)` rules in the built CSS.
+  "0.5": "2px"
   "1": "4px"
+  "1.5": "6px"
   "2": "8px"
+  "2.5": "10px"
   "3": "12px"
   "4": "16px"
   "5": "20px"
@@ -64,181 +82,203 @@ spacing:
 components:
   button-primary:
     backgroundColor: "{colors.copper}"
-    textColor: "{colors.page}"
-    typography: "{typography.body}"
-    rounded: "{rounded.sm}"
-    padding: "8px 12px"
+    textColor: "{colors.primary-ink}"
+    typography: "{typography.text}"
+    rounded: "{rounded.control}"
+    padding: "9px 15px"
     height: "44px"
   button-primary-hover:
-    backgroundColor: "{colors.copper-hover}"
+    backgroundColor: "{colors.copper-deep}"
   button-secondary:
-    backgroundColor: "{colors.raised}"
+    backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    rounded: "{rounded.sm}"
-    padding: "8px 12px"
+    typography: "{typography.text}"
+    rounded: "{rounded.control}"
+    padding: "9px 15px"
     height: "44px"
+  button-secondary-hover:
+    backgroundColor: "{colors.control-hover}"
   button-ghost:
     backgroundColor: "transparent"
     textColor: "{colors.muted}"
-    typography: "{typography.body}"
-    rounded: "{rounded.sm}"
-    padding: "4px 8px"
-  field:
-    backgroundColor: "{colors.panel}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    rounded: "{rounded.sm}"
-    padding: "8px 12px"
+    typography: "{typography.text}"
+    rounded: "{rounded.control}"
+    padding: "9px 15px"
     height: "44px"
-  panel:
-    backgroundColor: "{colors.panel}"
+  field:
+    backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
+    typography: "{typography.text}"
+    rounded: "{rounded.control}"
+    padding: "9px 12px"
+    height: "44px"
+  badge:
+    backgroundColor: "{colors.cached-bg}"
+    textColor: "{colors.cached}"
+    typography: "{typography.text}"
     rounded: "{rounded.sm}"
-    padding: "16px"
-  chip:
-    backgroundColor: "{colors.raised}"
-    textColor: "{colors.muted}"
-    typography: "{typography.label}"
-    rounded: "{rounded.sm}"
-    padding: "4px 8px"
-  note-paper:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.page}"
-    rounded: "{rounded.paper}"
-    padding: "16px"
+    padding: "3px 8px"
+  panel:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.surface}"
+    padding: "24px"
 ---
 
 # Design System: Annalist
 
+<!-- Quiet Workspace world, approved after the direction round. The built dashboard is the authority for every value in this file; light values are the `:root` defaults, dark values the `[data-theme="dark"]` overrides recorded in `.impeccable/design.json`. -->
+
 ## Overview
 
-**Creative North Star: "Release Trace Wall"**
+**Creative North Star: "The Quiet Workspace"**
 
-Annalist presents each release as a traceable workpiece moving from input to proof. Dark powder-coated panels hold the operator's work; a thermal-paper note proof makes the generated result tangible. Copper marks the committed action, cyan shows the active trace, and compact instrumentation labels keep the system legible without turning the dashboard into decoration. The installed home uses the same wall to explain setup and the release path, while authenticated routes let an operator configure it.
+Annalist is a warm working interface for release outcomes and automation configuration. A warm paper canvas holds a white work plane in light mode; tobacco charcoal and cream in dark mode. The operator's job is comparison — a repository, its latest observed generation, its configured triggers, and a way to act — so the layout behaves like a register: aligned columns at desktop width, labeled rows below 980px, and nothing on the screen competing with the data.
 
-The system is deliberately layered rather than glossy. Saira Stencil One establishes position for the wordmark and display headings; Saira carries the working copy; monospace labels and note output read like instrumentation. A 4px control language, hairline borders, and tonal planes create depth without shadows. Green and red are reserved for status so their meaning stays unambiguous.
+Copper (`--rust`) marks the actions that commit work; the Gather mark and outlined wordmark give the product its identity. The mark uses two entry bars and a continuous returning contour whose bottom arm is a third entry. In light mode its symbol is copper (#bd431f) and its humanist outlined Annalist wordmark is ink (#302b26); in dark mode they are #e8a17b and #f4eade. Use the full lockup in navigation and README, and the standalone Gather symbol for favicons, app icons, and avatars. Neither belongs in action buttons or outcome badges; never split-color the symbol or make the wordmark copper. Result badges are the system's voice: high-contrast text over a restrained tint, a same-hue border, and a small 14px icon, so that Published, Cached, Failed, and the other run states read at a glance without noise. Configuration is never presented as a health claim, and the empty states say what is empty rather than decorate it.
 
 **Key Characteristics:**
-- Dark powder-coated page and panel surfaces with one raised tonal step.
-- Copper is the committed action; cyan is the active trace; heat is a supporting work signal.
-- Thermal-paper note proof is the light, readable output plane.
-- Saira Stencil One for display; Saira for UI copy; monospace for labels and generated notes.
-- Flat depth: hairline borders and tonal planes, never drop shadows.
+- Warm paper canvas (#f5eee5) with white work planes in light; tobacco charcoal (#211d19) with cream (#f4eade) ink in dark.
+- One humanist system UI stack (Avenir Next / Segoe UI / Cantarell / system-ui) for everything; no display font, no serif.
+- Copper for committed actions on 12px working surfaces; quiet 44px-tall top navigation.
+- Result badges: tint + border + 14px stroke icon + bold text, one hue family per outcome.
+- 44px minimum gesture height, tabular numerals, wrapping text — information is never clipped.
 
 ## Colors
 
-The palette is a dark blue-black wall with cool paper ink, copper action, cyan trace, and tightly scoped status signals.
+Two complete plans share one token set: the light paper plan is the `:root` default; the dark charcoal plan is `:root[data-theme="dark"]`, toggled by the top-right sun/moon switch, stored in `localStorage`, and defaulted from `prefers-color-scheme` by the same-origin `/theme.js` script in the document head before first paint. Every value below is the light plan; the matching dark value is carried in `.impeccable/design.json` beside each token.
 
 ### Primary
-- **Copper:** The committed action on a surface. It is direct and solid, not a decorative gradient.
-
-### Secondary
-- **Trace Cyan:** Active rails, nodes, focus rings, selected navigation, and live trace state.
-- **Working Heat:** Received commit signals, active setup indicators, and other in-progress work cues; it is not a success or failure status.
+- **Copper** (`#bd431f` / dark `#e8a17b`): the committed action — primary buttons, the Gather mark, caret, checkbox accent, running-state badge text, markdown links. The outlined Annalist wordmark uses ink (`#302b26` / dark `#f4eade`), not copper. Its hover is **Copper Deep** (`#a03616` / dark `#d88b63`). In dark mode the copper lightens so it sits on charcoal; the white primary ink flips to near-charcoal (`#241d18`).
+- **Focus** (`#bd431f` / dark `#f1b28b`): the 3px keyboard-focus outline and its 3px offset. Dark mode uses the lighter tone; light mode reuses the copper itself.
 
 ### Neutral
-- **Page:** The dark wall behind the shell.
-- **Panel:** The powder-coated base plane for navigation, cards, and fields.
-- **Raised:** The one-step-up plane for controls, chips, trace nodes, and row hover.
-- **Panel Warm / Raised Warm:** Optional warm tonal planes where a surface needs a slight material shift.
-- **Line / Line Strong:** Hairline dividers and stronger field/control edges.
-- **Ink / Muted / Ink Soft:** Primary copy, secondary copy, and quiet captions.
-- **Control / Control Hover:** Neutral control fill and its one-step hover state.
-- **Paper Edge:** The border around the thermal-paper proof.
+- **Canvas** (`#f5eee5` / dark `#211d19`): the warm paper page behind the shell.
+- **Surface** (`#fff` / dark `#2c2621`): the white work plane — panels, fields, buttons, tables, the top bar.
+- **Control Hover** (`#fffaf4` / dark `#393029`): one step of warmth for control hover, soft panels, the register's detail rows, selection state, and text-pair highlights.
+- **Line** (`#e6dccf` / dark `#53473d`): 1px hairlines — row dividers, borders, blockquote rails.
+- **Line Strong** (`#9c8768` / dark `#8d7d6e`): control and field edges; its hover is `#8a7355` / dark `#ad9682`.
+- **Ink** (`#302b26` / dark `#f4eade`): primary text; **Muted** (`#6f665c` / dark `#c6b6a5`) carries secondary text, placeholders, table headers, and labels.
+- **Selection** (`#eadbc9` / dark `#66513f`): text selection fill, active tab/choice background, light highlight plane.
+- **Skeleton** (`#e0d2bf` / dark `#4a4036`): loading placeholder fill. **Scroll Thumb** (`#b9a995` / dark `#8d7d6e`): scrollbar fill.
 
 ### Status
-- **Green:** Configured, saved, complete, or connected state only.
-- **Red:** Error, invalid input, or explicitly skipped/misconfigured state only.
+- **Published green** — text `#263524` / dark `#edf4e9`, background `#edf3ea` / dark `#2e3b2d`, border `#b7c9b1` / dark `#64765b`, icon `#2c5a33` / dark `#accc97`. The observed generation outcome for `published` runs.
+- **Failed clay** — text `#482a22` / dark `#ffebe3`, background `#f8eae5` / dark `#492f29`, border `#d9b1a2` / dark `#a16d5a`, icon `#8c351e` / dark `#f3b49a`. Observed errors, invalid input, interrupted runs.
+- **Cached neutral** — text `#3c342b` / dark `#f5eadb`, background `#eee8df` / dark `#3c332a`, border `#c9bda9` / dark `#89745e`, icon `#62533d` / dark `#d6bd99`. Cached, preserved, and quiet states.
+- **Running** is copper text on the surface with a copper border — an in-progress cue, not a success color. Preserved takes the cached tint with a **dashed** border so it reads as kept-in-place, not failed; generated and empty take ink on the surface with a strong border. A quiet row state — muted text on the control-hover wash with a strong border — carries the "Not configured" platform fact; the configured fact ("Configured") renders in the published family as a plain server fact.
 
 ### Named Rules
-**The Copper Action Rule.** Use copper for the action that commits the current work; do not turn it into ambient decoration or a second primary on the same surface.
 
-**The Signal-Only Color Rule.** Cyan, heat, green, and red each carry a defined operational signal. Green and red never decorate a neutral surface.
+**The Warm Assurance Rule.** Every state ships a text, a background, a border, and an icon in one hue family. Color tint is support; the word and icon carry the meaning, so no badge relies on hue alone.
+
+**The Copper Commit Rule.** Copper is the committed action and the identity markup. It is not a second primary within one panel/view section, not a link color outside generated markdown, and not a hover-wash or decoration on neutral work.
+
+**The Configuration Is Not a Health Claim Rule.** Configured / not-configured is a server configuration fact, stated as a server fact: the "Configured" label wears the published family and "Not configured" the muted wash. It is not a connectivity claim — the UI does not probe reachability, and no endpoint is reported reachable here. Wording follows the same line: a platform is "configured" on the server; an endpoint is "reachable" only as a troubleshooting hint when a run has actually failed.
+
+**The Dual-Plan Rule.** A token is only valid when both plans exist. A light-mode rule that breaks on charcoal — white text on copper, hard shadows, borders darker than the charcoal below — is a defect.
 
 ## Typography
 
-**Display Font:** `Saira Stencil One`, self-hosted, with Saira and system fallbacks.
-**Body/UI Font:** `Saira`, self-hosted, with a system fallback.
-**Label/Mono Font:** `ui-monospace`, SFMono, Menlo, Consolas, or the platform equivalent.
+**Work Font:** `Avenir Next`, `Segoe UI`, Cantarell, `system-ui` — the single stack for display, body, and labels.
+**Mono Font:** `ui-monospace`, SFMono-Regular, Menlo, Consolas — for code and commands only.
 
-**Character:** The display face gives the wall a measured technical identity without competing with the work. Saira keeps instructions and controls plain; uppercase monospace labels make station, trace, and status metadata easy to scan.
+**Character:** One humanist system stack at working sizes; the hierarchy is made by weight and size, not face. Tabular numerals throughout keep the register's columns aligned.
 
 ### Hierarchy
-- **Display:** Saira Stencil One, regular 400, responsive hero size (2.75–5.75rem), tight 0.95 line-height; landing headline and major surface identity.
-- **Headline:** Saira, semibold 600, approximately 1rem with 1.3 line-height; section and panel headings.
-- **Title:** Saira Stencil One, regular 400, approximately 1.05rem in the shell brand; compact route identity.
-- **Body:** Saira, regular 400, 0.875rem with 1.5 line-height; instructions, labels, and values.
-- **Label:** Monospace, semibold 600, 0.6875rem, uppercase with tracked lettering; trace labels, station labels, and compact status metadata.
-- **Proof / Code:** Monospace at compact reading sizes; Docker commands, commit subjects, and generated note output.
+- **Page heading (h1).** Weight 650, 31px, line-height 1.16, letter-spacing -0.028em; 27px below 980px. One per view.
+- **Panel heading (h2).** Weight 650, 21px, line-height 1.3, letter-spacing -0.015em.
+- **Subheading (h3).** Weight 620, 18px, line-height 1.35.
+- **Body.** Weight 400, 15px, line-height 1.5 — the base document size.
+- **Working text.** 14px; the size of buttons, fields, table cells, badges, and ledes (section ledes capped at 75ch, muted).
+- **Label.** 13px, muted: chips, run metadata, hints, mobile data-label prefixes.
+- **Code.** Mono, 14px inside rendered markdown; inline code carries the control-hover fill at 4px radius.
 
 ### Named Rules
-**The Instrument-Label Rule.** Use tracked monospace labels for metadata and state; never use them to replace readable headings or instructions.
+
+**The Working-Text Rule.** Only the two named stacks exist. Weights 400, 550, 600, 620, and 650 do the work; 650 is the upper bound and no weight above it appears.
 
 ## Layout
 
-The shared shell uses a sticky full-width operator navigation bar and a centered working column. Console routes use a 64rem maximum; the home route uses a 6xl wall. A 12-column console grid and a 4px-based rhythm (4, 8, 12, 16, 20, and 24px) keep panels dense but readable. The installed home opens with setup guidance beside a four-stage release path, then moves through rendered proof and tone control.
+A centered 1200px shell (`max-width: 1200px`, `margin: auto`) with 32px inline gutters — 16px below 980px and 20px for the top bar on mobile. The top bar is a hairline-capped band: the combined Gather lockup, displayed 48px high (44px at ≤980px; 40px at ≤360px), quiet nav links, and the 44px sun/moon theme switch at the right. The brand link has a 44px minimum height; it carries two flat images, `/annalist-logo-light.svg` and `/annalist-logo-dark.svg`, each with intrinsic dimensions 984×256, `width: auto`, and decorative empty alt because the link is labeled “Annalist home.” CSS selects exactly one by the app root `data-theme` — the light image by default, the dark image under `data-theme="dark"` — because WebKit does not inherit `color-scheme` into embedded SVG media queries.
 
-At mobile widths, the navigation wraps, console grids become one column, the home setup path stacks its release-flow panel below the headline, and trace rails/workspaces stack vertically. Setup's progress rail moves above its station workspace at 680px; repository, intake, and settings rails stack at 760px. Horizontal lists remain scrollable where preserving a row is useful. Keep controls at the existing 44px minimum and let long repository names and note text wrap rather than clip.
+The mainspace rhythm is 20px between workspace blocks; a panel's own interior is 24px (20px below 600px). The repository register uses fixed columns — Repository 27%, Latest generation 29%, Automation 19%, Actions 25% — with 22px cell padding relaxing to 14px between 980–1100px. Row content sits on 19px/18px vertical pad under a 1px divider; the failure copy insets under the Repository column at `calc(27% + 22px)`, while the run-history panel spans the full row at 24px padding.
+
+At 980px the register becomes labeled rows: column headers drop, each cell gains its `data-label` in 13px muted text, the row lays out as two columns (name + latest, automation + actions), and section action buttons stretch full-width. At 600px field grids and stacked proofs collapse to one column. 44px is the minimum gesture height everywhere — nav links, tabs, checks, summaries, row actions — and long names wrap at the namespace slash via `overflow-wrap: anywhere` rather than truncate.
 
 ## Elevation & Depth
 
-The system has no box shadows. Powder-coated panels sit on the page by tonal separation and 1px borders; raised controls and trace nodes use the next tonal plane. The thermal-paper proof intentionally flips to an ink-on-paper plane so generated notes are easy to read, with a fine paper edge rather than a glow.
+Depth is a hairline plus a whisper of shadow. Panels and grouped containers (`plane`) carry `box-shadow: 0 1px 2px rgba(48,43,38,0.06), 0 10px 24px rgba(48,43,38,0.045)` in light and `rgba(0,0,0,0.28)` / `rgba(0,0,0,0.2)` in dark. Soft panels, banners, detail rows, and badges are flat — their depth comes from the tinted plane and 1px border. Controls, chips, and tables never cast.
 
 ### Shadow Vocabulary
-- **None:** `box-shadow: none`; use the page, panel, raised, and paper planes plus hairlines for depth.
+- **Panel** (`0 1px 2px var(--shadow), 0 10px 24px var(--shadow-soft)`): the single ambient lift — paper working on the canvas. Nothing else.
 
 ### Named Rules
-**The Tonal-Plane Rule.** Add depth with a border or the next named surface tone, never with a shadow, glass treatment, or decorative glow.
+
+**The Paper-On-Paper Rule.** Only grouped working surfaces lift; the lift is decorative atmosphere, not emphasis. State is never expressed by elevation.
 
 ## Shapes
 
-Controls, panels, chips, trace nodes, and navigation use a restrained 4px radius. Status and signal dots are circular; the thermal-paper proof uses a smaller 2px radius. Borders are explicit and generally 1px. There are no pill-shaped controls or clipped panels.
+The radius ladder is 4px (inline code), 5px (badges, chips), 8px (controls, fields, mode choices, setup steps, theme switch), 11px (mobile planes, where inset content unsticks the corner), and 12px (panels, banners, grouped registers). Borders are 1px: line for structure, line-strong for controls. The system has no clipped silhouettes and no pill controls.
 
 ## Components
 
 ### Buttons
-- **Primary:** Copper fill with page-colored text, 44px minimum height, 4px radius; hover lightens to copper-hover. Use for the current committed action.
-- **Secondary:** Raised fill with ink text and a strong line; hover shifts to the control plane.
-- **Ghost / Link:** Transparent at rest with muted text; hover adds a raised plane and line. Links retain visible focus and never borrow copper as decoration.
-- **Disabled:** Reduced opacity and not-allowed cursor; disabled controls do not communicate success or failure through color.
+- **Shape:** 8px radius, 44px minimum height, 1px line-strong border, 14px text.
+- **Primary:** copper fill, white ink (dark plan flips to near-charcoal on lightened copper), weight 600; hover deepens to copper-deep. One per panel/view section — the committed action for that surface (the page header, each repository panel, and the failure banners each carry their own).
+- **Secondary:** surface fill, ink text, strong border; hover warms to control-hover with a deeper border.
+- **Ghost:** transparent, muted text, no border; hover shifts to ink. Row **action links** are the 14px underlined variant — transparent at rest, underline appearing on hover.
+- **Disabled:** 55% opacity, `not-allowed` cursor, transitions suspended.
 
-### Chips and Status
-- **Chip:** Raised plane, muted monospace label, 4px radius, compact padding; used for counts, preview labels, and station metadata.
-- **Status:** Monospace uppercase text with a current-color border. Green and red communicate status; cyan/heat communicate active work, never success/failure.
+### Result Badges
+- **Style:** 3px 8px padding, 5px radius, 1px same-hue border, 14px text at weight 650, and a 14px stroke icon (`stroke-width: 1.8`, round caps/joins, `currentColor`) — check, triangle-alert, clock, stacked pages, shield, stop-square, document.
+- **States:** the published / failed / cached hue families above; running is copper-bordered on surface; preserved is the cached tint with a dashed border; generated and empty are ink on surface; muted is control-hover on surface.
+- **Behavior:** badge text is the state word ("Published", "Cached", "No runs yet"); the icon never carries meaning alone.
 
-### Cards / Panels
-- **Panel:** Panel plane, 1px line border, 4px radius, 16px padding; `panel-soft` uses the page plane for an inset workspace.
-- **Trace rail:** A hairline track with circular nodes. Cyan marks active/current progress; the rail remains readable as plain text and list structure.
-- **Note proof:** Ink-colored thermal-paper plane, dark page-colored text, paper edge, 2px radius, scrollable monospace output.
+### Chips, Tabs, and Choices
+- **Chip:** 13px muted text on surface, 5px radius, 1px line border — compact metadata, not a control.
+- **Tabs and mode choices:** 44px control height, 8px radius, strong border, surface fill; the active one gets the selection fill with a copper border. Choices that remove data (`--danger`) swap to the failed tint.
+- **Setup steps:** 44px tabs; completed steps render as bordered buttons and the current step is a plain span carrying the selection fill (`aria-current="step"`).
+
+### Register Table / Labeled Rows
+- **Desktop:** fixed-column table on a 12px-radius plane; 14px row labels in muted, 15px repository names at weight 620 with the platform in 14px muted below; version weight 550, when-line 14px muted.
+- **Mobile (≤980px):** header collapses; each cell renders its `data-label`; the row is a two-column grid with row actions bottom-aligned. Detail rows unstick to full width with 16px padding.
+- **Row state:** hover is reserved for text and borders; the register does not tint rows.
 
 ### Inputs / Fields
-- **Style:** Panel fill, strong line border, 4px radius, 44px minimum height, ink text, muted placeholder.
-- **Focus:** Cyan border plus a visible 2px outline; do not rely on color alone to identify the focused field.
-- **Error / Disabled:** Red is reserved for an error message or invalid state; disabled fields use opacity and cursor treatment.
+- **Style:** surface fill, 1px line-strong border, 8px radius, 44px minimum height, 14px text; placeholders muted. Textareas start at 100px and resize vertically.
+- **Focus:** the global 3px `--focus` outline at 3px offset — color is never the only focus signal.
+- **Error:** the message sets `--failed-icon` at 14px; the field itself is not redrawn.
+- **Checks:** 18px native boxes with the copper accent. Option choices are the shipped primitives: `aria-pressed` mode-choice buttons and checkbox option cards, rendered as bordered cards with the selection fill when selected.
 
 ### Navigation
+- **Top bar:** 1px line border below, 44px-tall links in 15px muted; hover shifts to ink. The current route is ink at weight 600 with a 2px copper underline offset 8px (`aria-current="page"` drives it).
+- **Gather lockup:** One visible full lockup in the brand link, chosen by CSS from two flat 984×256 images — `/annalist-logo-light.svg` (copper symbol #bd431f, ink wordmark #302b26) and `/annalist-logo-dark.svg` (copper symbol #e8a17b, cream wordmark #f4eade) — displayed 48px high on desktop, 44px at ≤980px, and 40px at ≤360px, with automatic width and a 44px minimum-height link. The light image shows by default; `data-theme="dark"` on the app root shows only the dark image, independent of the OS color scheme, because WebKit does not inherit `color-scheme` into embedded SVG media queries. The copper symbol is two entry bars and a continuous returning contour whose bottom arm forms the third entry; the outlined humanist Annalist wordmark is neutral ink (#302b26 light / #f4eade dark). Use a decorative empty alt inside the link labeled “Annalist home.” Use the full lockup in navigation and README, and the standalone Gather symbol for favicons, app icons, and avatars. Neither belongs in action buttons or outcome badges; never split-color the symbol or use a copper wordmark.
+- **Theme switch:** one 44px square button with a 1px strong border and the 8px control radius, unfilled at rest so the top bar keeps a single surface and only hover warms the plate. The glyph is a 16-unit authored icon rendered at 18px with a 1.6 stroke, so it renders at 1.8px — the badge icons, the same 16-unit grid at 14px with a 1.8 authored stroke, render at 1.575px: sun in the light plan, moon in the dark plan, chosen by the app root `data-theme` exactly as the lockup is, so the right icon is painted before hydration. The icon is muted at rest and ink on hover; the button carries a destination tooltip (“Switch to dark theme” / “Switch to light theme”) so a sighted user learns what a click will do, while `role="switch"`, `aria-checked`, and the stable accessible name “Dark theme” carry the state for assistive technology. The switch is an on/off control, not a two-choice group: no pressed-word segments, no group chrome.
 
-The sticky shell bar uses a panel plane and hairline bottom border. The ANNALIST wordmark uses the display face; links use Saira and a 4px control shape. The current route gains ink/cyan text, a raised plane, and a short cyan underline. Public and setup remain reachable without an authenticated token; other console routes redirect to setup when no token is present.
+### Workflow and Draft State
+- **Setup:** discovery is explicit. One continuation control remains available with no selection, filtered/empty results, discovery errors, and partial-add errors; pending repository writes block continuation. Platform badges carry configuration status without a repeated subtitle.
+- **Manual entry:** default to a known configured platform without replacing an operator's explicit selection. Unconfigured platforms are labeled and disabled (a run would fail server-side without that platform's credentials); an unknown status is not labeled unconfigured.
+- **Global settings:** Save commits the draft and establishes its new baseline; Discard restores the saved values. Dirty route exits require confirmation and dirty unloads warn. An expired session preserves the in-memory draft for same-origin reauthentication; Discard clears the preservation notice. Draft credentials never gain a new browser-storage path.
+- **Disclosure:** provider connection, model tuning, and additional commit types use native details. Every existing setting remains available; active uncommon/custom types remain discoverable, and invalid tuning fields are revealed and focused. Restoring the original effective values restores the clean state.
+- **Mobile navigation:** Save/Discard, Form summary, and Back to Save and Discard links keep actions and effective settings reachable without leaving the draft. In-page hash links do not trigger the dirty-route confirmation.
+- **404 recovery:** the primary action returns to Repositories rather than retrying the unavailable address. Preview/raw views and overwrite confirmation retain their publication safeguards.
 
 ### Accessibility and Motion
-
-Use semantic headings, labeled form controls, native buttons/inputs, and `aria-current`, `aria-live`, and `role="status"`/`role="alert"` for changing station, loading, and error states. All interactive elements expose a 2px cyan `:focus-visible` ring with offset. The release trace labels its commit subjects and output as an example; `prefers-reduced-motion` settles the trace and reduces transitions, while visibility pauses the looping signal.
+Skip link first, then `aria-current` on nav, `role="switch"` with `aria-checked` on the theme switch, `role="status"` / `role="alert"` banners (error in the failed tint, warning in the cached tint), and labeled 44px controls. State transitions run 140ms ease — background, border, and color only; nothing moves. `prefers-reduced-motion: reduce` kills all animation, transitions, and smooth scrolling.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** use the named page, panel, raised, line, ink, copper, heat, cyan, green, and red roles rather than one-off colors.
-- **Do** make the trace legible in text and structure before adding motion; label example proof clearly.
-- **Do** use copper for the current committed action and cyan for active trace/focus.
-- **Do** preserve the thermal-paper proof as a high-contrast output plane with readable monospace text.
-- **Do** use borders and tonal planes for depth and keep the 4px control rhythm.
-- **Do** preserve focus rings, live status announcements, wrapping text, and reduced-motion behavior.
+- **Do** keep every color in the named dual-plan token set (`.impeccable/design.json` carries both values); a new token exists only with a light and a dark face.
+- **Do** hold the 44px gesture floor, 12px working surfaces, and the 20px/24px spacing rhythm.
+- **Do** write result badges as the full quartet — hue-family text, tint, border, and 14px stroke icon — so meaning survives grayscale.
+- **Do** let names and note text wrap; the mobile register keeps every column as a labeled row.
+- **Do** reserve copper for the committed action and identity marks; let ink, muted, and tints do the quiet work.
 
 ### Don't:
-- **Don't** revive the old Copy Desk or Forged Release Notes visual language.
-- **Don't** use gradients, glass, glow, or shadows as decorative depth.
-- **Don't** use green or red for emphasis, links, or decoration; they are status semantics.
-- **Don't** use cyan or heat as a generic accent or substitute for readable status text.
-- **Don't** fabricate customers, metrics, release activity, or operational outcomes in public proof.
-- **Don't** create a second radius system or hide long names and note output by clipping.
+- **Don't** bring back the Release Trace Wall — no Saira Stencil One, no powder-coated dark plates, no thermal-paper proof, no cyan trace, no heat signal.
+- **Don't** paint tone settings, provider fields, or runtime copy in outcome colors; status colors belong to labeled states.
+- **Don't** add marketing chrome to the workspace: hero, pitch lede, testimonial, activity graph, or health claim.
+- **Don't** cast shadows on controls, chips, rows, or badges, or use elevation to signal state.
+- **Don't** introduce a second display face, a gradient, glass, glow, or a third accent; one voice, one copper, two plans.

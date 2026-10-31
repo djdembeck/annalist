@@ -68,6 +68,10 @@ func cmdServe(cfg *config.Config) {
 		os.Exit(1)
 	}
 	defer store.Close()
+	if err := store.ReconcileRuns(); err != nil {
+		fmt.Fprintf(os.Stderr, "reconciling generation runs: %v\n", err)
+		os.Exit(1)
+	}
 
 	llmClient := llm.New(cfg.LLM)
 	gh := github.New(cfg.GitHub)
