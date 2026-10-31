@@ -113,12 +113,17 @@ func (c *Client) WebhookHandler(p *pipeline.Pipeline) http.Handler {
 			return
 		}
 
+		// Fill-after resolves the notes range to the previous PUBLISHED
+		// non-draft ancestor release (full history when none exists), so
+		// an unfinished earlier reservation cannot hide unreleased
+		// changes behind its tag.
 		spec := pipeline.Spec{
-			Platform:  "forgejo",
-			Owner:     owner,
-			Repo:      repo,
-			ToTag:     payload.Release.TagName,
-			ReleaseID: "forgejo:" + fmt.Sprintf("%d", payload.Release.ID),
+			Platform:    "forgejo",
+			Owner:       owner,
+			Repo:        repo,
+			ToTag:       payload.Release.TagName,
+			RangePolicy: pipeline.RangePreviousPublished,
+			ReleaseID:   "forgejo:" + fmt.Sprintf("%d", payload.Release.ID),
 		}
 
 		// Generate asynchronously. Forgejo's webhook client aborts delivery

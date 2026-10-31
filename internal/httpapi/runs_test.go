@@ -167,6 +167,9 @@ func (p *runTestPlatform) ReadRepoFile(context.Context, string, string, string, 
 func (p *runTestPlatform) GetReleaseByTag(context.Context, string, string, string) (*pipeline.Release, error) {
 	return &pipeline.Release{ID: 1}, nil
 }
+func (p *runTestPlatform) ListReleases(context.Context, string, string) ([]pipeline.ReleaseMeta, error) {
+	return nil, nil
+}
 func (p *runTestPlatform) EditReleaseBody(_ context.Context, _, _ string, _ int64, body string) error {
 	p.body = body
 	return nil

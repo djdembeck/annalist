@@ -16,49 +16,87 @@ import (
 func TestParseVersion(t *testing.T) {
 	cases := []struct {
 		tag  string
-		want version
+		want Version
 		ok   bool
 	}{
-		{tag: "v1.2.3", want: version{1, 2, 3}, ok: true},
-		{tag: "1.2.3", want: version{1, 2, 3}, ok: true},    // missing v prefix is fine
-		{tag: "v1.10.0", want: version{1, 10, 0}, ok: true}, // multi-digit components
-		{tag: "v0.0.0", want: version{0, 0, 0}, ok: true},
-		{tag: "v1.2.3-rc.1", want: version{1, 2, 3}, ok: true},   // prerelease suffix ignored
-		{tag: "v1.2.3+build5", want: version{1, 2, 3}, ok: true}, // build suffix ignored
+		{tag: "v1.2.3", want: Version{1, 2, 3}, ok: true},
+		{tag: "1.2.3", want: Version{1, 2, 3}, ok: true},    // missing v prefix is fine
+		{tag: "v1.10.0", want: Version{1, 10, 0}, ok: true}, // multi-digit components
+		{tag: "v0.0.0", want: Version{0, 0, 0}, ok: true},
+		{tag: "v1.2.3-rc.1", want: Version{1, 2, 3}, ok: true},   // prerelease suffix ignored
+		{tag: "v1.2.3+build5", want: Version{1, 2, 3}, ok: true}, // build suffix ignored
 		{tag: "v1.2", ok: false},                                 // only two components
+		{tag: "1.2", ok: false},
 		{tag: "v1", ok: false},
 		{tag: "abc", ok: false},
+		{tag: "dev", ok: false},
 		{tag: "v", ok: false},
 		{tag: "", ok: false},
-		{tag: "v1.2.x", ok: false}, // non-numeric patch
+		{tag: "v1.2.x", ok: false},                          // non-numeric patch
+		{tag: "v1.2.3.4", want: Version{1, 2, 3}, ok: true}, // trailing extra components ignored
+		{tag: "v1.0.0-extra.2", want: Version{1, 0, 0}, ok: true},
+		{tag: "v01.2.3", want: Version{1, 2, 3}, ok: true}, // leading zeros parse
 	}
 	for _, tc := range cases {
-		got, ok := parseVersion(tc.tag)
+		got, ok := ParseTagVersion(tc.tag)
 		if ok != tc.ok {
-			t.Errorf("parseVersion(%q) ok = %v, want %v", tc.tag, ok, tc.ok)
+			t.Errorf("ParseTagVersion(%q) ok = %v, want %v", tc.tag, ok, tc.ok)
 			continue
 		}
 		if ok && got != tc.want {
-			t.Errorf("parseVersion(%q) = %+v, want %+v", tc.tag, got, tc.want)
+			t.Errorf("ParseTagVersion(%q) = %+v, want %+v", tc.tag, got, tc.want)
 		}
 	}
 }
 
 func TestVersionCompare(t *testing.T) {
 	cases := []struct {
-		a, b version
+		a, b Version
 		want int
 	}{
-		{version{1, 0, 0}, version{1, 0, 0}, 0},
-		{version{2, 0, 0}, version{1, 99, 99}, 1}, // major dominates minor/patch
-		{version{1, 1, 0}, version{1, 10, 0}, -1},
-		{version{1, 10, 0}, version{1, 2, 0}, 1},
-		{version{1, 0, 5}, version{1, 0, 3}, 1},
-		{version{1, 0, 2}, version{1, 0, 10}, -1},
+		{Version{1, 0, 0}, Version{1, 0, 0}, 0},
+		{Version{2, 0, 0}, Version{1, 99, 99}, 1}, // major dominates minor/patch
+		{Version{1, 1, 0}, Version{1, 10, 0}, -1},
+		{Version{1, 10, 0}, Version{1, 2, 0}, 1},
+		{Version{1, 0, 5}, Version{1, 0, 3}, 1},
+		{Version{1, 0, 2}, Version{1, 0, 10}, -1},
 	}
 	for _, tc := range cases {
-		if got := tc.a.compare(tc.b); got != tc.want {
-			t.Errorf("(%+v).compare(%+v) = %d, want %d", tc.a, tc.b, got, tc.want)
+		if got := tc.a.Compare(tc.b); got != tc.want {
+			t.Errorf("(%+v).Compare(%+v) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// The prefixed-tag boundary the release flow meets: split/prefix/accept for
+// each case is pinned to the accepted legacy semantics, independent of any
+// consumer reimplementing the split.
+func TestSplitPrefixedTag(t *testing.T) {
+	cases := []struct {
+		tag        string
+		wantPrefix string
+		wantVer    string
+		ok         bool
+	}{
+		{tag: "docs/v1.0.2", wantPrefix: "docs/", wantVer: "v1.0.2", ok: true},
+		{tag: "ggsimpleads/v1.0.2", wantPrefix: "ggsimpleads/", wantVer: "v1.0.2", ok: true},
+		{tag: "docs/1.0.2", wantPrefix: "docs/", wantVer: "1.0.2", ok: true}, // no v in the version is fine
+		{tag: "docs/v1.0", ok: false},                                  // version segment too short
+		{tag: "/v1.2.3", wantPrefix: "/", wantVer: "v1.2.3", ok: true}, // leading-slash prefix accepted
+		{tag: "docs/", ok: false},                                      // empty version
+		{tag: "//", ok: false},
+		{tag: "v1.2.3", ok: false}, // plain tag: no prefix to split
+		{tag: "docs/v1.2", ok: false},
+	}
+	for _, tc := range cases {
+		prefix, ver, ok := SplitPrefixedTag(tc.tag)
+		if ok != tc.ok {
+			t.Errorf("SplitPrefixedTag(%q) ok = %v, want %v", tc.tag, ok, tc.ok)
+			continue
+		}
+		if ok && (prefix != tc.wantPrefix || ver != tc.wantVer) {
+			t.Errorf("SplitPrefixedTag(%q) = (%q, %q), want (%q, %q)",
+				tc.tag, prefix, ver, tc.wantPrefix, tc.wantVer)
 		}
 	}
 }
@@ -263,6 +301,69 @@ func TestResolvePrevTagPrefixed(t *testing.T) {
 				t.Errorf("ResolvePrevTag(%q) = %q, want %q", tc.current, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestTagCommitSHA(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "first")
+	// Lightly tagged: the commit itself.
+	gitTa(t, dir, "tag", "light")
+	// Annotated: must unwrap to the same commit.
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "second")
+	gitTa(t, dir, "tag", "-a", "annot", "-m", "tag message")
+
+	firstSHA := gitTaOut(t, dir, "rev-parse", "HEAD~1")
+	secondSHA := gitTaOut(t, dir, "rev-parse", "HEAD")
+
+	if got := TagCommitSHA(ctx, dir, "light"); got != firstSHA {
+		t.Errorf("TagCommitSHA(light) = %q, want %q", got, firstSHA)
+	}
+	if got := TagCommitSHA(ctx, dir, "annot"); got != secondSHA {
+		t.Errorf("TagCommitSHA(annot) = %q, want %q (annotated unwrap)", got, secondSHA)
+	}
+	if got := TagCommitSHA(ctx, dir, "missing"); got != "" {
+		t.Errorf("TagCommitSHA(missing) = %q, want empty", got)
+	}
+	if got := TagCommitSHA(ctx, dir, "ref/../x"); got != "" {
+		t.Errorf("TagCommitSHA(bad ref) = %q, want empty", got)
+	}
+}
+
+func TestIsAncestorCommit(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "a")
+	a := gitTaOut(t, dir, "rev-parse", "HEAD")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "b")
+	b := gitTaOut(t, dir, "rev-parse", "HEAD")
+	// A detached side branch: c is not an ancestor of b.
+	base := gitTaOut(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	gitTa(t, dir, "checkout", "-q", "--orphan", "side")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "c")
+	c := gitTaOut(t, dir, "rev-parse", "HEAD")
+	gitTa(t, dir, "checkout", "-q", base)
+
+	if !IsAncestorCommit(ctx, dir, a, a) {
+		t.Error("a commit is its own ancestor: want true")
+	}
+	if !IsAncestorCommit(ctx, dir, a, b) {
+		t.Error("a is ancestor of b: want true")
+	}
+	if IsAncestorCommit(ctx, dir, b, a) {
+		t.Error("b is NOT ancestor of a: want false")
+	}
+	if IsAncestorCommit(ctx, dir, c, b) {
+		t.Error("unrelated c is NOT ancestor of b: want false")
+	}
+	if IsAncestorCommit(ctx, dir, "not-a-sha", b) {
+		t.Error("malformed sha: want false (fail closed)")
+	}
+	if IsAncestorCommit(ctx, dir, a, "0000000000000000000000000000000000000000") {
+		t.Error("unborn object: want false (fail closed)")
 	}
 }
 

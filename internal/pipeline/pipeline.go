@@ -22,6 +22,17 @@ import (
 // when the requested resource does not exist.
 var ErrNotFound = errors.New("not found")
 
+// RangePreviousPublished is the Spec.RangePolicy value that resolves the
+// range floor to the previous published, non-draft, non-prerelease ancestor
+// release (across full history when none exists), excluding the target
+// release itself. See Spec.RangePolicy.
+const RangePreviousPublished = "previous_published"
+
+// ErrPreviousPublishedResolution is returned when the previous_published
+// range policy cannot be applied: the target tag does not exist in the
+// cloned repository, so its commit and ancestry cannot be established.
+var ErrPreviousPublishedResolution = errors.New("pipeline: cannot resolve previous published release: target tag not found in clone")
+
 // OwnerRepo is a repository reference returned by platform listings so other
 // packages can join with repo_settings without importing platform packages.
 type OwnerRepo struct {
@@ -42,12 +53,22 @@ type Effective struct {
 
 // Spec identifies a single release for which to generate notes.
 type Spec struct {
-	Platform  string
-	Owner     string
-	Repo      string
-	ToTag     string
-	FromTag   string // optional; empty means auto-resolve the previous tag
-	ReleaseID string
+	Platform string
+	Owner    string
+	Repo     string
+	ToTag    string
+	FromTag  string // optional; empty means auto-resolve the range (see RangePolicy)
+	// RangePolicy selects how the range floor is resolved when FromTag is
+	// empty. "" (omitted) is the legacy behavior: the previous valid
+	// semver-ish tag (ResolvePrevTag), which lands on unfinished reservations
+	// and hides their changes. RangePreviousPublished resolves the previous
+	// PUBLISHED non-draft, non-prerelease release whose tag's commit is an
+	// ancestor of the target tag's commit, excluding the target tag's own
+	// release, across FULL history when no such release exists (so unreleased
+	// work is no longer hidden behind an unfinished reservation). A non-empty
+	// FromTag is exact and always wins over the policy.
+	RangePolicy string
+	ReleaseID   string
 	// Profile is the optional named release-note profile (see
 	// .annalist/release-notes.yaml). Empty keeps the legacy
 	// provider-specific instructions path; a non-empty value selects the
@@ -67,8 +88,12 @@ type Result struct {
 	Profile        string
 	DisplayVersion string
 	FromTag        string
-	ToTag          string
-	ConfigDigest   string
+	// RangePolicy echoes the range-resolution policy that was applied (""
+	// = legacy previous-tag default, RangePreviousPublished = previous
+	// published ancestor release). An exact from_tag always wins over it.
+	RangePolicy  string
+	ToTag        string
+	ConfigDigest string
 }
 
 // Options controls generation behavior.
@@ -93,10 +118,22 @@ type RepoFileReader interface {
 	ReadRepoFile(ctx context.Context, owner, repo, path, ref string) (string, error)
 }
 
+// ReleaseMeta is the status view of an existing release, enough to classify
+// which releases count as successfully published (not draft, not
+// prerelease, carrying a tag).
+type ReleaseMeta struct {
+	Tag        string
+	Draft      bool
+	Prerelease bool
+}
+
 // Platform is everything the pipeline needs from a hosting platform.
 type Platform interface {
 	RepoFileReader
 	GetReleaseByTag(ctx context.Context, owner, repo, tag string) (*Release, error)
+	// ListReleases returns every release the platform lists for the
+	// repository (drafts and prereleases included), paginated fully.
+	ListReleases(ctx context.Context, owner, repo string) ([]ReleaseMeta, error)
 	EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error
 	CloneInfo(ctx context.Context, owner, repo string) (cloneURL, header string, err error)
 }
@@ -480,7 +517,20 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	}
 	defer cleanup()
 
-	if from == "" {
+	// Resolve the range floor. An exact non-empty FromTag always wins;
+	// the policy (legacy previous-tag, or previous published release)
+	// applies only when FromTag is empty.
+	switch {
+	case from != "":
+		// Exact tag, honored verbatim (legacy last-call-requested behavior).
+	case spec.RangePolicy == RangePreviousPublished:
+		resolved, err := p.resolvePreviousPublished(ctx, platform, spec, workdir)
+		if err != nil {
+			return Result{}, fmt.Errorf("pipeline: %w: %v", ErrPreviousPublishedResolution, err)
+		}
+		from = resolved
+	default:
+		// Legacy default: the previous valid semver-ish tag.
 		from = engine.ResolvePrevTag(ctx, workdir, spec.ToTag)
 	}
 	// Git ref names cannot start with '-' (check-ref-format); rejecting such
@@ -547,6 +597,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 				Profile:        spec.Profile,
 				DisplayVersion: displayVersionFor(spec),
 				FromTag:        from,
+				RangePolicy:    appliedRangePolicy(spec),
 				ToTag:          spec.ToTag,
 				ConfigDigest:   existing.ConfigDigest,
 			}, nil
@@ -576,6 +627,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		Profile:        spec.Profile,
 		DisplayVersion: displayVersionFor(spec),
 		FromTag:        from,
+		RangePolicy:    appliedRangePolicy(spec),
 		ToTag:          spec.ToTag,
 		ConfigDigest:   configDigest,
 	}
@@ -597,6 +649,92 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	}
 
 	return result, nil
+}
+
+// resolvePreviousPublished implements Spec.RangePreviousPublished: it returns
+// the highest-semantic-version tag among the repository's PUBLISHED, non-draft,
+// non-prerelease releases whose tag's commit is an ancestor of the target tag's
+// commit, excluding the target tag itself. When no such release exists it
+// returns "" — the pipeline then treats the range as full history (empty
+// CollectCommitLog floor) rather than falling back to legacy previous-tag
+// resolution, which would land on an unfinished reservation and hide its
+// changes.
+func (p *Pipeline) resolvePreviousPublished(ctx context.Context, platform Platform, spec Spec, workdir string) (string, error) {
+	targetSHA := engine.TargetCommitSHA(ctx, workdir, spec.ToTag)
+	if targetSHA == "" {
+		return "", fmt.Errorf("target tag %q not found in clone", spec.ToTag)
+	}
+
+	metas, err := platform.ListReleases(ctx, spec.Owner, spec.Repo)
+	if err != nil {
+		return "", fmt.Errorf("list releases: %w", err)
+	}
+
+	targetPrefix, targetV, targetParsed := releaseVersion(spec.ToTag)
+	var bestTag string
+	var best engine.Version
+	haveBest := false
+	for _, m := range metas {
+		if m.Tag == "" || m.Draft || m.Prerelease {
+			continue
+		}
+		if m.Tag == spec.ToTag {
+			// Exclude the target release itself.
+			continue
+		}
+		prefix, v, ok := releaseVersion(m.Tag)
+		if !ok || prefix != targetPrefix {
+			continue
+		}
+		// Mirror the legacy strictly-lower rule: a floor at or above the
+		// target's own version (e.g. an out-of-order v1.0.0 release on an
+		// ancestor commit) is never a sensible previous release.
+		if targetParsed && v.Compare(targetV) >= 0 {
+			continue
+		}
+		tagSHA := engine.TagCommitSHA(ctx, workdir, m.Tag)
+		if tagSHA == "" {
+			// Tag not present in this clone (possibly deleted, or a
+			// release on an unrelated tag that never reached this
+			// fork): treat as non-ancestor, fail-closed.
+			continue
+		}
+		if !engine.IsAncestorCommit(ctx, workdir, tagSHA, targetSHA) {
+			continue
+		}
+		if !haveBest || v.Compare(best) > 0 {
+			best, bestTag, haveBest = v, m.Tag, true
+		}
+	}
+	if !haveBest {
+		return "", nil
+	}
+	return bestTag, nil
+}
+
+// releaseVersion splits a release tag into (prefix, version, ok), the prefix
+// keeping its trailing "/". It delegates to the engine's canonical tag parser
+// (engine.SplitPrefixedTag + engine.ParseTagVersion), so the range floor and
+// the legacy tag resolution share ONE accepted-tag corpus — the two can no
+// longer drift.
+func releaseVersion(tag string) (string, engine.Version, bool) {
+	if prefix, ver, ok := engine.SplitPrefixedTag(tag); ok {
+		v, _ := engine.ParseTagVersion(ver) // SplitPrefixedTag already validated it
+		return prefix, v, true
+	}
+	v, ok := engine.ParseTagVersion(tag)
+	return "", v, ok
+}
+
+// appliedRangePolicy reports the range-resolution policy in effect for the
+// resulting floor echo: an exact nonempty FromTag always wins over the
+// policy and is echoed as "" (legacy), otherwise the policy is echoed
+// verbatim ("" when omitted).
+func appliedRangePolicy(spec Spec) string {
+	if spec.FromTag != "" {
+		return ""
+	}
+	return spec.RangePolicy
 }
 
 // displayVersionFor applies the fallback: an omitted presentation version is

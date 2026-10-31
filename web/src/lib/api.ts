@@ -95,6 +95,7 @@ export type GenerateResult = {
   profile: string;
   display_version: string;
   from_tag: string;
+  range_policy: string;
   to_tag: string;
   config_digest: string;
 };
@@ -102,6 +103,14 @@ export type GenerateResult = {
 export type GenerateRequest = {
   to_tag: string;
   from_tag?: string | null;
+  /**
+   * Range floor resolution when from_tag is omitted:
+   *   - omitted (default): legacy previous valid semver-ish tag
+   *   - "previous_published": previous published non-draft ancestor
+   *     release (full history when none exists)
+   * An exact nonempty from_tag always wins over the policy.
+   */
+  range_policy?: "" | "previous_published";
   force?: boolean;
   publish?: boolean;
   mode?: string;
