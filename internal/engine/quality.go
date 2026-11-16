@@ -32,7 +32,8 @@ var qualityPrimaryItemRE = regexp.MustCompile(`^( {0,3})(?:[-+*]|[0-9]{1,9}[.)])
 // Primary prose paragraphs are bounded independently. Nested actions, code,
 // commands, URLs, and identifiers are not generic release-note prose.
 func hasOversizedPrimaryParagraph(notes string) bool {
-	item, paragraph, nested, fenced := false, false, false, false
+	item, paragraph, fenced := false, false, false
+	nestedIndent := 0
 	contentIndent, words, sentences := 0, 0, 0
 	sentenceOpen := false
 	oversized := func() bool {
@@ -61,7 +62,7 @@ func hasOversizedPrimaryParagraph(notes string) bool {
 			if oversized() {
 				return true
 			}
-			item, paragraph, nested = true, true, false
+			item, paragraph, nestedIndent = true, true, 0
 			contentIndent, words, sentences, sentenceOpen = prefix[1], 0, 0, false
 			line = line[prefix[1]:]
 		} else if trimmed == "" || prefix != nil || indent >= contentIndent+4 || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ">") {
@@ -69,7 +70,7 @@ func hasOversizedPrimaryParagraph(notes string) bool {
 				return true
 			}
 			if prefix != nil {
-				nested = true
+				nestedIndent = indent
 			}
 			if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ">") {
 				item = false
@@ -78,10 +79,13 @@ func hasOversizedPrimaryParagraph(notes string) bool {
 			words, sentences, sentenceOpen = 0, 0, false
 			continue
 		} else if !paragraph {
-			if !item || nested || indent < contentIndent {
+			// Prose returns to the primary item's own column after a nested
+			// action. Anything deeper belongs to that nested item.
+			if !item || indent < contentIndent || (nestedIndent > 0 && indent > nestedIndent) {
 				continue
 			}
 			paragraph = true
+			nestedIndent = 0
 		}
 		if !commandLine(line) {
 			countPrimaryProse(line, &words, &sentences, &sentenceOpen)

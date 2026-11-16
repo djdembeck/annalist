@@ -143,13 +143,26 @@ func attributedSources(notes string, commits engine.CommitLog, scoped bool) ([]s
 func checkSourcePlacement(notes string, uses []sourceUse) error {
 	item, itemSources, items := false, 0, 0
 	paragraph, blank := false, false
-	contentIndent := 0
+	contentIndent, nestedIndent := 0, 0
 	fence, fenceLen := byte(0), 0
 	matchIndex, offset := 0, 0
 	finishItem := func() bool {
 		return !item || itemSources == 1
 	}
-	for line := range strings.SplitAfterSeq(notes, "\n") {
+	lines := strings.SplitAfter(notes, "\n")
+	// A line that introduces a nested list is scaffolding, not primary prose.
+	nestedListLeadIn := func(from, column int) bool {
+		for _, next := range lines[from+1:] {
+			next = strings.TrimSuffix(strings.TrimSuffix(next, "\n"), "\r")
+			if strings.TrimSpace(next) == "" {
+				continue
+			}
+			nextPrefix := primaryItemRE.FindStringIndex(next)
+			return nextPrefix != nil && len(next)-len(strings.TrimLeft(next, " \t")) >= column
+		}
+		return false
+	}
+	for lineIndex, line := range lines {
 		text := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		trimmed := strings.TrimSpace(text)
 		indent := len(text) - len(strings.TrimLeft(text, " \t"))
@@ -179,7 +192,7 @@ func checkSourcePlacement(notes string, uses []sourceUse) error {
 					return errors.New("primary item has no source")
 				}
 				item, paragraph, itemSources, items = true, true, 0, items+1
-				contentIndent = prefix[1]
+				contentIndent, nestedIndent = prefix[1], 0
 			} else if item && (headingRE.MatchString(text) || strings.HasPrefix(trimmed, ">") || (blank && trimmed != "" && indent < contentIndent)) {
 				if !finishItem() {
 					return errors.New("primary item has no source")
@@ -187,6 +200,19 @@ func checkSourcePlacement(notes string, uses []sourceUse) error {
 				item, paragraph = false, false
 			} else if item && (trimmed == "" || prefix != nil || indent >= contentIndent+4) {
 				paragraph = false
+				if prefix != nil {
+					nestedIndent = indent
+				}
+			} else if item && indent >= contentIndent && !(nestedIndent > 0 && indent > nestedIndent) {
+				// Prose back at the primary item's column is part of the
+				// primary item, even when a nested action precedes it. A short
+				// label that introduces a nested list stays scaffolding.
+				if strings.HasSuffix(trimmed, ":") && nestedListLeadIn(lineIndex, contentIndent) {
+					paragraph = false
+				} else {
+					paragraph = true
+					nestedIndent = 0
+				}
 			}
 		} else {
 			paragraph = false

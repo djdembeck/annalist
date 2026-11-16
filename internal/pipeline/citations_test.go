@@ -114,6 +114,7 @@ func TestInvalidAttributionCannotEscapePublishOrCache(t *testing.T) {
 		"separated attribution groups":      "- Export archives. " + token + " More prose. " + token,
 		"split attribution group":           "- Export archives. " + token + "\n  " + token,
 		"prose after attribution":           "- Export archives. " + token + "\n  Another sentence follows.",
+		"prose after nested action":         "- Export archives. " + token + "\n  - Required action: Stop writers.\n\n  Another sentence follows.",
 		"unlinked primary item":             "- Export archives. " + token + "\n- Another change.",
 		"identity in introduction":          "Version 2 exports archives. " + token + "\n\n- Export archives.",
 		"identity in heading":               "## Export " + token + "\n- Export archives.",

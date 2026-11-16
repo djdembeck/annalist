@@ -62,6 +62,8 @@ func TestCheckNotesPrimaryBulletReadability(t *testing.T) {
 		{"wrapped primary paragraph", "- Prepare required indexes.\n  Wait for completion.\n  Reject incompatible definitions.", true},
 		{"later primary paragraph", "- Prepare required indexes.\n\n  Wait for completion. Keep old constraints. Reject incompatible definitions.", true},
 		{"nested action continuation", "- Prepare required indexes.\n\n  - Required action: Stop active writers.\n\n    Run the migration check. Confirm no pending writes. Start the coordinator.", false},
+		{"primary prose after nested action", "- Prepare required indexes.\n  - Required action: Stop active writers.\n\n  Wait for completion. Keep old constraints. Reject incompatible definitions.", true},
+		{"primary prose after two nested actions", "- Prepare required indexes.\n  - Required action: Stop active writers.\n  - Caveat: Verify mode changes nothing.\n\n  Wait for completion. Keep old constraints. Reject incompatible definitions.", true},
 		{"oversized two sentence paragraph", "- " + strings.Repeat("Readers retain compatible records ", 16) + ". Startup remains available.", true},
 		{"nested required actions", "- Prepare required indexes before startup.\n  - Required action: Wait for each index to complete.\n  - Required action: Run indexes check before indexes apply.\n  - Caveat: DB_INDEX_MODE=verify does not change history prepare.\n  - Caveat: Book history requires a transaction-capable replica set.", false},
 		{"ordered nested actions", "1. Prepare required indexes before startup.\n   1. Wait for completion. Run indexes check. Keep old constraints.\n2. Repair accepted history updates.", false},
