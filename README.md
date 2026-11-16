@@ -130,16 +130,18 @@ Copy-paste deployment, config, prompt, and workflow templates are in [`examples/
 Annalist connects to GitHub as a **GitHub App**. The App is configured at the account level and installed onto the account or organization to grant repository access.
 
 1. Create the App at GitHub → Settings → Developer settings → GitHub Apps → New GitHub App. Set the **Webhook URL** to `https://<annalist-host>/webhooks/github`, set the **Webhook secret** to the value of `GITHUB_WEBHOOK_SECRET`, and subscribe to the **Release** event. Leave the event enabled even when using only generate-first releases; it is the passive-fill path.
-2. Grant these repository permissions: **Contents** → Read-only (clone and read the in-repository instructions file), **Releases** → Read and write (read and edit the release body), and **Metadata** → Read-only (required to list repositories and installations). Under **Where can this App be installed**, choose the account or organization you manage.
+2. Grant these repository permissions: **Contents** → Read-only (clone and read the in-repository instructions file), **Releases** → Read and write (read and edit the release body), **Pull requests** → Read-only (resolve each change's pull request), and **Metadata** → Read-only (required to list repositories and installations). Under **Where can this App be installed**, choose the account or organization you manage.
 3. Generate a **private key** on the App's General tab and download the `.pem`. Mount it read-only into the container; in Docker Compose, for example: `./github-app.pem:/etc/annalist/github-app.pem:ro`. Set `GITHUB_APP_PRIVATE_KEY_FILE` to the path inside the container: `/etc/annalist/github-app.pem`.
 4. Install the App on the account or organization at GitHub → Settings → Applications → GitHub Apps. Grant it **All repositories** or only the selected repositories it should manage.
 5. Set `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY_FILE`, and `GITHUB_WEBHOOK_SECRET` in the container environment.
+
+For an existing App, open its registration's **Permissions & events** page and set **Repository permissions → Pull requests → Read-only**. The installation owner must then approve the additional permission. Changing the registration alone does not update an existing installation's grant. Until approval, GitHub can return 403 `Resource not accessible by integration`, and Annalist stops generation rather than publishing unlinked notes. See [GitHub's permission-change instructions](https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration#changing-the-permissions-of-a-github-app).
 
 ### Forgejo (instance, account, or repository)
 
 Annalist connects to Forgejo/Gitea with a personal or organization API token and a registered repository or organization webhook.
 
-1. Create a token at Forgejo → Settings → Applications → Generate New Token. Give it the repository read access needed to clone and read files, and release read/write access needed to read and edit release bodies.
+1. Create a token at Forgejo → Settings → Applications → Generate New Token. Give it repository read access for cloning, files, pull requests, and PR commit membership. It also needs release read/write access to read and edit release bodies.
 2. Register the webhook at repository (or organization) → Settings → Webhooks → Add Webhook → Forgejo. Use target URL `https://<annalist-host>/webhooks/forgejo`, HTTP method `POST`, content type `application/json`, the value of `FORGEJO_WEBHOOK_SECRET` as **Secret**, and the **Release** event. An organization-level webhook covers every repository in that organization.
 3. Set `FORGEJO_URL` to the Forgejo instance base URL with no trailing path or default (for example, `https://git.example.com`), along with `FORGEJO_TOKEN` and `FORGEJO_WEBHOOK_SECRET`.
 
@@ -172,7 +174,7 @@ The binary always looks for `config.yaml` in the working directory. To use a con
 cd /etc/annalist && /usr/local/bin/annalist serve
 ```
 
-Generate notes for one release from the command line. `--publish` writes them to the release body; without `--publish`, Annalist prints the notes to stdout.
+Generate notes for one release from the command line. `--publish` writes them to the release body. Without `--publish`, Annalist prints the notes to stdout. A review-needed preview still prints the captured notes, with a warning and reasons on stderr, and exits nonzero. Do not publish that output automatically. A `cache_persistence` warning after a successful remote publication keeps a zero exit status.
 
 ```bash
 ./annalist generate \
@@ -196,9 +198,39 @@ Run `annalist generate --help` (or `annalist serve` with no config) for a brief 
 
 ### Configurable release-note tone
 
-Annalist treats `tone` as a configuration term for the generated release-note style. Set it globally or per repository. The dashboard provides three built-in presets—`chronicler`, `engineer`, and `launch`; any other `tone` value is used as a custom freeform persona. All presets and the neutral default share one concise shape: a short versioned opening, then one short sentence per in-scope change under category headings, with breaking, security, and migration information retained where the reader needs it; a custom persona keeps this shared shape. An in-repository instructions file or a named profile prompt is authoritative and replaces these defaults entirely. Additional per-repository Markdown instructions can bind style, length, or terminology.
+Annalist treats `tone` as a configuration term for the generated release-note style. Set it globally or per repository. The dashboard provides three built-in presets: `chronicler`, `engineer`, and `launch`. Any other `tone` value is a custom freeform persona.
+
+All presets and the neutral default share a short versioned opening and categorized primary bullets. Each primary bullet covers one concern in preferably one short sentence and at most two. A commit or PR with several distinct changes needs several bullets. Related commits may share a bullet when every contributing source is attributed.
+
+Short nested Required action: or Caveat: bullets preserve breaking, security, migration, changed-default, compatibility, and required-action facts with their conditions and exceptions. These facts take priority over brevity, with no total note-length limit. Internal helpers, implementation steps, tests, and review fixes are summarized unless the reader must act on them. A custom persona receives the same shared rules. An in-repository instructions file or named profile prompt remains authoritative and replaces these defaults entirely.
+
+The built-in voices also apply [STE80 Humanizer](https://github.com/Dodaios/ste80-humanizer) editing rules automatically: `chronicler` uses Humanize, `engineer` uses Strict STE style, and `launch` uses Light. The neutral default uses Humanize. These rules preserve facts, technical names, uncertainty, and the required note format. They add no setting or extra LLM call and do not apply to custom freeform tones or authoritative full-prompt overrides.
 
 Repositories can also define **named release-note profiles** in `.annalist/release-notes.yaml`, one prompt per named audience, selected explicitly per generation request with `profile` (API) or `--profile` (CLI). A request with no profile keeps the legacy in-repository instructions behavior unchanged; see [docs/release-notes-voices.md](docs/release-notes-voices.md) for the manifest schema, `display_version` semantics, and publication rules.
+
+### Automatic source links
+
+Annalist adds a verified PR link beside each primary change item, such as `([#1754](https://github.com/OWNER/REPO/pull/1754))`. This applies to GitHub and Forgejo, lite and deep modes, every built-in or custom tone, and every named profile. Webhooks, API requests, the dashboard, and the CLI share the same behavior. A commit subject does not need a `#number`.
+
+Annalist resolves commit associations through the authenticated platform API and uses the provider's HTML URLs. The model supplies source identities for each concern, and only the backend adds citation targets. When the platform records no association for a selected source, its citation links to the actual commit with a short SHA. A provider error, denied access, ambiguous response, or unverified target stops generation. It never becomes a made-up PR or a no-association fallback.
+
+GitHub links all merged associations in the requested repository, sorted by PR number. Forgejo first checks the selected commit, then verifies branch commits against the PRs of merge commits from the same release range. It checks exact PR commit membership, with pagination. Forgejo's explicit missing-record response permits a commit fallback, but a generic 404 does not. Rebase methods that leave no association record can therefore produce commit links. This fallback means that the platform recorded no association, not that no PR ever existed.
+
+Custom instructions remain the full system prompt. Every prompt must still follow the citation contract in Annalist's user message: each primary Markdown concern item ends its first paragraph with a group of supplied source identities. Use a source once within that group, and reuse it under other concerns when needed. Related sources may share one item, with all source identities included. Keep nested actions inside their concern. Missing coverage, unknown IDs, duplicate IDs within a group, malformed placement, and forged links fail the publication gate. Annalist withholds those previews so internal tokens and unchecked targets cannot escape. No second model call rewrites the notes.
+
+Annalist renders one verified citation group per concern and removes repeated PR targets within it. Successful publications cache the final linked Markdown and private attribution metadata bound to its exact body. Cache hits recheck source coverage, placement, and link targets without new provider lookups. Older contract entries regenerate even when an authoritative custom prompt is unchanged.
+
+### Source context and quality review
+
+Annalist omits an empty repeat only when Git tree/parent metadata proves that it changes no files and its full commit message duplicates a retained entry. It preserves distinct empty commits and nonempty commits that share a subject. Notes are never deduplicated or rewritten after generation.
+
+Deep mode adds selected diff hunks to the commit log and bodies. The hunk budget is 256 KiB, and a hunk is never split. If any hunks are skipped, the preview carries `source_context_incomplete`. This is a known limit on the supplied context, not proof that the model omitted a particular fact.
+
+All built-in voices check each primary prose paragraph for more than two prose sentences or 60 prose words and report `primary_bullet_overloaded`. Recognizable commands, URLs, identifiers, code, and nested required actions do not count as generic prose. Built-in engineer output also checks semicolons in editable prose, with technical text and quotations protected. Authoritative full prompts and custom tones bypass these prose checks.
+
+A preview that fails a prose or source-completeness check returns the actual notes, `quality_issues`, and `warning_code: "quality_review_required"`. Invalid attribution adds `source_attribution_invalid` and withholds the note text. The dashboard shows the reasons. Server history records the general warning with the existing outcome. Publication fails before any remote edit or cache write, even with `force: true`. Custom prompts do not bypass source-completeness checks. There is no automatic rewrite, second model call, or retry to make the checks pass.
+
+These checks do not prove factual coverage. Review upgrade actions, conditions, exceptions, and certainty against the source before publishing. Automated API consumers must stop when `warning_code` is set or `quality_issues` is nonempty. The example release workflows enforce this before publishing a preview. Cache identity includes an explicit source, generation, and quality contract version, and eligible cached notes are checked again with current source completeness.
 
 ## Configuration
 
@@ -250,7 +282,7 @@ The notes range floor is the previous release's tag. `from_tag` is exact and alw
 - **omitted (default)** — the previous valid semver-ish tag at the target (legacy behavior; may land on an unfinished version reservation and hide its changes).
 - **`previous_published`** — the previous published, non-draft, non-prerelease ancestor release, found across full history and excluding the target's own release; a first release with no published predecessor covers its entire history. An invalid `range_policy` value returns 400; a target tag missing from the clone is a server error.
 
-The response carries `notes`, `release_id`, `outcome`, `published`, and nullable `warning_code` alongside the resolved generation contract: `profile`, `display_version`, `from_tag`, `range_policy`, `to_tag`, and a `config_digest` that anchors the idempotency cache. An invalid profile name, an invalid `range_policy`, or a blank `display_version` returns 400; a missing or malformed manifest, an unknown profile, or a missing or empty prompt file returns 422 with no LLM call made.
+The response carries `notes`, `release_id`, `outcome`, `published`, nullable `warning_code`, and nullable `quality_issues` alongside the resolved generation contract: `profile`, `display_version`, `from_tag`, `range_policy`, `to_tag`, and a `config_digest` that anchors the idempotency cache. Review-needed previews return HTTP 200 with their notes and reason codes. A publish request that fails a quality check returns HTTP 422 with `published: false`, `warning_code: "quality_review_required"`, and `quality_issues`. Its error contains no generated notes or source text. An invalid profile name, an invalid `range_policy`, or a blank `display_version` returns 400. A missing or malformed manifest, an unknown profile, or a missing or empty prompt file returns 422 with no LLM call made.
 
 The webhook routes are:
 

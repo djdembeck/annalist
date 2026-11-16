@@ -147,7 +147,7 @@ func TestPublishedCacheFailureRemainsPublished(t *testing.T) {
 	if run.Status != "published" || run.ErrorCode != nil || run.WarningCode == nil || *run.WarningCode != "cache_persistence" {
 		t.Fatalf("run=%+v", run)
 	}
-	written, err := pip.Publish(context.Background(), result, genSpec("v0.2.0", "direct-cache-failure"), f, true)
+	written, err := pip.Publish(context.Background(), result, genSpec("v0.2.0", "cache-failure"), f, true)
 	if !written || err == nil {
 		t.Fatalf("Publish must preserve remote success: written=%v err=%v", written, err)
 	}
@@ -228,7 +228,7 @@ func TestMonitoredFailureCodeTaxonomy(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pip, stub, f, store := fixtureWithStub(t, newStub("TAXONOMY PROSE"), nil, tc.releases)
+			pip, stub, f, store := fixtureWithStub(t, newAttributedStub("TAXONOMY PROSE"), nil, tc.releases)
 			tc.setup(t, pip, stub, f)
 			spec := genSpec("v0.2.0", "tax-"+tc.name)
 			spec.Profile = tc.profile

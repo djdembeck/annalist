@@ -1,0 +1,16 @@
+# Source-grounded semantic rubric for the invented fixture
+
+Evaluate identity, facts, conditions, and certainty independently of exact wording or Markdown. Do not score prose style as factual coverage. Apply the same rubric to every built-in voice.
+
+- Preserve all five source identities and every distinct concern without inventing changes. A source may appear under several concerns. Related sources may share a primary bullet only when they address the same concern and all source identities remain attributed.
+- Keep each primary concern to one short sentence where possible, at most two. Use short nested Required action: or Caveat: bullets for necessary detail. Do not hide omitted facts behind a total note-length limit or recite implementation and review minutiae.
+- Give the coordinator and its new migration status endpoint separate primary bullets, both attributed to source A. Preserve that the endpoint reports whether a migration is blocked.
+- State that the migration check and writer stop are required before enabling the coordinator, and that the check must find no pending legacy writes. These requirements occur in commit A's body.
+- Preserve the command and drain prerequisite from commit B's diff: `migratectl apply --confirm --drain-timeout=30s` fails until active writers have drained. Do not replace or alter command arguments.
+- Preserve the compatibility exception: existing readers may continue in legacy mode during transition, while new deployments default to the new reader.
+- Preserve stale-write handling: refresh the generation token before retrying; never retry with the stale token.
+- Preserve the approval reset: a policy edit clears prior approvals, and fresh approval under the updated policy is required before applying the change.
+- Preserve source certainty. Do not strengthen possibility into requirement or turn a conditional failure into an unconditional one.
+- A version-appropriate guide URL is absent from the source. Do not invent or imply one.
+
+A result fails if it omits or materially changes any required action, prerequisite, compatibility condition, exception, command argument, or reset behavior. Record identity/action/condition/exception/certainty findings separately from formatting findings.

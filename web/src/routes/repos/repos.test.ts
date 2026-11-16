@@ -574,6 +574,158 @@ describe("repository operator transitions", () => {
     });
   });
 
+  it("keeps review-needed notes unchanged, shows reasons, and clears them for the next valid preview", async () => {
+    const captured = "Fern export is available; archived records remain readable.";
+    let generations = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/generate")) {
+          generations++;
+          return json({
+            notes: generations === 1 ? captured : "A valid new preview.",
+            published: false,
+            outcome: "generated",
+            warning_code: generations === 1 ? "quality_review_required" : null,
+            quality_issues: generations === 1
+              ? ["strict_prose_semicolon", "source_context_incomplete"] : null,
+          });
+        }
+        if (url.endsWith("/api/repos")) return json([repository()]);
+        if (url.endsWith("/api/models")) return json([]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    await mountPage();
+    await fireEvent.click(screen.getByRole("button", { name: "Generate notes" }));
+    await fireEvent.input(screen.getByLabelText("Release tag"), { target: { value: "v1.0.0" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Quality review is required."));
+    const reasons = screen.getByRole("list", { name: "Quality review reasons" });
+    expect(reasons.textContent).toContain("Strict engineer prose contains semicolons.");
+    expect(reasons.textContent).toContain("Some diff hunks did not fit the source context.");
+    await fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(screen.getByText(captured, { exact: true }).textContent).toBe(captured);
+
+    // The result is visible before its run-history refresh finishes.
+    await waitFor(() => {
+      const preview = screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement;
+      expect(preview.disabled).toBe(false);
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Preview generated. Nothing was published."));
+    expect(screen.queryByRole("list", { name: "Quality review reasons" })).toBeNull();
+    expect(screen.queryByText(captured, { exact: true })).toBeNull();
+    expect(generations).toBe(2);
+  });
+
+  it("withholds invalid attribution previews and shows a useful reason", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/generate")) return json({
+          notes: "",
+          published: false,
+          outcome: "generated",
+          warning_code: "quality_review_required",
+          quality_issues: ["source_attribution_invalid"],
+        });
+        if (url.endsWith("/api/repos")) return json([repository()]);
+        if (url.endsWith("/api/models")) return json([]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    await mountPage();
+    await fireEvent.click(screen.getByRole("button", { name: "Generate notes" }));
+    await fireEvent.input(screen.getByLabelText("Release tag"), { target: { value: "v1.0.0" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const reasons = await screen.findByRole("list", { name: "Quality review reasons" });
+    expect(reasons.textContent).toContain("Source attribution is invalid");
+    expect(reasons.textContent).toContain("preview was withheld");
+    expect(screen.queryByRole("button", { name: "Raw" })).toBeNull();
+    expect(screen.queryByText(/\[\[annalist:/)).toBeNull();
+  });
+
+  it("shows permission recovery guidance for a source-link API failure without exposing provider text", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/generate")) return json({
+          error: "PRIVATE PROVIDER RESPONSE",
+          error_code: "source_links",
+          published: false,
+        }, 502);
+        if (url.endsWith("/api/repos")) return json([repository()]);
+        if (url.endsWith("/api/models")) return json([]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    await mountPage();
+    await fireEvent.click(screen.getByRole("button", { name: "Generate notes" }));
+    await fireEvent.input(screen.getByLabelText("Release tag"), { target: { value: "v1.0.0" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Pull requests: Read-only");
+    expect(alert.textContent).toContain("installation owner approve");
+    expect(screen.queryByText("PRIVATE PROVIDER RESPONSE")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Raw" })).toBeNull();
+  });
+
+  it("shows safe quality rejection guidance and reasons instead of publication success", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/generate")) return json({
+          error: "RAW MODEL TEXT MUST NOT BE SHOWN",
+          published: false,
+          warning_code: "quality_review_required",
+          quality_issues: ["source_context_incomplete"],
+        }, 422);
+        if (url.endsWith("/api/repos")) return json([repository()]);
+        if (url.endsWith("/api/models")) return json([]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    await mountPage();
+    await fireEvent.click(screen.getByRole("button", { name: "Generate notes" }));
+    await fireEvent.input(screen.getByLabelText("Release tag"), { target: { value: "v1.0.0" } });
+    await fireEvent.click(screen.getByRole("checkbox", { name: "Publish to release" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Generate & publish" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Publication blocked. Nothing was published. Run a preview to review the notes and source.");
+    expect(screen.getByRole("list", { name: "Quality review reasons" }).textContent).toContain("Some diff hunks did not fit the source context.");
+    expect(screen.queryByText("RAW MODEL TEXT MUST NOT BE SHOWN")).toBeNull();
+    expect(screen.queryByText("Notes published to the release.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Raw" })).toBeNull();
+  });
+
+  it.each(["generated", "failed"] as const)("shows the quality warning in %s run history without changing status semantics", async (status) => {
+    const run: GenerationRun = {
+      ...failedRun,
+      status,
+      error_code: status === "failed" ? "quality" : null,
+      warning_code: "quality_review_required",
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/repos")) return json([repository(run)]);
+        if (url.endsWith("/api/models")) return json([]);
+        if (url.includes("/api/runs?")) return json([run]);
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    await mountPage();
+    await fireEvent.click(screen.getByRole("button", { name: "Recent runs" }));
+    const drawer = screen.getByRole("region", { name: "Recent runs for team/app" });
+    await waitFor(() => expect(within(drawer).getByText("Quality review is required. Review the notes and the full source range before publishing.", { exact: true })).toBeInstanceOf(HTMLElement));
+    expect(within(drawer).getByText(status === "failed" ? "Failed" : "Preview generated", { exact: true })).toBeInstanceOf(HTMLElement);
+    if (status === "failed") {
+      expect(within(drawer).getByText("Publication was blocked by required quality checks. Open a preview to review the notes and source.", { exact: true })).toBeInstanceOf(HTMLElement);
+    }
+    expect(within(drawer).queryByText(/local note cache/)).toBeNull();
+  });
+
   it("renders the to_tag fallback for an empty display version and No runs yet for a null latest_run", async () => {
     const publishedRun: GenerationRun = {
       ...failedRun,
@@ -632,6 +784,11 @@ describe("repository operator transitions", () => {
       "failed",
       "The model could not generate notes. Check the provider and model " +
         "settings, then try again.",
+    ],
+    [
+      "source_links",
+      "failed",
+      "Source links could not be resolved. Check pull-request read access and the platform API. For GitHub Apps, enable Pull requests: Read-only and have the installation owner approve the change.",
     ],
     [
       "publication",

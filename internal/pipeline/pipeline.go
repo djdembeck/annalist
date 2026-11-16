@@ -91,9 +91,30 @@ type Result struct {
 	// RangePolicy echoes the range-resolution policy that was applied (""
 	// = legacy previous-tag default, RangePreviousPublished = previous
 	// published ancestor release). An exact from_tag always wins over it.
-	RangePolicy  string
-	ToTag        string
-	ConfigDigest string
+	RangePolicy   string
+	ToTag         string
+	ConfigDigest  string
+	QualityIssues []string
+
+	// Only checked notes with complete source context receive a receipt.
+	// It is private and bound to the exact notes and cache contract.
+	qualityReceipt qualityReceipt
+}
+
+type qualityReceipt struct {
+	cacheKey           string
+	notesHash          [32]byte
+	sourceAttributions string
+}
+
+// QualityError rejects publication without exposing generated notes or source text.
+// Issues contains stable, safe reason codes.
+type QualityError struct {
+	Issues []string
+}
+
+func (e *QualityError) Error() string {
+	return "pipeline: notes need quality review before publication"
 }
 
 // Options controls generation behavior.
@@ -136,6 +157,10 @@ type Platform interface {
 	ListReleases(ctx context.Context, owner, repo string) ([]ReleaseMeta, error)
 	EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error
 	CloneInfo(ctx context.Context, owner, repo string) (cloneURL, header string, err error)
+	// ResolveCommitReferences uses authenticated association APIs for these
+	// exact SHAs. A successful empty association must carry a commit URL.
+	// Errors and ambiguous associations must never become a no-PR fallback.
+	ResolveCommitReferences(ctx context.Context, owner, repo string, shas, mergeSHAs []string) (map[string]CommitReference, error)
 }
 
 // Pipeline drives the whole generate flow: resolve settings, clone,
@@ -431,7 +456,8 @@ func (p *Pipeline) Resolve(ctx context.Context, platform, owner, repo string) (b
 // The flow: validate the request, resolve settings, clone, resolve the range,
 // load the tag-pinned instructions (named profile or legacy file), compute
 // the config digest and cache key, then under the per-contract generation
-// lock recheck the cache (unless forced), generate, and optionally publish.
+// lock collect source context and recheck the cache (unless forced). Check
+// cached or generated notes before returning a preview or publishing them.
 // The cache lookup happens after the lock and only when everything needed
 // for the key has been resolved, because range and prompt identity are part
 // of the key. Generation is bounded by a semaphore; per-contract locks make
@@ -567,10 +593,10 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		}
 	}
 
-	// The config digest covers the runtime generation contract — including
-	// the effective system prompt (which subsumes tone/persona expansion),
-	// model, temperature, commit types, mode, max tokens, thinking level,
-	// and the effective LLM base URL. The API key is never part of it.
+	// The config digest covers the explicit source/generation/quality version
+	// and runtime configuration, including the effective system prompt, model,
+	// temperature, commit types, mode, token and thinking limits, and base URL.
+	// The API key is never part of it.
 	configDigest := p.configDigest(eff.BaseURL, resolved)
 	cacheKey := p.cacheKey(spec, from, configDigest)
 
@@ -585,44 +611,78 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	gi.Lock(cacheKey)
 	defer gi.Unlock(cacheKey)
 
+	// Collect current source completeness even for a cache hit. Cache rows do
+	// not carry a completeness receipt, and cached notes must pass today's gate.
+	stage = "generation"
+	commitLog := engine.CollectCommitLog(ctx, workdir, from, spec.ToTag, resolved.CommitTypes)
+	hasChanges := len(commitLog.Commits) != 0
+	var diff engine.DiffContext
+	if hasChanges && resolved.Mode == engine.ModeDeep {
+		diff, err = engine.CollectDiff(ctx, workdir, from, spec.ToTag, engine.DiffBudgetBytes)
+		if err != nil {
+			if ctx.Err() != nil {
+				return Result{}, ctx.Err()
+			}
+			return Result{}, errors.New("pipeline: cannot collect release diff context")
+		}
+	}
+
+	stage = "configuration"
+	var notes, sourceAttributions string
+	outcome := "generated"
 	if !opts.Force {
 		existing, err := p.DB.GetGenerated(cacheKey)
 		if err != nil {
 			return Result{}, fmt.Errorf("pipeline: check generated: %w", err)
 		}
 		if existing != nil {
-			return Result{
-				Outcome:        "cached",
-				Notes:          existing.Notes,
-				Profile:        spec.Profile,
-				DisplayVersion: displayVersionFor(spec),
-				FromTag:        from,
-				RangePolicy:    appliedRangePolicy(spec),
-				ToTag:          spec.ToTag,
-				ConfigDigest:   existing.ConfigDigest,
-			}, nil
+			notes, sourceAttributions = existing.Notes, existing.SourceAttributions
+			outcome = "cached"
 		}
 	}
 
-	stage = "generation"
-	commitLog := engine.CollectCommitLog(ctx, workdir, from, spec.ToTag, resolved.CommitTypes)
+	if outcome != "cached" {
+		stage = "generation"
+		if !hasChanges {
+			notes = "No changes documented."
+		} else {
+			notes, err = p.Engine.Generate(ctx, resolved, eff.BaseURL, eff.APIKey, displayVersionFor(spec), spec.ToTag, from, commitLog, diff.Text)
+			if err != nil {
+				return Result{}, err
+			}
+		}
+	}
 
-	var notes string
-	if strings.TrimSpace(commitLog) == "" {
-		notes = "No changes documented."
+	qualityIssues := engine.CheckNotes(resolved, notes)
+	_, _, scoped := engine.SplitPrefixedTag(spec.ToTag)
+	source := commitLog.Text() + "\n" + diff.Text
+	var attributionErr error
+	if outcome == "cached" {
+		// The current contract caches only final, validated public Markdown.
+		// Stable source links are reused without platform lookups.
+		attributionErr = p.validateCachedCitations(notes, source, sourceAttributions, commitLog, spec, scoped)
 	} else {
-		diff := ""
-		if resolved.Mode == engine.ModeDeep {
-			diff = engine.CollectDiff(ctx, workdir, from, spec.ToTag, engine.DiffBudgetBytes)
+		var uses []sourceUse
+		uses, attributionErr = attributedSources(notes, commitLog, scoped)
+		if attributionErr == nil {
+			attributionErr = validateModelLinks(notes, source)
 		}
-		notes, err = p.Engine.Generate(ctx, resolved, eff.BaseURL, eff.APIKey, displayVersionFor(spec), spec.ToTag, from, commitLog, diff)
-		if err != nil {
-			return Result{}, err
+		if attributionErr == nil {
+			stage = "source_links"
+			notes, sourceAttributions, err = p.linkSources(ctx, platform, spec, notes, uses, commitLog.MergeSHAs)
+			if err != nil {
+				return Result{}, err
+			}
 		}
+	}
+	if attributionErr != nil {
+		qualityIssues = append(qualityIssues, "source_attribution_invalid")
+		// Unchecked tokens and forged links must not reach any preview surface.
+		notes = ""
 	}
 
 	result := Result{
-		Outcome:        "generated",
+		Outcome:        outcome,
 		Notes:          notes,
 		Profile:        spec.Profile,
 		DisplayVersion: displayVersionFor(spec),
@@ -630,9 +690,23 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		RangePolicy:    appliedRangePolicy(spec),
 		ToTag:          spec.ToTag,
 		ConfigDigest:   configDigest,
+		QualityIssues:  qualityIssues,
+	}
+	if diff.Truncated || diff.SkippedHunks > 0 {
+		result.QualityIssues = append(result.QualityIssues, "source_context_incomplete")
 	}
 
-	if opts.Publish {
+	stage = "quality"
+	if len(result.QualityIssues) > 0 {
+		result.WarningCode = "quality_review_required"
+		if opts.Publish {
+			return result, &QualityError{Issues: result.QualityIssues}
+		}
+		return result, nil
+	}
+	result.qualityReceipt = qualityReceipt{cacheKey: cacheKey, notesHash: sha256.Sum256([]byte(notes)), sourceAttributions: sourceAttributions}
+
+	if opts.Publish && outcome != "cached" {
 		stage = "publication"
 		published, err := p.Publish(ctx, result, spec, platform, opts.Force)
 		if published {
@@ -746,33 +820,38 @@ func displayVersionFor(spec Spec) string {
 	return spec.ToTag
 }
 
+// Bump this when source selection, generation, or quality checks change,
+// including behavior that authoritative prompt text does not capture.
+const generationContractVersion = "source3-generation4-quality3-citations2"
+
 // configDigestInput is the deterministic JSON over which the config digest
 // hashes. Field order is fixed by encoding/json (struct order), so the
 // digest is stable across calls and processes.
 type configDigestInput struct {
-	SystemPrompt  string   `json:"system_prompt"`
-	Model         string   `json:"model"`
-	Temperature   float64  `json:"temperature"`
-	CommitTypes   []string `json:"commit_types"`
-	Mode          string   `json:"mode"`
-	MaxTokens     int      `json:"max_tokens"`
-	ThinkingLevel string   `json:"thinking_level"`
-	BaseURL       string   `json:"base_url"`
+	ContractVersion string   `json:"contract_version"`
+	SystemPrompt    string   `json:"system_prompt"`
+	Model           string   `json:"model"`
+	Temperature     float64  `json:"temperature"`
+	CommitTypes     []string `json:"commit_types"`
+	Mode            string   `json:"mode"`
+	MaxTokens       int      `json:"max_tokens"`
+	ThinkingLevel   string   `json:"thinking_level"`
+	BaseURL         string   `json:"base_url"`
 }
 
 // configDigest is the lowercase full SHA-256 over the runtime generation
-// contract. Compile-time constants (e.g. the diff byte budget) are
-// deliberately excluded.
+// contract and the explicit source, generation, and quality contract version.
 func (p *Pipeline) configDigest(baseURL string, resolved engine.Resolved) string {
 	in := configDigestInput{
-		SystemPrompt:  p.Engine.BuildSystemPrompt(resolved),
-		Model:         resolved.Model,
-		Temperature:   resolved.Temperature,
-		CommitTypes:   resolved.CommitTypes,
-		Mode:          resolved.Mode,
-		MaxTokens:     resolved.MaxTokens,
-		ThinkingLevel: resolved.ThinkingLevel,
-		BaseURL:       baseURL,
+		ContractVersion: generationContractVersion,
+		SystemPrompt:    p.Engine.BuildSystemPrompt(resolved),
+		Model:           resolved.Model,
+		Temperature:     resolved.Temperature,
+		CommitTypes:     resolved.CommitTypes,
+		Mode:            resolved.Mode,
+		MaxTokens:       resolved.MaxTokens,
+		ThinkingLevel:   resolved.ThinkingLevel,
+		BaseURL:         baseURL,
 	}
 	if in.CommitTypes == nil {
 		in.CommitTypes = []string{}
@@ -836,6 +915,15 @@ func publishLockKey(spec Spec) string {
 // Publish reports whether the remote body was written, even if saving its cache fails.
 // A false result with no error means the human-authored body was preserved.
 func (p *Pipeline) Publish(ctx context.Context, result Result, spec Spec, platform Platform, force bool) (bool, error) {
+	if len(result.QualityIssues) > 0 {
+		return false, &QualityError{Issues: result.QualityIssues}
+	}
+	if result.qualityReceipt.cacheKey == "" ||
+		result.qualityReceipt.cacheKey != p.cacheKey(spec, result.FromTag, result.ConfigDigest) ||
+		result.qualityReceipt.notesHash != sha256.Sum256([]byte(result.Notes)) {
+		return false, &QualityError{Issues: []string{"quality_check_required"}}
+	}
+
 	pub := p.pubInflight()
 	lockKey := publishLockKey(spec)
 	pub.Lock(lockKey)
@@ -860,17 +948,18 @@ func (p *Pipeline) Publish(ctx context.Context, result Result, spec Spec, platfo
 	}
 
 	note := db.GeneratedNote{
-		CacheKey:       p.cacheKey(spec, result.FromTag, result.ConfigDigest),
-		Platform:       spec.Platform,
-		Owner:          spec.Owner,
-		Repo:           spec.Repo,
-		ReleaseID:      spec.ReleaseID,
-		FromTag:        result.FromTag,
-		ToTag:          spec.ToTag,
-		Profile:        result.Profile,
-		DisplayVersion: result.DisplayVersion,
-		ConfigDigest:   result.ConfigDigest,
-		Notes:          result.Notes,
+		CacheKey:           p.cacheKey(spec, result.FromTag, result.ConfigDigest),
+		Platform:           spec.Platform,
+		Owner:              spec.Owner,
+		Repo:               spec.Repo,
+		ReleaseID:          spec.ReleaseID,
+		FromTag:            result.FromTag,
+		ToTag:              spec.ToTag,
+		Profile:            result.Profile,
+		DisplayVersion:     result.DisplayVersion,
+		ConfigDigest:       result.ConfigDigest,
+		Notes:              result.Notes,
+		SourceAttributions: result.qualityReceipt.sourceAttributions,
 	}
 	if err := p.DB.MarkGenerated(note); err != nil {
 		return true, fmt.Errorf("pipeline: record generated: %w", err)

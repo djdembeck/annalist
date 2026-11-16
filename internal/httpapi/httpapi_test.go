@@ -27,14 +27,15 @@ import (
 // either a recorded notes string or a forced error, and records every
 // GenerateNotes call for assertions.
 type fakePip struct {
-	outcome     string
-	warningCode string
-	notes       string
-	err         error
-	resolveErr  error
-	eff         engine.Resolved
-	calls       []pipeline.Spec
-	opts        []pipeline.Options
+	outcome       string
+	warningCode   string
+	qualityIssues []string
+	notes         string
+	err           error
+	resolveErr    error
+	eff           engine.Resolved
+	calls         []pipeline.Spec
+	opts          []pipeline.Options
 }
 
 func newFakePip() *fakePip {
@@ -62,6 +63,7 @@ func (f *fakePip) GenerateNotes(ctx context.Context, spec pipeline.Spec, opts pi
 	return pipeline.Result{
 		Outcome:        f.outcome,
 		WarningCode:    f.warningCode,
+		QualityIssues:  f.qualityIssues,
 		Notes:          f.notes,
 		Profile:        spec.Profile,
 		DisplayVersion: spec.DisplayVersion,

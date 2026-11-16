@@ -6,8 +6,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -196,10 +198,52 @@ func cmdGenerate(cfg *config.Config, args []string) {
 		Profile:        *profile,
 		DisplayVersion: *displayVersion,
 	}, pipeline.Options{Force: true, Publish: *publish, Mode: *mode})
+	if code := printGenerationResult(os.Stdout, os.Stderr, result, err); code != 0 {
+		os.Exit(code)
+	}
+}
+
+// printGenerationResult keeps review-needed output visible but unsuccessful,
+// so shell chains cannot treat it as approved for unattended publication.
+func printGenerationResult(stdout, stderr io.Writer, result pipeline.Result, err error) int {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "generating notes: %v\n", err)
-		os.Exit(1)
+		var qualityErr *pipeline.QualityError
+		if errors.As(err, &qualityErr) {
+			fmt.Fprintln(stderr, "Publication blocked: notes need quality review. Nothing was published.")
+			printQualityIssues(stderr, qualityErr.Issues)
+		} else {
+			fmt.Fprintf(stderr, "generating notes: %v\n", err)
+		}
+		return 1
 	}
 
-	fmt.Println(result.Notes)
+	fmt.Fprintln(stdout, result.Notes)
+	if result.WarningCode == "quality_review_required" || len(result.QualityIssues) > 0 {
+		fmt.Fprintln(stderr, "Warning: notes need quality review. Nothing was published. Do not publish this preview automatically.")
+		printQualityIssues(stderr, result.QualityIssues)
+		return 1
+	}
+	if result.WarningCode == "cache_persistence" {
+		fmt.Fprintln(stderr, "Warning: notes were published, but the local note cache could not be saved. Check server storage before generating again.")
+	} else if result.WarningCode != "" {
+		fmt.Fprintln(stderr, "Warning: generation completed with a warning. Check server configuration before generating again.")
+	}
+	return 0
+}
+
+func printQualityIssues(w io.Writer, issues []string) {
+	for _, issue := range issues {
+		switch issue {
+		case "strict_prose_semicolon":
+			fmt.Fprintln(w, "- Strict engineer prose contains semicolons. Review the wording without changing technical text.")
+		case "source_context_incomplete":
+			fmt.Fprintln(w, "- Some diff hunks did not fit the source context. Review the full release range for missing actions and conditions.")
+		case "source_attribution_invalid":
+			fmt.Fprintln(w, "- Source attribution is invalid, so the preview was withheld. Check for missing, duplicate, or unknown source IDs and unverified links. Follow the citation contract before generating again.")
+		case "quality_check_required":
+			fmt.Fprintln(w, "- The notes do not have a current quality check. Generate a new preview before publishing.")
+		default:
+			fmt.Fprintln(w, "- A required quality check did not pass. Review the notes and source before publishing.")
+		}
+	}
 }

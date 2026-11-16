@@ -357,11 +357,19 @@ jobs:
             exit 0
           fi
 
+          extract_publishable_notes() {
+            jq -er '
+              if .warning_code != null or ((.quality_issues // []) | length > 0) then
+                error("Release notes need review. Publication blocked.")
+              else .notes | select(type == "string" and length > 0)
+              end'
+          }
+
           # Optional: a named release-note profile (see the GitHub example):
           #   NOTES_CUSTOMER=$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/forgejo/${OWNER}/${REPO}/generate" \
           #     -H "Authorization: Bearer ${ANNALIST_ADMIN_TOKEN}" \
           #     -H "Content-Type: application/json" \
-          #     -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"profile\":\"customer\",\"display_version\":\"${VERSION#v}\",\"publish\":false}" | jq -r .notes)
+          #     -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"profile\":\"customer\",\"display_version\":\"${VERSION#v}\",\"publish\":false}" | extract_publishable_notes)
 
           # Optional: build and push your container image here. For
           # idempotent reruns guard with a manifest inspect, e.g.:
@@ -381,10 +389,11 @@ jobs:
             # non-prerelease ancestor release — full history for the first
             # published release — so an unfinished reservation cannot hide
             # unreleased changes. from_tag is intentionally omitted.
-            NOTES="$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/forgejo/${OWNER}/${REPO}/generate" \
+            NOTES_RESPONSE="$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/forgejo/${OWNER}/${REPO}/generate" \
               -H "Authorization: Bearer ${ANNALIST_ADMIN_TOKEN}" \
               -H "Content-Type: application/json" \
-              -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"publish\":false}" | jq -r .notes)"
+              -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"publish\":false}")"
+            NOTES="$(extract_publishable_notes <<<"${NOTES_RESPONSE}")"
           fi
 
           if [ "$HTTP_OK" -eq 1 ] && [ "${IS_DRAFT}" = "true" ]; then

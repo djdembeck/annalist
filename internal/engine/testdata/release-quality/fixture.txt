@@ -1,0 +1,21 @@
+# Invented release fixture: generic migration coordinator
+# Expected source identities: commit A (body-only action and separate status endpoint);
+# commit B (diff-only command); commit C (compatibility exception);
+# commit D (stale-write condition); commit E (approval reset).
+# No private project data is represented.
+
+commit A | feat: add staged migration coordinator
+Body: Before enabling the coordinator, stop all writers and run the migration check. The check must report no pending legacy writes. A new migration status endpoint reports whether a migration is blocked.
+
+commit B | feat: support guarded schema transition
+Body: Adds guarded transition support.
+Diff: Operator command: migratectl apply --confirm --drain-timeout=30s. The command fails until all active writers have drained.
+
+commit C | fix: preserve legacy reader mode
+Body: Existing readers can continue to use legacy mode during the transition. New deployments use the new reader by default.
+
+commit D | fix: reject stale writes after transition
+Body: A client with a stale generation must refresh its generation token before it retries a write. Do not retry the write with the old token.
+
+commit E | fix: reset approvals after policy edits
+Body: Changing an approval policy clears all prior approvals. Obtain fresh approval under the updated policy before applying the change.

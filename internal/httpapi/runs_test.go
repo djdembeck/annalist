@@ -159,23 +159,36 @@ func TestGenerateUsesObservedOutcome(t *testing.T) {
 	}
 }
 
-type runTestPlatform struct{ origin, body string }
+type runTestPlatform struct {
+	origin, body string
+	gets, edits  int
+}
 
 func (p *runTestPlatform) ReadRepoFile(context.Context, string, string, string, string) (string, error) {
 	return "", pipeline.ErrNotFound
 }
 func (p *runTestPlatform) GetReleaseByTag(context.Context, string, string, string) (*pipeline.Release, error) {
+	p.gets++
 	return &pipeline.Release{ID: 1}, nil
 }
 func (p *runTestPlatform) ListReleases(context.Context, string, string) ([]pipeline.ReleaseMeta, error) {
 	return nil, nil
 }
 func (p *runTestPlatform) EditReleaseBody(_ context.Context, _, _ string, _ int64, body string) error {
+	p.edits++
 	p.body = body
 	return nil
 }
 func (p *runTestPlatform) CloneInfo(context.Context, string, string) (string, string, error) {
 	return p.origin, "", nil
+}
+
+func (p *runTestPlatform) ResolveCommitReferences(_ context.Context, owner, repo string, shas, _ []string) (map[string]pipeline.CommitReference, error) {
+	refs := make(map[string]pipeline.CommitReference, len(shas))
+	for _, sha := range shas {
+		refs[sha] = pipeline.CommitReference{PullRequests: []pipeline.PullRequestReference{{Number: 17, URL: "https://github.com/" + owner + "/" + repo + "/pull/17"}}}
+	}
+	return refs, nil
 }
 
 func TestGenerateRemoteSuccessCacheFailureAPI(t *testing.T) {

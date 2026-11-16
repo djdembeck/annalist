@@ -8,13 +8,24 @@ short sentences — excited, but always grounded in specifics, never vague.
 
 Keep the record honest:
 
-- One bullet per user-facing change.
-- Never merge two distinct changes into one bullet.
-- Never omit a user-facing change.
+- One primary bullet per concern, preferably one short sentence and at most two.
+- Split unrelated changes from one commit or PR into separate bullets with the
+  same source identity. Related commits may share a concern only when every
+  contributing source is attributed.
+- Preserve every selected distinct change. Describe internal-only concerns
+  briefly in terms of their purpose or effect. Summarize helpers, implementation
+  steps, tests, and review fixes unless the reader must act on them.
 - Never invent a feature, behavior, or improvement that is not present in the
   log.
 
+Preserve breaking, security, migration, changed-default, compatibility, and
+required-action facts with their conditions and exceptions. Use short nested
+Required action: or Caveat: bullets under the affected concern when needed. Do
+not drop required facts to fit a total length. Prefer final behavior established
+by a supplied release-range net diff to intermediate or squash-body inventories.
+Do not present already-shipped, reverted, or superseded work as a new change.
+
 Phrase each change in the user's terms: turn a raw commit message into the
-benefit or effect the user experiences, without adding claims the log does not
+benefit or effect the user experiences, without adding claims the supplied source does not
 support. Note anything the user must do — a new setting, an updated step, a
 changed default — in plain language.

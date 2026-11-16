@@ -23,7 +23,7 @@ Large and small language models share three failure modes when generating change
 
 1. **Omission.** The model drops commits it considers "unimportant." This is the most common error. A dependency bump or internal refactor that the model discards may have been the only commit in the release range. The model's importance filter is not the author's.
 
-2. **Merging.** Two or more distinct commits collapse into one vague bullet. Example: if a release adds a diff-aware analysis mode and also hardens prompt parsing, a model may produce "quiet but important strengthening of our foundations" — one bullet that erases two features. This is the defining failure mode of the `chronicler` voice when run without explicit fidelity guardrails.
+2. **Concern bundling.** A model treats a commit or PR as the size of a bullet, even when a squash body contains several unrelated changes. The result is a paragraph that mixes features, fixes, and caveats. The reverse also loses facts: unrelated changes from separate commits can collapse into one vague summary. Bullets follow concerns, while attribution tracks every contributing source.
 
 3. **Editorialization and invention.** The model adds adjectives, claims, or behaviors not supported by the commit log. "Significantly improved performance" appears when the commits say nothing about benchmarks. "Fixed a long-standing bug" appears when the commit says "fix null check."
 
@@ -31,43 +31,55 @@ The root cause is that models are trained to be helpful summaries, not faithful 
 
 ## 3. The fidelity contract
 
-Every built-in voice — `chronicler`, `engineer`, `launch`, and the neutral
-default — shares one concise output shape and one fidelity contract. The shape
-lives in the shared rules block: a short opening of at most two plain sentences
-(one for a small release) that naturally names the version and states the
-headline changes and their impact, then `## category` headings with one short
-sentence per in-scope change, plus a further short sentence inside a bullet only
-when the reader needs it — migration steps, security notes, or other breaking
-information. Notes use plain text: no code fences, no backtick formatting, and no
-inventory of internal files, functions, or implementation steps. Necessary public
-interface, configuration, and version names may appear as unformatted plain text;
-the **Breaking:** marker remains exact.
+Every built-in voice (`chronicler`, `engineer`, `launch`, and the neutral
+default) shares one output shape and fidelity contract. Start with one plain
+sentence for a small release, at most two for a large release, naming the version
+and headline changes. Follow with `## category` headings and one primary bullet
+per concern, preferably one short sentence and at most two.
+
+A commit or PR can contain several distinct changes. Give each concern its own
+bullet and reuse that source identity. Related commits may share a bullet when
+they address the same concern and all contributing sources are attributed.
+Preserve every selected distinct change. Summarize internal helpers,
+implementation steps, tests, and review fixes unless the reader must act on them.
+A distinct internal change still needs a concise account of its purpose or effect.
+
+Keep breaking, security, migration, changed-default, compatibility, and
+required-action facts with their conditions and exceptions. Put necessary detail
+in short nested Required action: or Caveat: bullets under the affected concern.
+Do not extend the primary paragraph or drop required facts to fit a total note
+length. Notes use plain text: no code fences, backtick formatting, or inventory
+of internal files and functions. Necessary public interface, configuration, and
+version names remain exact. The **Breaking:** marker remains exact.
+
+Summarize required actions and prerequisites when the full procedure belongs in
+documentation. Include a version-appropriate guide link only when the source
+provides one. Do not invent URLs or breaking-change markers. Keep the source's
+certainty exact. When a supplied release-range net diff establishes final
+behavior, prefer it to intermediate or squash-body inventories. Already-shipped,
+reverted, or superseded work must not appear as a new change. Limited diff
+context does not excuse dropping required facts from commit bodies.
 
 The block below is the `## Fidelity` section shared verbatim by every built-in
-persona, and the shared rules restate the same scope and one-bullet-per-in-scope-commit
-coverage inside that concise default. Treat the block as the coverage half of the
-default, not a duplicate of the full prompt. Authoritative full prompts (an
-in-repository instructions file or a named profile's prompt) replace the whole
-system prompt and therefore bypass both the concise default and this block;
-a custom freeform `tone` value is inserted as the persona and still receives the
-shared rules — including their restated coverage — but not this block as its own
-section.
+persona. The shared rules restate its scope and concern-based coverage.
+Authoritative full prompts (an in-repository instructions file or a named
+profile's prompt) replace the whole system prompt and bypass these defaults.
+A custom freeform `tone` still receives the shared rules, but not this block as
+its own section.
 
 ```
 ## Fidelity
-When the release tag has the form <prefix>/vX.Y.Z, report only the commits that change the artifact that prefix names; commits that touch other artifacts, or only shared tooling, CI, release automation, or repository-wide documentation, are out of scope and omitted entirely — including release-pipeline work that cut the tag itself. Report every in-scope commit in the log exactly once. Write one bullet per in-scope commit. Never merge two distinct changes into one bullet. Never omit an in-scope commit. Never invent a change, component, or behavior not present in the log. Keep the identity of each covered change intact — name the feature or behavior it changes; supporting implementation detail within a commit may be summarized inside its bullet. Your tone may alter phrasing, but never the identity of the changes reported or the one-bullet-per-in-scope-commit count.
+When the release tag has the form <prefix>/vX.Y.Z, report only changes to the artifact that prefix names. Omit commits that touch only other artifacts, shared tooling, CI, release automation, or repository-wide documentation, including the pipeline work that cut the tag. Cover every distinct in-scope change. Write one concern per primary bullet, independent of commit or pull-request boundaries. Split unrelated changes from one source into separate bullets with the same source identity. Related commits may share a bullet only when they address the same concern and all contributing sources are attributed. Preserve each change's identity and every breaking, security, migration, changed-default, compatibility, and required-action fact, with its conditions and exceptions. Keep necessary actions and caveats in short nested bullets under their concern. Summarize internal helpers, implementation steps, tests, and review fixes unless the reader must act on them. Never omit a selected distinct change or invent facts or associations. Tone changes phrasing, not coverage or certainty.
 ```
 
-Prompts saved from an earlier revision of this page carry the older, shorter
-variant of this block (no `<prefix>/vX.Y.Z` scope sentence, and a closing that
-said the tone may never change "which facts appear"). Re-paste the block above to
-get the current wording.
+Saved prompts remain authoritative. When updating one, replace any
+one-bullet-per-commit rule with this concern-based contract.
 
-**What full coverage means.** Every in-scope commit is reported exactly once, so
-no change is lost. That is coverage of the changes, not an inventory of the code
-behind them: a bullet names the feature or behavior a commit changes, and
-supporting implementation detail inside that commit may be summarized rather than
-listed line by line.
+**What full coverage means.** Every selected distinct change appears, and every
+in-scope source identity is accounted for. Source counts and bullet counts need
+not match. One source may support several concerns, and several related sources
+may support one concern. Required facts stay with their concern. Internal
+implementation and review details do not need a line-by-line inventory.
 
 **Optional addendum** — not part of the shipped `fidelityBlock`. If your commit
 messages are terse, append this line below the block to keep phrasing honest
@@ -77,23 +89,87 @@ without expanding the fact set:
 If a commit message is unclear, restate it faithfully in plain language — do not embellish.
 ```
 
-This contract is diff-agnostic: it applies whether the prompt carries only `<commit_log>` or also a `<diff>` block.
+This contract applies whether the prompt carries only `<commit_log>` or also
+a `<diff>` block. Source collection removes an empty repeat only when Git
+metadata proves there is no tree change and its full message duplicates a
+retained entry. Distinct empty commits and nonempty changes with a shared
+subject remain. Output bullets are never deduplicated after generation.
+
+### Automatic source citations
+
+Every voice and profile receives the same mandatory citation contract in
+Annalist's generated user message. Custom full prompts keep their system text
+unchanged. Each primary concern must be a top-level Markdown list item. End its
+first paragraph with the exact supplied source tokens for every contributing
+commit, separated by spaces on one line. A source appears once within a group
+and may recur in other concern items. Keep multiline qualifiers, commands, and
+nested required actions inside their concern. Tokens cannot appear in
+introductions, headings, code, or nested actions. Do not wrap changes in HTML
+blocks or comments.
+
+For prefixed tags, out-of-artifact commits remain omitted and need no item.
+Every other selected source must be represented, whether alone, grouped with
+related sources, or repeated across distinct concerns.
+
+Annalist resolves those exact commit SHAs through authenticated platform APIs
+and renders one verified citation group per concern, such as
+`([#1754](https://github.com/OWNER/REPO/pull/1754))`. Sources associated with the
+same PR produce one visible link in that concern. A subject does not need a PR
+number. The model cannot supply citation URLs. Documentation links must come
+verbatim from the source. Missing coverage, unknown IDs, duplicate IDs within a
+group, malformed or misplaced attribution, and unverified links block publication
+and cache writes, even with `force`. Invalid attribution withholds preview text
+rather than exposing internal tokens or unchecked links.
+
+GitHub paginates commit associations and links all merged PRs in the requested repository, sorted by number. An empty association array permits a fetched commit link with a short SHA. Open-only associations and API, permission, or transport failures remain unresolved. GitHub Apps need **Repository permissions → Pull requests → Read-only** in their registration. Existing installations also need the installation owner's approval of that additional permission. See [GitHub's permission-change instructions](https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration#changing-the-permissions-of-a-github-app).
+
+Forgejo checks its singular commit-to-PR endpoint. For branch commits, it also checks verified PRs from merge SHAs collected in the same release range. Paginated PR commit membership establishes the exact association. Multiple verified range-merge associations are linked in number order.
+
+Only Forgejo's explicit missing-record response permits a fetched commit fallback after these checks. Generic 404s and failed membership lookups remain errors. Rebase methods that leave no recorded association can produce commit links. A fallback reports that the platform recorded no association, not that no PR ever existed.
+
+These rules apply in lite and deep modes through the shared webhook, API,
+dashboard, and CLI pipeline. Rendering changes only the attribution group, with
+no prose rewrite or extra model call. Successful publications cache final linked
+Markdown and private attribution metadata: source SHAs for each citation span
+and a hash of the exact note body. Cache hits recheck coverage, group uniqueness,
+placement, and link targets without provider lookups. Corrupt or missing metadata
+withholds the notes and blocks publication. The contract version invalidates old
+entries even when an authoritative custom prompt is unchanged. Provider lookup
+failures return HTTP 502 and record the safe history category `source_links`.
 
 ## 4. The three built-in voices
+
+The built-in voices include editing rules adapted from
+[STE80 Humanizer](https://github.com/Dodaios/ste80-humanizer). The editing mode is
+part of each voice: `chronicler` uses Humanize, `engineer` uses Strict STE style,
+and `launch` uses Light. The neutral default uses Humanize. There is no separate
+setting or extra LLM call.
+
+All modes remove AI-writing habits such as chatbot openings, inflated claims,
+and repetitive closers. Humanize also simplifies sentence structure while
+preserving the voice. Light keeps more of the original rhythm and changes only
+the most complex sentences. Strict applies tighter sentence, vocabulary, and
+verb rules. It aims for STE style, not certified ASD-STE100 compliance.
+
+Editing changes wording only. Coverage, the required output shape, technical
+names, numbers, and uncertainty take precedence over style. A recommendation
+never becomes a requirement to satisfy Strict. Freeform custom tones do not
+receive these editing blocks. Full-prompt overrides, including named profiles,
+remain authoritative and receive none of the built-in voice instructions.
 
 ### chronicler
 
 **Purpose:** Write for readers who want each release as a narrative chapter — the careful writer who records a project's history as it unfolds.
 
-**Personality:** Warm, story-driven, plain-spoken. Frames the release as the next entry in an ongoing story; the short prose lead carries that warmth — what drove the release and how it advances the project. Each bullet is one short, factual sentence about its change told in that voice, not a journal-length entry. Avoids breathless hype or vague summaries.
+**Personality:** Warm, story-driven, plain-spoken. Frames the release as the next entry in an ongoing story. The short prose lead explains what drove the release and how it advances the project. Ordinary bullets use one short, factual sentence in that voice. Actionable changes retain the steps and conditions the reader needs. Avoids breathless hype or vague summaries.
 
-**Fidelity:** Bound by the fidelity contract above. The narrative voice applies to phrasing only — every in-scope commit still becomes one bullet, and no change is merged, omitted, or invented.
+**Fidelity:** Bound by the fidelity contract above. Narrative phrasing changes no coverage: every selected distinct change appears under its concern, with all source identities accounted for.
 
 ### engineer
 
 **Purpose:** Write for maintainers, contributors, and technical readers who need precise, unembellished records.
 
-**Personality:** Direct, terse, precise. Leads with a short statement of the changes and any caveats. Uses exact technical terms and short factual sentences; names a public interface or configuration only when the commit states it. No marketing language, cheerleading, or technically meaningless adjectives.
+**Personality:** Direct, terse, precise. Leads with a short statement of the changes and any caveats. Uses exact technical terms and short factual sentences. Names a public interface or configuration when the source states it. No marketing language, cheerleading, or technically meaningless adjectives.
 
 **Fidelity:** Bound by the fidelity contract. The technical voice changes nothing about change coverage — only that the phrasing is dry and specific.
 
@@ -103,7 +179,7 @@ This contract is diff-agnostic: it applies whether the prompt carries only `<com
 
 **Personality:** Enthusiastic and product-forward. Opens with an upbeat prose paragraph about the most user-visible improvement, and lets each bullet lead with what the reader gains rather than what the code did. Keeps the energy strictly grounded in the log — no unsupported claims of size, speed, or impact — with crisp, active sentences that never go vague.
 
-**Fidelity:** Bound by the fidelity contract. The benefit-first voice changes no coverage: every in-scope commit is reported once, without merging or inventing changes.
+**Fidelity:** Bound by the fidelity contract. Benefit-first phrasing preserves every selected distinct change and required condition, independent of commit or PR boundaries.
 
 ## 5. Writing your own voice
 
@@ -117,15 +193,15 @@ Write release notes for [audience, e.g. "platform operators and SRE teams"]. Foc
 Tone is [2-3 adjectives, e.g. "authoritative, concise, and action-oriented"]. Prefer [specific phrasing style, e.g. "imperative mood and component-first descriptions"]. Avoid [what to skip, e.g. "marketing language and subjective claims"].
 
 ## Fidelity
-[Paste the fidelity contract from section 3 above, or state: "Bound by the standard fidelity contract: one bullet per in-scope commit, never merge/omit/invent, tone changes wording only."]
+[Paste the fidelity contract from section 3 above, or state: "Bound by the standard fidelity contract: one concern per primary bullet, every selected distinct change preserved, all contributing source identities attributed, tone changes wording only."]
 ```
 
 **Small-model prompting tips:**
 
 - Use short declarative sentences. Small models follow simple instructions better than compound ones.
 - Write `MUST` and `MUST NOT` rules, not suggestions. "Must preserve the public name a commit states" is clearer than "try to keep names."
-- Make rules verifiable. "Every in-scope commit becomes one bullet" can be checked. "Write clearly" cannot.
-- Avoid vague adjectives doing the work. Instead of "write concisely," say "one sentence per bullet."
+- Make coverage verifiable. Every selected source identity must appear in a valid attribution group. Review distinct concerns and required facts separately, since source counts alone do not prove semantic coverage.
+- Replace vague length rules with a clear default: one short sentence for ordinary changes. Allow the detail needed for required actions and conditions.
 - Place the most critical constraints first — models pay most attention to early instructions.
 
 ## 6. Named release-note profiles
@@ -149,7 +225,7 @@ profiles:
 
 The manifest is strict. `version` must be `1`. At least one profile is required, and **every** entry is validated — not just the one requested: profile names must match `^[a-z0-9][a-z0-9_-]{0,63}$` (lowercase, digits, `_`, and `-`; starts alphanumeric; at most 64 characters), and each `prompt` must be a non-empty, repository-root-relative slash path ending in `.md`. Absolute paths, empty or `.` segments, `..` traversal, unknown fields, and a second YAML document are all rejected. When a profile is selected, its prompt file must exist and be non-empty.
 
-The selected prompt is the **entire** authoritative system prompt for that generation: no built-in persona, no legacy instructions file, and none of the shared concise-default rules from section 3 are layered on top — a named profile therefore defines its own shape, coverage contract, and formatting. Write profile prompts as complete instruction sets (the tips in section 5 apply); [`examples/prompts/`](../examples/prompts/) has small, working examples.
+The selected prompt is the **entire** authoritative system prompt for that generation: no built-in persona, no legacy instructions file, and none of the shared concise-default rules from section 3 are layered on top — a named profile defines its own prose, style, and formatting, subject to the mandatory source-citation contract above. Write profile prompts as complete instruction sets (the tips in section 5 apply); [`examples/prompts/`](../examples/prompts/) has small, working examples.
 
 ### Selection
 
@@ -169,4 +245,27 @@ Invalid request values fail before any platform work: an invalid profile name, o
 
 A release body holds **one** selected profile's notes. Repeated `publish: true` calls for different profiles on the same release replace the same Annalist-owned body **last-write-wins**: the publishes serialize and the later one wins. Callers that need several outputs must generate each profile with `publish: false`, compose the final body externally, and publish once.
 
-Idempotency follows the full generation contract. The note cache key covers the platform, owner, repository, release id, from/to tags, profile, resolved display version, and a digest of the effective configuration (system prompt, model, temperature, commit types, mode, max tokens, thinking level, LLM base URL). An identical request with an identical configuration is a cache hit with no LLM call; any change to the contract — editing a profile's prompt text, switching modes — changes the key and regenerates.
+Idempotency follows the full generation contract. The note cache key covers the platform, owner, repository, release id, from/to tags, profile, resolved display version, and a digest of the effective configuration. The digest includes the system prompt, model, temperature, commit types, mode, max tokens, thinking level, LLM base URL, and an explicit source/generation/quality contract version. That version invalidates old cache entries even when a custom full prompt is unchanged. Eligible cached notes pass current output checks and source-completeness collection before reuse.
+
+### Quality review and context limits
+
+Deep mode includes selected diff hunks alongside the full selected commit messages. The fixed hunk budget is 256 KiB, and hunks are never split. Skipped hunks produce the reason `source_context_incomplete`. A diff-collection error fails the request rather than presenting partial context as complete. Limited context does not excuse dropping facts already present in the commit bodies.
+
+Every built-in voice checks primary prose paragraphs for more than two prose
+sentences or 60 prose words and reports `primary_bullet_overloaded`.
+Recognizable commands, URLs, identifiers, code, quotations, and nested required
+actions do not count as generic prose. This is a bounded readability check, not
+a semantic concern detector or a total note-length limit.
+
+The built-in `engineer` voice also checks semicolons in editable prose.
+Recognizable commands, URLs, technical spans, and quotations remain unchanged.
+These prose checks do not apply to authoritative full prompts or custom tones.
+The Engineer semicolon check still runs only when `tone` is `engineer` and there
+are no full instructions. Source incompleteness blocks publication for every
+prompt.
+
+A review-needed preview returns its captured notes, `quality_issues`, and `warning_code: "quality_review_required"`. Attribution failures withhold the note text and report `source_attribution_invalid`. It does not rewrite the output or make another model call. A publish request with issues fails with HTTP 422 before any release edit or generated-note cache write. `force` cannot bypass the checks. The dashboard shows the reasons, and CLI previews print them to stderr and exit nonzero. Server history keeps its existing outcome/status values and records the general quality warning without notes or source text. A rejected publish is a failed run with error code `quality`.
+
+The current reason codes are `primary_bullet_overloaded`, `strict_prose_semicolon`, `source_context_incomplete`, `source_attribution_invalid`, and `quality_check_required`. The last code rejects direct publication of notes without a current check bound to that exact output and generation contract. Successful remote publication followed by a local cache failure remains a published outcome with `cache_persistence`, not a quality rejection.
+
+These checks are not a semantic coverage validator. Compare change identities, required actions, conditions, exceptions, and certainty against the source separately. Automated consumers must reject warned previews or nonempty `quality_issues` before publishing notes outside Annalist. The example workflows perform that check. Existing custom prompt files are not changed by these defaults or checks.
