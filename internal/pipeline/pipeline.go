@@ -632,7 +632,7 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	hasChanges := len(commitLog.Commits) != 0
 	var diff engine.DiffContext
 	if hasChanges && resolved.Mode == engine.ModeDeep {
-		diff, err = engine.CollectDiff(ctx, workdir, from, spec.ToTag, engine.DiffBudgetBytes)
+		diff, err = engine.CollectDiff(ctx, workdir, from, spec.ToTag, commitLog.Commits, engine.DiffBudgetBytes)
 		if err != nil {
 			if ctx.Err() != nil {
 				return Result{}, ctx.Err()

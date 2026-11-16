@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -937,7 +938,7 @@ func TestSelectHunks(t *testing.T) {
 	d := diffUnit{class: "docs", filePath: "x.md", fileHeader: "diff --git a/x.md b/x.md\n", hunkText: strings.Repeat("x", 15), origIndex: 2}
 
 	// Case A: budget 90 fits both source hunks (80) but not the docs hunk.
-	out, skipped := selectHunks([]diffUnit{a, b, d}, 90)
+	out, skipped, _ := selectHunks([]diffUnit{a, b, d}, 90)
 	if skipped != 1 {
 		t.Errorf("skipped = %d, want 1", skipped)
 	}
@@ -962,7 +963,7 @@ func TestSelectHunks(t *testing.T) {
 	src := diffUnit{class: "source", filePath: "c.go", fileHeader: "diff --git a/c.go b/c.go\n", hunkText: strings.Repeat("s", 15), origIndex: 2}
 	dx := diffUnit{class: "docs", filePath: "x.md", fileHeader: "diff --git a/x.md b/x.md\n", hunkText: strings.Repeat("x", 15), origIndex: 0}
 	dy := diffUnit{class: "docs", filePath: "y.md", fileHeader: "diff --git a/y.md b/y.md\n", hunkText: strings.Repeat("y", 15), origIndex: 1}
-	out2, skipped2 := selectHunks([]diffUnit{dy, src, dx}, 80)
+	out2, skipped2, _ := selectHunks([]diffUnit{dy, src, dx}, 80)
 	if skipped2 != 1 {
 		t.Errorf("skipped = %d, want 1", skipped2)
 	}
@@ -978,7 +979,7 @@ func TestSelectHunks(t *testing.T) {
 	// fits only one unit; the real comparator must pick z.go.
 	docA := diffUnit{class: "docs", filePath: "a.md", fileHeader: "diff --git a/a.md b/a.md\n", hunkText: strings.Repeat("A", 15), origIndex: 0}
 	srcZ := diffUnit{class: "source", filePath: "z.go", fileHeader: "diff --git a/z.go b/z.go\n", hunkText: strings.Repeat("Z", 15), origIndex: 1}
-	out4, skipped4 := selectHunks([]diffUnit{docA, srcZ}, 40)
+	out4, skipped4, _ := selectHunks([]diffUnit{docA, srcZ}, 40)
 	if skipped4 != 1 {
 		t.Errorf("class vs path: skipped = %d, want 1", skipped4)
 	}
@@ -992,11 +993,33 @@ func TestSelectHunks(t *testing.T) {
 	// both.
 	h := diffUnit{class: "source", filePath: "m.go", fileHeader: "H012345678", hunkText: strings.Repeat("m", 35), origIndex: 0}
 	h2 := diffUnit{class: "source", filePath: "m.go", fileHeader: "H012345678", hunkText: strings.Repeat("n", 35), origIndex: 1}
-	out3, skipped3 := selectHunks([]diffUnit{h, h2}, 80)
+	out3, skipped3, _ := selectHunks([]diffUnit{h, h2}, 80)
+	// A hunk that cannot fit whole is clipped at a line boundary instead of
+	// disappearing: the header line and the first whole lines survive, and the
+	// clipped count reports it.
+	big := diffUnit{class: "source", filePath: "big.go", fileHeader: "H\n", hunkText: "@@ -1,2 +1,2 @@\n keep one\n keep two\n drop this line\n", origIndex: 0}
+	out5, skipped5, clipped5 := selectHunks([]diffUnit{big}, len("H\n")+len("@@ -1,2 +1,2 @@\n")+len(" keep one\n"))
+	if skipped5 != 0 || clipped5 != 1 {
+		t.Errorf("clip: skipped = %d, clipped = %d, want 0/1", skipped5, clipped5)
+	}
+	if !strings.Contains(out5, "@@ -1,2 +1,2 @@") || !strings.Contains(out5, "keep one") || strings.Contains(out5, "drop this line") {
+		t.Errorf("clip output = %q, want header and first line only", out5)
+	}
+	if !strings.Contains(out5, "[hunk truncated]") {
+		t.Errorf("clip output must mark the elision: %q", out5)
+	}
+
 	if skipped3 != 0 || strings.Count(out3, "diff --git") != 0 ||
 		!strings.Contains(out3, strings.Repeat("m", 35)) || !strings.Contains(out3, strings.Repeat("n", 35)) {
 		t.Errorf("same-file hunks: skipped = %d, out = %q (want both hunks, one header)", skipped3, out3)
 	}
+}
+
+// rangeCommits returns the selected commits for a range, matching what the
+// pipeline passes to CollectDiff.
+func rangeCommits(t *testing.T, dir, from, to string) []Commit {
+	t.Helper()
+	return CollectCommitLog(context.Background(), dir, from, to, nil).Commits
 }
 
 func TestParseDiffBinary(t *testing.T) {
@@ -1201,7 +1224,7 @@ func TestCollectDiff(t *testing.T) {
 	}
 	makeTaggedRepo(t, dir, plan)
 
-	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), DiffBudgetBytes)
 	if err != nil {
 		t.Fatalf("CollectDiff: %v", err)
 	}
@@ -1279,7 +1302,7 @@ func TestCollectDiffThreeDotNonLinear(t *testing.T) {
 		t.Fatalf("fixture broken: expected three-dot diff to contain only file-c.txt; got:\n%s", three)
 	}
 
-	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), DiffBudgetBytes)
 	if err != nil {
 		t.Fatalf("CollectDiff: %v", err)
 	}
@@ -1319,7 +1342,7 @@ func TestCollectDiffBudget(t *testing.T) {
 	gitTa(t, dir, "commit", "-q", "-m", "second")
 	gitTa(t, dir, "tag", "v0.2.0")
 
-	fullDC, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	fullDC, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), DiffBudgetBytes)
 	if err != nil {
 		t.Fatalf("CollectDiff: %v", err)
 	}
@@ -1334,7 +1357,7 @@ func TestCollectDiffBudget(t *testing.T) {
 	// A 1-byte budget cannot fit a single hunk, so every hunk is skipped;
 	// the structured status must report it (the marker text stays in the
 	// output for display, but is not the status).
-	tinyDC, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", 1)
+	tinyDC, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), 1)
 	if err != nil {
 		t.Fatalf("CollectDiff: %v", err)
 	}
@@ -1368,7 +1391,7 @@ func TestCollectDiffFirstRelease(t *testing.T) {
 	makeTaggedRepo(t, dir, plan)
 
 	// fromTag == "" diffs against the empty tree: the whole history up to v0.2.0.
-	dc, err := CollectDiff(ctx, dir, "", "v0.2.0", DiffBudgetBytes)
+	dc, err := CollectDiff(ctx, dir, "", "v0.2.0", rangeCommits(t, dir, "", "v0.2.0"), DiffBudgetBytes)
 	if err != nil {
 		t.Fatalf("CollectDiff: %v", err)
 	}
@@ -1394,7 +1417,7 @@ func TestCollectDiffGitFailure(t *testing.T) {
 	dir := t.TempDir()
 	// No git repo here: git diff must fail and the failure must surface as
 	// a non-nil error, never as a complete (empty) context.
-	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", nil, DiffBudgetBytes)
 	if err == nil {
 		t.Fatalf("expected error on git failure, got %+v", dc)
 	}
@@ -1437,7 +1460,7 @@ func TestCollectDiffRejectsBadTags(t *testing.T) {
 	t.Run("badFromTag", func(t *testing.T) {
 		fakeDir, marker := fakeGitDir(t)
 		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-		dc, err := CollectDiff(ctx, dir, "--output=/tmp/evil", "v0.2.0", DiffBudgetBytes)
+		dc, err := CollectDiff(ctx, dir, "--output=/tmp/evil", "v0.2.0", nil, DiffBudgetBytes)
 		if err == nil {
 			t.Errorf("expected error for bad fromTag, got %+v", dc)
 		}
@@ -1448,7 +1471,7 @@ func TestCollectDiffRejectsBadTags(t *testing.T) {
 	t.Run("badToTag", func(t *testing.T) {
 		fakeDir, marker := fakeGitDir(t)
 		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-		dc, err := CollectDiff(ctx, dir, "v0.1.0", "-q", DiffBudgetBytes)
+		dc, err := CollectDiff(ctx, dir, "v0.1.0", "-q", nil, DiffBudgetBytes)
 		if err == nil {
 			t.Errorf("expected error for bad toTag, got %+v", dc)
 		}
@@ -1460,7 +1483,7 @@ func TestCollectDiffRejectsBadTags(t *testing.T) {
 	// reported by the structured fields, and the output must be non-empty).
 	// Runs under the real PATH (t.Setenv restored it when the subtests
 	// above ended).
-	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", 1)
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), 1)
 	if err != nil {
 		t.Fatalf("valid tags: %v", err)
 	}
@@ -1470,7 +1493,7 @@ func TestCollectDiffRejectsBadTags(t *testing.T) {
 	// Control: implicit HEAD — an empty toTag makes git resolve the missing
 	// range endpoint to HEAD, so the diff covers the commit(s) after v0.1.0
 	// (here the "two" commit, which rewrites f.txt).
-	implicitDC, err := CollectDiff(ctx, dir, "v0.1.0", "", DiffBudgetBytes)
+	implicitDC, err := CollectDiff(ctx, dir, "v0.1.0", "", rangeCommits(t, dir, "v0.1.0", ""), DiffBudgetBytes)
 	if err != nil {
 		t.Fatalf("implicit HEAD: %v", err)
 	}
@@ -1638,4 +1661,138 @@ func TestCloneToCollision(t *testing.T) {
 		t.Errorf("workdir base = %q, want prefix %q-", filepath.Base(workdir), sum)
 	}
 	cleanup()
+}
+
+func TestFairShare(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		costs  []int
+		budget int
+		want   []int
+	}{
+		{"even split", []int{100, 100}, 100, []int{50, 50}},
+		{"small commit keeps its diff", []int{10, 1000}, 100, []int{10, 90}},
+		{"everything fits", []int{5, 5}, 100, []int{5, 5}},
+		{"single oversized commit", []int{300}, 100, []int{100}},
+		{"empty commits cost nothing", []int{0, 0}, 5, []int{0, 0}},
+		{"zero budget", []int{10, 10}, 0, []int{0, 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := fairShare(tc.costs, tc.budget)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("fairShare(%v, %d) = %v, want %v", tc.costs, tc.budget, got, tc.want)
+			}
+			if total := sumInts(got); total > tc.budget {
+				t.Fatalf("allocation %d exceeds budget %d", total, tc.budget)
+			}
+		})
+	}
+}
+
+func sumInts(values []int) int {
+	total := 0
+	for _, v := range values {
+		total += v
+	}
+	return total
+}
+
+// TestCollectDiffSharesBudgetAcrossCommits pins the property that one large
+// change cannot consume the evidence budget for the rest of the release.
+func TestCollectDiffSharesBudgetAcrossCommits(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: seed")
+	gitTa(t, dir, "tag", "v0.1.0")
+
+	var large strings.Builder
+	for i := range 400 {
+		fmt.Fprintf(&large, "line %d of the large change\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "large.go"), []byte(large.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "feat: large change")
+
+	if err := os.WriteFile(filepath.Join(dir, "small.go"), []byte("small change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: small change")
+	gitTa(t, dir, "tag", "v0.2.0")
+
+	commits := rangeCommits(t, dir, "v0.1.0", "v0.2.0")
+	if len(commits) != 2 {
+		t.Fatalf("commits = %d, want 2", len(commits))
+	}
+	// Enough for the small commit plus part of the large one, far less than
+	// the large commit needs alone.
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", commits, 2048)
+	if err != nil {
+		t.Fatalf("CollectDiff: %v", err)
+	}
+	for _, want := range []string{"feat: large change", "fix: small change", "small change", "large.go"} {
+		if !strings.Contains(dc.Text, want) {
+			t.Fatalf("budget-starved diff missing %q; got:\n%s", want, dc.Text)
+		}
+	}
+	if !dc.Truncated {
+		t.Fatal("expected the large commit's share to be truncated")
+	}
+}
+
+// TestCollectDiffSkipsNoiseHunks keeps lockfiles and test data in the --stat
+// summary without spending hunk budget on them.
+func TestCollectDiffSkipsNoiseHunks(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: seed")
+	gitTa(t, dir, "tag", "v0.1.0")
+
+	if err := os.MkdirAll(filepath.Join(dir, "testdata"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "testdata", "fixture.json"), []byte("{\"seed\": true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bun.lock"), []byte("lockfile-version-1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "feat: add entry point")
+	gitTa(t, dir, "tag", "v0.2.0")
+
+	commits := rangeCommits(t, dir, "v0.1.0", "v0.2.0")
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", commits, DiffBudgetBytes)
+	if err != nil {
+		t.Fatalf("CollectDiff: %v", err)
+	}
+	if !strings.Contains(dc.Text, "main.go") {
+		t.Fatalf("source hunk missing; got:\n%s", dc.Text)
+	}
+	if !strings.Contains(dc.Text, "bun.lock") || !strings.Contains(dc.Text, "testdata/fixture.json") {
+		t.Fatalf("stat summary must still list skipped noise files; got:\n%s", dc.Text)
+	}
+	for _, noise := range []string{"diff --git a/bun.lock", "diff --git a/testdata/fixture.json"} {
+		if strings.Contains(dc.Text, noise) {
+			t.Fatalf("noise file hunks must not consume budget; got:\n%s", dc.Text)
+		}
+	}
+	if dc.Truncated {
+		t.Fatalf("noise filtering must not report truncation: %+v", dc)
+	}
 }

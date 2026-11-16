@@ -236,8 +236,10 @@ func TestGenerateDisplayVersionDiffers(t *testing.T) {
 		Resolved{Model: "m", Temperature: 0.5, Mode: "deep"}, "", "", "2.0", "v2.0.0-beta.3", "v1.0.0", CommitLog{Commits: []Commit{{SHA: strings.Repeat("a", 40), Subject: "feat: a"}}}, "hunk"); err != nil {
 		t.Fatalf("Generate deep: %v", err)
 	}
-	if want := "git diff between the previous tag and v2.0.0-beta.3"; !strings.Contains(got.Messages[1].Content, want) {
-		t.Errorf("deep user message missing %q; got:\n%s", want, got.Messages[1].Content)
+	for _, want := range []string{"selected commits' own changes between the previous tag and v2.0.0-beta.3", "Each section starts with the commit's short SHA and subject"} {
+		if !strings.Contains(got.Messages[1].Content, want) {
+			t.Errorf("deep user message missing %q; got:\n%s", want, got.Messages[1].Content)
+		}
 	}
 }
 

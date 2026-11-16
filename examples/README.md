@@ -148,8 +148,10 @@ change and the full message duplicates a retained entry. Distinct empty commits
 and nonempty commits with the same subject stay in scope. Annalist does not
 remove repeated-looking output bullets.
 
-Deep mode has a 256 KiB hunk budget. A skipped hunk produces
-`source_context_incomplete`, even when a custom prompt is selected. Built-in
+Deep mode has a 256 KiB hunk budget shared max-min fair across the selected
+commits, so one large change cannot crowd out the rest. Clipped or omitted
+hunks produce `source_context_incomplete`, even when a custom prompt is
+selected. Built-in
 voices reject primary prose paragraphs with more than two prose sentences or
 60 prose words as `primary_bullet_overloaded`. Recognizable commands, URLs,
 identifiers, code, and nested required actions are excluded. Built-in engineer

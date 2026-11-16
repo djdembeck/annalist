@@ -802,30 +802,124 @@ type DiffContext struct {
 	Text         string
 	Truncated    bool
 	SkippedHunks int
+	ClippedHunks int
 }
 
-// CollectDiff assembles the deep-mode diff between fromTag and toTag: a
-// `git diff --stat` summary (always included, regardless of budget) followed
-// by hunks selected under maxBytes by file-class priority. On success it
-// returns a DiffContext whose Truncated/SkippedHunks reflect the actual
-// budget selection. A git failure (including an invalid, non-ref-name tag,
-// which is rejected before any git argv is built) is returned as a
-// non-nil error — never as a zero DiffContext — so an empty Text with a
-// nil error means "no diff content", and a git failure is distinguishable
-// from a genuinely empty range. When there is no diff content at all the
-// context is empty (no Text, not truncated).
+// noiseFile reports paths whose hunks add bytes without explaining a
+// user-facing change: dependency locks, vendored trees, build output,
+// snapshots, minified assets, and test data. They stay in the --stat summary.
+func noiseFile(path string) bool {
+	p := strings.ToLower(strings.ReplaceAll(path, `\`, "/"))
+	if strings.Contains(p, "testdata/") || strings.Contains(p, "/__snapshots__/") ||
+		strings.Contains(p, "/vendor/") || strings.Contains(p, "node_modules/") {
+		return true
+	}
+	switch {
+	case strings.HasSuffix(p, ".snap"), strings.HasSuffix(p, ".min.js"), strings.HasSuffix(p, ".min.css"),
+		strings.HasSuffix(p, ".lock"), strings.HasSuffix(p, "-lock.json"), strings.HasSuffix(p, "lock.json"),
+		strings.HasSuffix(p, ".sum"):
+		return true
+	}
+	return false
+}
+
+// commitDiffPart is one selected commit's budgeted diff evidence.
+type commitDiffPart struct {
+	title string
+	units []diffUnit
+	cost  int
+}
+
+// unitsCost is the byte cost of a commit's units: hunk text plus one file
+// header per touched file.
+func unitsCost(units []diffUnit) int {
+	seen := make(map[string]bool, len(units))
+	total := 0
+	for _, u := range units {
+		total += len(u.hunkText)
+		if !seen[u.filePath] {
+			seen[u.filePath] = true
+			total += len(u.fileHeader)
+		}
+	}
+	return total
+}
+
+// fairShare distributes budget across per-commit costs, max-min fair: a
+// commit that needs less than an even share keeps its whole diff and the
+// surplus goes to the larger ones. One huge commit therefore cannot starve
+// every other commit in the release.
+func fairShare(costs []int, budget int) []int {
+	alloc := make([]int, len(costs))
+	remaining := budget
+	pending := make([]int, 0, len(costs))
+	for i := range costs {
+		pending = append(pending, i)
+	}
+	for len(pending) > 0 {
+		share := remaining / len(pending)
+		larger := make([]int, 0, len(pending))
+		for _, idx := range pending {
+			if costs[idx] <= share {
+				alloc[idx] = costs[idx]
+				remaining -= costs[idx]
+				continue
+			}
+			larger = append(larger, idx)
+		}
+		if len(larger) == len(pending) {
+			for _, idx := range larger {
+				alloc[idx] = share
+			}
+			return alloc
+		}
+		pending = larger
+	}
+	return alloc
+}
+
+// validCommitSHA accepts a full lowercase or uppercase hex object name.
+func validCommitSHA(sha string) bool {
+	if len(sha) != 40 {
+		return false
+	}
+	for i := 0; i < len(sha); i++ {
+		c := sha[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// shortSHA is the eight-character display prefix of a commit identity.
+func shortSHA(sha string) string {
+	if len(sha) > 8 {
+		return sha[:8]
+	}
+	return sha
+}
+
+// CollectDiff assembles the deep-mode diff evidence for the selected commits:
+// a `git diff --stat` summary of the tag range (always included, regardless of
+// budget) followed by per-commit patch sections selected under maxBytes.
+// maxBytes is split max-min fair across commits, so a single large change
+// cannot consume the budget that every other change needs, and the omitted
+// count reflects hunks skipped inside their own commit's share.
 //
-// When fromTag is non-empty the range is three-dot (from...to): git diffs
+// Lockfiles, vendored trees, snapshots, minified assets, and test data
+// contribute no hunks (the --stat summary still lists them). A git failure is
+// returned as a non-nil error, never as a zero DiffContext. When there is no
+// diff content at all the context is empty (no Text, not truncated).
+//
+// When fromTag is non-empty the stat range is three-dot (from...to): git diffs
 // from merge-base(from,to), which equals from on linear history and stays
-// correct on rebased branches — the merge-base anchoring tag-to-tag release
-// flow needs. The unchanged commit log (from..to) covers the same endpoints
-// in the common linear case. When fromTag is empty (first release) the diff
-// is taken against the empty tree, which has no merge base with toTag, so a
-// plain two-commit range is used.
-// An empty toTag is not expected (production callers always supply one); if
-// it occurs, git resolves the missing range endpoint to HEAD, so the
-// function returns the diff output up to HEAD rather than "".
-func CollectDiff(ctx context.Context, workdir, fromTag, toTag string, maxBytes int) (DiffContext, error) {
+// correct on rebased branches. When fromTag is empty (first release) the stat
+// is taken against the empty tree. Commit sections use each selected commit's
+// own diff, which carries the same content the three-dot range would for that
+// commit. An empty toTag is not expected (production callers always supply
+// one); if it occurs, git resolves the missing range endpoint to HEAD.
+func CollectDiff(ctx context.Context, workdir, fromTag, toTag string, commits []Commit, maxBytes int) (DiffContext, error) {
 	if (toTag != "" && !validGitRef(toTag)) || (fromTag != "" && !validGitRef(fromTag)) {
 		return DiffContext{}, fmt.Errorf("invalid git ref in diff range: from=%q to=%q", fromTag, toTag)
 	}
@@ -845,28 +939,66 @@ func CollectDiff(ctx context.Context, workdir, fromTag, toTag string, maxBytes i
 	if err != nil {
 		return DiffContext{}, fmt.Errorf("git diff --stat %s: %w", rangeSpec, err)
 	}
-	patchOut, err := runGit(ctx, workdir, "diff", "--patch", "-U3", rangeSpec)
-	if err != nil {
-		return DiffContext{}, fmt.Errorf("git diff --patch %s: %w", rangeSpec, err)
-	}
 	statText := strings.TrimSpace(string(statOut))
 
-	units := parseDiff(string(patchOut))
-	body, skipped := selectHunks(units, maxBytes)
-
-	dc := DiffContext{Truncated: skipped > 0, SkippedHunks: skipped}
-	if statText == "" && body == "" {
-		return dc, nil
+	parts := make([]commitDiffPart, 0, len(commits))
+	for _, commit := range commits {
+		if !validCommitSHA(commit.SHA) {
+			continue
+		}
+		patch, err := runGit(ctx, workdir, "show", "--format=", "--patch", "-U3", "--find-renames", commit.SHA)
+		if err != nil {
+			return DiffContext{}, fmt.Errorf("git show %s: %w", commit.SHA, err)
+		}
+		units := make([]diffUnit, 0, 8)
+		for _, unit := range parseDiff(string(patch)) {
+			if noiseFile(unit.filePath) {
+				continue
+			}
+			units = append(units, unit)
+		}
+		if len(units) == 0 {
+			continue
+		}
+		parts = append(parts, commitDiffPart{
+			title: shortSHA(commit.SHA) + " " + commit.Subject,
+			units: units,
+			cost:  unitsCost(units),
+		})
 	}
+	costs := make([]int, len(parts))
+	for i := range parts {
+		costs[i] = parts[i].cost
+	}
+	alloc := fairShare(costs, maxBytes)
 
 	var b strings.Builder
-	b.WriteString(statText)
-	b.WriteString("\n")
-	b.WriteString(body)
-	if skipped > 0 {
-		fmt.Fprintf(&b, "\n\n[diff truncated: %d more hunk(s) omitted to stay within the %d-byte budget]", skipped, maxBytes)
+	if statText != "" {
+		b.WriteString(statText)
+		b.WriteString("\n")
 	}
-	dc.Text = strings.TrimSpace(b.String())
+	skipped, clipped := 0, 0
+	for i, part := range parts {
+		body, partSkipped, partClipped := selectHunks(part.units, alloc[i])
+		skipped += partSkipped
+		clipped += partClipped
+		if body == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\n### %s\n", part.title)
+		b.WriteString(body)
+		b.WriteString("\n")
+		if partSkipped+partClipped > 0 {
+			fmt.Fprintf(&b, "[commit diff truncated: %d hunk(s) clipped, %d omitted]\n", partClipped, partSkipped)
+		}
+	}
+
+	dc := DiffContext{Truncated: skipped+clipped > 0, SkippedHunks: skipped, ClippedHunks: clipped}
+	text := strings.TrimSpace(b.String())
+	if text != "" && skipped+clipped > 0 {
+		text += fmt.Sprintf("\n\n[diff truncated: %d hunk(s) clipped, %d omitted within the %d-byte budget]", clipped, skipped, maxBytes)
+	}
+	dc.Text = text
 	return dc, nil
 }
 
@@ -963,10 +1095,12 @@ func diffFilePath(section string) string {
 }
 
 // selectHunks deterministically orders units by (class priority, file path,
-// original position) and greedily emits hunks under maxBytes. A hunk that
-// would exceed the budget is skipped whole (never truncated mid-hunk); later
-// cheaper hunks may still fit. Returns the emitted text and skip count.
-func selectHunks(units []diffUnit, maxBytes int) (string, int) {
+// original position) and emits hunks under maxBytes. A hunk that fits is
+// emitted whole; one that does not fit is clipped at a line boundary and
+// marked, so a single oversized hunk cannot hide its whole commit. Only a
+// hunk with no room for even its first line is skipped. Returns the emitted
+// text, the count of fully omitted hunks, and the count of clipped hunks.
+func selectHunks(units []diffUnit, maxBytes int) (string, int, int) {
 	sorted := make([]diffUnit, len(units))
 	copy(sorted, units)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -982,22 +1116,51 @@ func selectHunks(units []diffUnit, maxBytes int) (string, int) {
 
 	emitted := make(map[string]bool, len(sorted))
 	var out strings.Builder
-	used, skipped := 0, 0
+	used, skipped, clipped := 0, 0, 0
 	for _, u := range sorted {
-		cost := len(u.hunkText)
+		headerCost := 0
 		if !emitted[u.filePath] {
-			cost += len(u.fileHeader)
+			headerCost = len(u.fileHeader)
 		}
-		if used+cost > maxBytes {
-			skipped++
-			continue
+		body := u.hunkText
+		wasClipped := false
+		if used+headerCost+len(body) > maxBytes {
+			body = clipHunk(u.hunkText, maxBytes-used-headerCost)
+			if body == "" {
+				skipped++
+				continue
+			}
+			wasClipped = true
 		}
 		if !emitted[u.filePath] {
 			out.WriteString(u.fileHeader)
 			emitted[u.filePath] = true
+			used += headerCost
 		}
-		out.WriteString(u.hunkText)
-		used += cost
+		out.WriteString(body)
+		used += len(body)
+		if wasClipped {
+			clipped++
+		}
 	}
-	return out.String(), skipped
+	return out.String(), skipped, clipped
+}
+
+// clipHunk keeps whole lines of one hunk within budget and marks the elision.
+// It returns "" when not even the hunk header line fits.
+func clipHunk(hunk string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(hunk, "\n") {
+		if b.Len()+len(line) > budget {
+			break
+		}
+		b.WriteString(line)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return b.String() + "... [hunk truncated]\n"
 }
