@@ -249,7 +249,7 @@ Idempotency follows the full generation contract. The note cache key covers the 
 
 ### Quality review and context limits
 
-Deep mode includes selected diff hunks alongside the full selected commit messages. The fixed hunk budget is 256 KiB, and hunks are never split. Skipped hunks produce the reason `source_context_incomplete`. A diff-collection error fails the request rather than presenting partial context as complete. Limited context does not excuse dropping facts already present in the commit bodies.
+Deep mode includes selected diff hunks alongside the full selected commit messages. The fixed hunk budget is 256 KiB, and hunks are never split. Skipped hunks produce the reason `source_context_incomplete`. That reason is advisory: it tells the reader which evidence the model lacked, so the run keeps the warning but still publishes. A large release therefore never dead-ends on a context limit that no retry can remove. A diff-collection error fails the request rather than presenting partial context as complete. Limited context does not excuse dropping facts already present in the commit bodies.
 
 Every built-in voice checks primary prose paragraphs for more than two prose
 sentences or 60 prose words and reports `primary_bullet_overloaded`.
@@ -261,11 +261,16 @@ The built-in `engineer` voice also checks semicolons in editable prose.
 Recognizable commands, URLs, technical spans, and quotations remain unchanged.
 These prose checks do not apply to authoritative full prompts or custom tones.
 The Engineer semicolon check still runs only when `tone` is `engineer` and there
-are no full instructions. Source incompleteness blocks publication for every
-prompt.
+are no full instructions. Source attribution and prose failures block
+publication for every prompt. Source-context truncation never does.
 
-A review-needed preview returns its captured notes, `quality_issues`, and `warning_code: "quality_review_required"`. Attribution failures withhold the note text and report `source_attribution_invalid`. It does not rewrite the output or make another model call. A publish request with issues fails with HTTP 422 before any release edit or generated-note cache write. `force` cannot bypass the checks. The dashboard shows the reasons, and CLI previews print them to stderr and exit nonzero. Server history keeps its existing outcome/status values and records the general quality warning without notes or source text. A rejected publish is a failed run with error code `quality`.
+Coverage is checked for unprefixed tags, where every supplied commit is in
+scope. For a `<prefix>/vX.Y.Z` tag Annalist cannot derive the artifact's scope
+from the tag, so it leaves out-of-scope sources to the model and does not
+enforce total coverage.
 
-The current reason codes are `primary_bullet_overloaded`, `strict_prose_semicolon`, `source_context_incomplete`, `source_attribution_invalid`, and `quality_check_required`. The last code rejects direct publication of notes without a current check bound to that exact output and generation contract. Successful remote publication followed by a local cache failure remains a published outcome with `cache_persistence`, not a quality rejection.
+A review-needed preview returns its captured notes, `quality_issues`, and `warning_code: "quality_review_required"`. Attribution failures withhold the note text and report `source_attribution_invalid`. A failed prose check triggers one corrective regeneration that names the reason; a second failure stops the run. Attribution is never retried. A publish request with blocking issues fails with HTTP 422 before any release edit or generated-note cache write. `force` cannot bypass the checks. The dashboard shows the reasons, and CLI previews print them to stderr and exit nonzero. Server history keeps its existing outcome/status values and records the general quality warning without notes or source text. A rejected publish is a failed run with error code `quality`.
+
+The current reason codes are `primary_bullet_overloaded`, `strict_prose_semicolon`, `source_context_incomplete`, `source_attribution_invalid`, and `quality_check_required`. The first two block publication until a draft passes. `source_context_incomplete` is advisory and never blocks: the notes publish with that warning. `source_attribution_invalid` withholds the notes. `quality_check_required` rejects direct publication of notes without a current check bound to that exact output and generation contract. Successful remote publication followed by a local cache failure remains a published outcome with `cache_persistence`, not a quality rejection.
 
 These checks are not a semantic coverage validator. Compare change identities, required actions, conditions, exceptions, and certainty against the source separately. Automated consumers must reject warned previews or nonempty `quality_issues` before publishing notes outside Annalist. The example workflows perform that check. Existing custom prompt files are not changed by these defaults or checks.

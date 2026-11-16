@@ -17,6 +17,8 @@ Keep the record honest:
   steps, tests, and review fixes unless the reader must act on them.
 - Never invent a feature, behavior, or improvement that is not present in the
   log.
+- Keep the supplied `[[annalist:SHA]]` source tokens exactly as given. Append
+  the contributing tokens to the end of each concern's first paragraph.
 
 Preserve breaking, security, migration, changed-default, compatibility, and
 required-action facts with their conditions and exceptions. Use short nested

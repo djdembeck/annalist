@@ -291,3 +291,68 @@ func TestGenerateDeepModeIncludesDiff(t *testing.T) {
 		t.Errorf("lite user message must not contain the diff content; got:\n%s", liteUser)
 	}
 }
+
+// TestGenerateRetriesOnceForStyleIssues covers the bounded corrective pass:
+// a draft that fails a prose check is regenerated once with the reason, and a
+// draft that keeps failing stops after that single retry.
+func TestGenerateRetriesOnceForStyleIssues(t *testing.T) {
+	bad := "The tool is ready; restart the service."
+	good := "The tool is ready. Restart the service."
+	for _, tc := range []struct {
+		name     string
+		answers  []string
+		wantCall int
+		want     string
+	}{
+		{name: "fixed by retry", answers: []string{bad, good}, wantCall: 2, want: good},
+		{name: "bounded at one retry", answers: []string{bad, bad}, wantCall: 2, want: bad},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				answer := tc.answers[len(tc.answers)-1]
+				if calls < len(tc.answers) {
+					answer = tc.answers[calls]
+				}
+				calls++
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"choices": []any{map[string]any{"message": map[string]string{"content": answer}}},
+				})
+			}))
+			defer srv.Close()
+
+			eng := &Engine{LLM: llm.New(config.LLMConfig{BaseURL: srv.URL, APIKey: "key"})}
+			notes, err := eng.Generate(context.Background(), Resolved{Tone: "engineer", Model: "m"}, "", "", "v1.0.0", "v1.0.0", "", CommitLog{}, "")
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			if calls != tc.wantCall {
+				t.Fatalf("LLM calls = %d, want %d", calls, tc.wantCall)
+			}
+			if notes != tc.want {
+				t.Fatalf("notes = %q, want %q", notes, tc.want)
+			}
+		})
+	}
+}
+
+// TestGenerateDoesNotRetryCustomPrompts keeps authoritative prompts out of the
+// corrective pass: their prose contract is the repository's own.
+func TestGenerateDoesNotRetryCustomPrompts(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Ready; restart the service."}}]}`))
+	}))
+	defer srv.Close()
+
+	eng := &Engine{LLM: llm.New(config.LLMConfig{BaseURL: srv.URL, APIKey: "key"})}
+	if _, err := eng.Generate(context.Background(), Resolved{Tone: "engineer", Instructions: "Use semicolons.", Model: "m"}, "", "", "v1.0.0", "v1.0.0", "", CommitLog{}, ""); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("LLM calls = %d, want 1 for an authoritative prompt", calls)
+	}
+}

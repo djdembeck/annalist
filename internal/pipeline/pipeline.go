@@ -107,6 +107,20 @@ type qualityReceipt struct {
 	sourceAttributions string
 }
 
+// BlockingQualityIssues returns the reasons that must stop publication. A
+// truncated diff context is advisory: it says which evidence the model lacked,
+// not that the notes are unsafe to publish, so it warns without blocking.
+func BlockingQualityIssues(issues []string) []string {
+	blocking := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		if issue == "source_context_incomplete" {
+			continue
+		}
+		blocking = append(blocking, issue)
+	}
+	return blocking
+}
+
 // QualityError rejects publication without exposing generated notes or source text.
 // Issues contains stable, safe reason codes.
 type QualityError struct {
@@ -697,12 +711,15 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 	}
 
 	stage = "quality"
-	if len(result.QualityIssues) > 0 {
+	if blocking := BlockingQualityIssues(result.QualityIssues); len(blocking) > 0 {
 		result.WarningCode = "quality_review_required"
 		if opts.Publish {
-			return result, &QualityError{Issues: result.QualityIssues}
+			return result, &QualityError{Issues: blocking}
 		}
 		return result, nil
+	}
+	if len(result.QualityIssues) > 0 {
+		result.WarningCode = "source_context_incomplete"
 	}
 	result.qualityReceipt = qualityReceipt{cacheKey: cacheKey, notesHash: sha256.Sum256([]byte(notes)), sourceAttributions: sourceAttributions}
 
@@ -915,8 +932,8 @@ func publishLockKey(spec Spec) string {
 // Publish reports whether the remote body was written, even if saving its cache fails.
 // A false result with no error means the human-authored body was preserved.
 func (p *Pipeline) Publish(ctx context.Context, result Result, spec Spec, platform Platform, force bool) (bool, error) {
-	if len(result.QualityIssues) > 0 {
-		return false, &QualityError{Issues: result.QualityIssues}
+	if blocking := BlockingQualityIssues(result.QualityIssues); len(blocking) > 0 {
+		return false, &QualityError{Issues: blocking}
 	}
 	if result.qualityReceipt.cacheKey == "" ||
 		result.qualityReceipt.cacheKey != p.cacheKey(spec, result.FromTag, result.ConfigDigest) ||

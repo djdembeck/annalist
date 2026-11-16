@@ -362,7 +362,8 @@ jobs:
 
           extract_publishable_notes() {
             jq -er '
-              if .warning_code != null or ((.quality_issues // []) | length > 0) then
+              if (.warning_code != null and .warning_code != "source_context_incomplete")
+                 or ((.quality_issues // []) | map(select(. != "source_context_incomplete")) | length > 0) then
                 error("Release notes need review. Publication blocked.")
               else .notes | select(type == "string" and length > 0)
               end'

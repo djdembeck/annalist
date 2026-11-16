@@ -218,14 +218,20 @@ func printGenerationResult(stdout, stderr io.Writer, result pipeline.Result, err
 	}
 
 	fmt.Fprintln(stdout, result.Notes)
-	if result.WarningCode == "quality_review_required" || len(result.QualityIssues) > 0 {
+	if blocking := pipeline.BlockingQualityIssues(result.QualityIssues); len(blocking) > 0 {
 		fmt.Fprintln(stderr, "Warning: notes need quality review. Nothing was published. Do not publish this preview automatically.")
-		printQualityIssues(stderr, result.QualityIssues)
+		printQualityIssues(stderr, blocking)
 		return 1
 	}
 	if result.WarningCode == "cache_persistence" {
 		fmt.Fprintln(stderr, "Warning: notes were published, but the local note cache could not be saved. Check server storage before generating again.")
-	} else if result.WarningCode != "" {
+		return 0
+	}
+	if len(result.QualityIssues) > 0 {
+		fmt.Fprintln(stderr, "Warning: Some diff hunks did not fit the source context. The notes use the full commit log; review the release range for actions or conditions that only the diff would show.")
+		return 0
+	}
+	if result.WarningCode != "" {
 		fmt.Fprintln(stderr, "Warning: generation completed with a warning. Check server configuration before generating again.")
 	}
 	return 0

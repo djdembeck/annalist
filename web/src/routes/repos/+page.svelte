@@ -146,6 +146,8 @@
         return "Published, but the local note cache could not be saved. Check server storage before generating again.";
       case "quality_review_required":
         return "Quality review is required. Review the notes and the full source range before publishing.";
+      case "source_context_incomplete":
+        return "Some diff hunks did not fit the source context. The notes use the full commit log; review the release range for actions that only the diff would show.";
       default:
         return "The run completed with a warning. Check server configuration before generating again.";
     }

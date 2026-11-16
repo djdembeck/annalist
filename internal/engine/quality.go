@@ -29,6 +29,22 @@ func CheckNotes(r Resolved, notes string) []string {
 
 var qualityPrimaryItemRE = regexp.MustCompile(`^( {0,3})(?:[-+*]|[0-9]{1,9}[.)])[ \t]+`)
 
+// styleRetryInstruction turns model-addressable quality issues into one
+// corrective instruction for a single regeneration. Attribution and context
+// issues are never retried: another draft cannot establish them.
+func styleRetryInstruction(issues []string) string {
+	var fixes []string
+	for _, issue := range issues {
+		switch issue {
+		case "strict_prose_semicolon":
+			fixes = append(fixes, "Remove semicolons from ordinary prose sentences. Semicolons inside commands and code stay.")
+		case "primary_bullet_overloaded":
+			fixes = append(fixes, "Give each concern a primary bullet of one or two sentences and at most 60 words of prose, and move required actions and caveats into nested bullets.")
+		}
+	}
+	return strings.Join(fixes, " ")
+}
+
 // Primary prose paragraphs are bounded independently. Nested actions, code,
 // commands, URLs, and identifiers are not generic release-note prose.
 func hasOversizedPrimaryParagraph(notes string) bool {
@@ -152,6 +168,10 @@ func hasProseSemicolon(s string) bool {
 			switch {
 			case s[i] == '`':
 				i = skipDelimited(s, i, '`', lineEnd)
+			case s[i] == '\'' && i > lineStart && isIdentifierByte(s[i-1]):
+				// A possessive or contraction apostrophe is ordinary prose,
+				// not a quotation opener: keep scanning past it.
+				i++
 			case s[i] == '\'' || s[i] == '"':
 				i = skipDelimited(s, i, s[i], lineEnd)
 			case strings.HasPrefix(s[i:lineEnd], "https://") || strings.HasPrefix(s[i:lineEnd], "http://"):
@@ -174,10 +194,22 @@ func hasProseSemicolon(s string) bool {
 	return false
 }
 
+// commandLine reports whether every segment of a line is a command. Notes are
+// Markdown, so a command usually sits behind a list marker and a Required
+// action or Caveat label; both are stripped before classification.
 func commandLine(line string) bool {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return false
+	}
+	if prefix := qualityPrimaryItemRE.FindString(line); prefix != "" {
+		line = strings.TrimSpace(line[len(prefix):])
+	}
+	for _, label := range []string{"Required action:", "Caveat:", "Note:"} {
+		if rest, ok := cutPrefixFold(line, label); ok {
+			line = strings.TrimSpace(rest)
+			break
+		}
 	}
 	for _, segment := range strings.Split(line, ";") {
 		segment = strings.TrimSpace(segment)
@@ -189,6 +221,14 @@ func commandLine(line string) bool {
 		}
 	}
 	return true
+}
+
+// cutPrefixFold trims prefix from s when it matches regardless of case.
+func cutPrefixFold(s, prefix string) (string, bool) {
+	if len(s) < len(prefix) || !strings.EqualFold(s[:len(prefix)], prefix) {
+		return s, false
+	}
+	return s[len(prefix):], true
 }
 
 func isCommandSegment(line string) bool {

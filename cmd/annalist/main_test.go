@@ -20,7 +20,7 @@ func TestPrintGenerationResult(t *testing.T) {
 	}{
 		{name: "preview", result: pipeline.Result{Outcome: "generated", Notes: "Captured notes."}, stdout: "Captured notes.\n"},
 		{name: "review-needed preview", result: pipeline.Result{Outcome: "generated", Notes: "Captured notes; unchanged.", WarningCode: "quality_review_required", QualityIssues: []string{"strict_prose_semicolon", "source_context_incomplete"}}, code: 1, stdout: "Captured notes; unchanged.\n", warning: "Do not publish this preview automatically."},
-		{name: "issues alone fail closed", result: pipeline.Result{Outcome: "cached", Notes: "Cached notes.", QualityIssues: []string{"source_context_incomplete"}}, code: 1, stdout: "Cached notes.\n", warning: "Some diff hunks did not fit the source context."},
+		{name: "advisory context warning stays successful", result: pipeline.Result{Outcome: "cached", Notes: "Cached notes.", WarningCode: "source_context_incomplete", QualityIssues: []string{"source_context_incomplete"}}, code: 0, stdout: "Cached notes.\n", warning: "Some diff hunks did not fit the source context."},
 		{name: "published cache warning remains successful", result: pipeline.Result{Outcome: "published", Notes: "Published notes.", WarningCode: "cache_persistence"}, stdout: "Published notes.\n", warning: "notes were published, but the local note cache could not be saved"},
 		{name: "quality rejection", err: fmt.Errorf("untrusted output must not be printed: %w", &pipeline.QualityError{Issues: []string{"strict_prose_semicolon"}}), code: 1, warning: "Publication blocked: notes need quality review. Nothing was published."},
 		{name: "unchecked publication", err: &pipeline.QualityError{Issues: []string{"quality_check_required"}}, code: 1, warning: "The notes do not have a current quality check."},
@@ -41,10 +41,11 @@ func TestPrintGenerationResult(t *testing.T) {
 				t.Fatalf("warning leaked generated notes: %q", stderr.String())
 			}
 			if tc.name == "review-needed preview" {
-				for _, reason := range []string{"Strict engineer prose contains semicolons.", "Some diff hunks did not fit the source context."} {
-					if !strings.Contains(stderr.String(), reason) {
-						t.Fatalf("missing review reason %q: %s", reason, stderr.String())
-					}
+				if !strings.Contains(stderr.String(), "Strict engineer prose contains semicolons.") {
+					t.Fatalf("missing blocking reason: %s", stderr.String())
+				}
+				if strings.Contains(stderr.String(), "Some diff hunks did not fit the source context.") {
+					t.Fatalf("advisory context limit reported as blocking: %s", stderr.String())
 				}
 			}
 		})

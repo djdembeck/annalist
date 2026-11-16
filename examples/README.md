@@ -158,9 +158,10 @@ full prompts and custom tones bypass these prose checks.
 
 A preview can return HTTP 200 with actual notes and
 `warning_code: "quality_review_required"`. Its `quality_issues` explain which
-required checks failed. Both workflow templates stop on a warning or nonempty
-issue list before they extract notes or change a release. Apply the same check
-to any custom API consumer. Do not treat HTTP 200 alone as publication approval.
+required checks failed. Both workflow templates stop on `quality_review_required`
+or on any issue other than the advisory `source_context_incomplete` before they
+extract notes or change a release. Apply the same check to any custom API
+consumer. Do not treat HTTP 200 alone as publication approval.
 CLI previews keep the notes on stdout, print review reasons to stderr, and exit
 nonzero. `force` does not bypass a publish rejection. These checks do not prove
 semantic coverage, so review the actions, conditions, exceptions, and certainty

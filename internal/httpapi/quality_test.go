@@ -150,8 +150,8 @@ func TestQualityAPIControlledGenerationAndHistory(t *testing.T) {
 	if err := openTestDB(t, dir).QueryRow(`SELECT COUNT(*) FROM generated_notes`).Scan(&cached); err != nil {
 		t.Fatal(err)
 	}
-	if platform.gets != 0 || platform.edits != 0 || platform.body != "original release body" || cached != 0 || calls != 2 {
-		t.Fatalf("quality failure had side effects: gets=%d edits=%d cached=%d model_calls=%d", platform.gets, platform.edits, cached, calls)
+	if platform.gets != 0 || platform.edits != 0 || platform.body != "original release body" || cached != 0 || calls != 4 {
+		t.Fatalf("quality failure had side effects: gets=%d edits=%d cached=%d model_calls=%d (one corrective retry per request expected)", platform.gets, platform.edits, cached, calls)
 	}
 	history := do(a.handleListRuns, newReq(http.MethodGet, "/api/runs?platform=github&owner=o&repo=r", "", nil))
 	var runs []db.GenerationRun

@@ -44,17 +44,16 @@ func requireQualityError(t *testing.T, err error, issues []string) {
 
 func TestQualityPreviewAndRejectedPublish(t *testing.T) {
 	for _, tc := range []struct {
-		name, answer, mode, instructions string
-		issues                           []string
+		name, answer, mode string
+		issues, blocking   []string
 	}{
-		{"strict prose", "Fern export is available; archived records remain readable.", engine.ModeLite, "", []string{"strict_prose_semicolon"}},
-		{"overloaded primary", "Prepare required indexes before startup. Add inspection commands. Repair accepted history updates.", engine.ModeLite, "", []string{"primary_bullet_overloaded"}},
-		{"incomplete custom context", "Fern export is available; archived records remain readable.", engine.ModeDeep, "Keep the project's punctuation; preserve source facts.", []string{"source_context_incomplete"}},
-		{"both required checks", "Fern export is available; archived records remain readable.", engine.ModeDeep, "", []string{"strict_prose_semicolon", "source_context_incomplete"}},
+		{"strict prose", "Fern export is available; archived records remain readable.", engine.ModeLite, []string{"strict_prose_semicolon"}, []string{"strict_prose_semicolon"}},
+		{"overloaded primary", "Prepare required indexes before startup. Add inspection commands. Repair accepted history updates.", engine.ModeLite, []string{"primary_bullet_overloaded"}, []string{"primary_bullet_overloaded"}},
+		{"blocking prose with advisory context", "Fern export is available; archived records remain readable.", engine.ModeDeep, []string{"strict_prose_semicolon", "source_context_incomplete"}, []string{"strict_prose_semicolon"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pip, stub, platform, store := fixtureWithStub(t, newAttributedStub(tc.answer), nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "existing release"}})
-			if err := store.UpsertSettings(db.Settings{Tone: "engineer", Instructions: tc.instructions, Mode: tc.mode}); err != nil {
+			if err := store.UpsertSettings(db.Settings{Tone: "engineer", Mode: tc.mode}); err != nil {
 				t.Fatal(err)
 			}
 			spec := genSpec("v0.2.0", "quality-preview")
@@ -77,15 +76,15 @@ func TestQualityPreviewAndRejectedPublish(t *testing.T) {
 			}
 
 			rejected, err := pip.GenerateNotes(context.Background(), spec, Options{Source: "webhook", Publish: true, Force: true})
-			requireQualityError(t, err, tc.issues)
+			requireQualityError(t, err, tc.blocking)
 			if rejected.Notes != linkedTestNotes(tc.answer) || !slices.Equal(rejected.QualityIssues, tc.issues) || rejected.WarningCode != "quality_review_required" {
 				t.Fatalf("rejected result=%+v", rejected)
 			}
 			if platform.edited != "" || platform.releases["v0.2.0"].Body != "existing release" || countGeneratedByReleaseID(t, pip.Cfg.Data.Dir, spec.ReleaseID) != 0 {
 				t.Fatal("quality failure changed a release or wrote a cache entry")
 			}
-			if stub.calls != 2 {
-				t.Fatalf("LLM calls=%d, want one per explicit request and no retry", stub.calls)
+			if stub.calls != 4 {
+				t.Fatalf("LLM calls=%d, want one corrective retry per request and no more", stub.calls)
 			}
 			run = onlyRun(t, store)
 			if run.Status != "failed" || run.ErrorCode == nil || *run.ErrorCode != "quality" || run.WarningCode == nil || *run.WarningCode != "quality_review_required" {
@@ -96,6 +95,42 @@ func TestQualityPreviewAndRejectedPublish(t *testing.T) {
 				t.Fatalf("history leaked generated notes or source: %s err=%v", encoded, err)
 			}
 		})
+	}
+}
+
+func TestAdvisoryContextDoesNotBlockPublication(t *testing.T) {
+	const answer = "Fern export is available."
+	pip, stub, platform, store := fixtureWithStub(t, newAttributedStub(answer), nil, map[string]*Release{"v0.3.0": {ID: 1, Body: "existing release"}})
+	if err := store.UpsertSettings(db.Settings{Tone: "engineer", Mode: engine.ModeDeep}); err != nil {
+		t.Fatal(err)
+	}
+	platform.origin = truncatedQualityOrigin(t)
+	spec := genSpec("v0.3.0", "advisory-context")
+	spec.FromTag = "v0.2.0"
+
+	preview, err := pip.GenerateNotes(context.Background(), spec, Options{Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Notes != linkedTestNotes(answer) || preview.WarningCode != "source_context_incomplete" || !slices.Equal(preview.QualityIssues, []string{"source_context_incomplete"}) {
+		t.Fatalf("preview=%+v", preview)
+	}
+	if countGeneratedByReleaseID(t, pip.Cfg.Data.Dir, spec.ReleaseID) != 0 || platform.edited != "" {
+		t.Fatal("preview wrote a cache entry or a release")
+	}
+
+	published, err := pip.GenerateNotes(context.Background(), spec, Options{Source: "manual", Publish: true, Force: true})
+	if err != nil || published.Outcome != "published" || published.WarningCode != "source_context_incomplete" {
+		t.Fatalf("published=%+v err=%v", published, err)
+	}
+	if platform.edited != linkedTestNotes(answer)+"\n"+marker {
+		t.Fatalf("release body=%q", platform.edited)
+	}
+	if countGeneratedByReleaseID(t, pip.Cfg.Data.Dir, spec.ReleaseID) != 1 {
+		t.Fatal("published advisory note was not cached")
+	}
+	if stub.calls != 2 {
+		t.Fatalf("LLM calls=%d, want one per request and no corrective retry for context limits", stub.calls)
 	}
 }
 
@@ -194,12 +229,31 @@ func TestQualityRevalidatesCachedOutputAndSource(t *testing.T) {
 			if err := store.MarkGenerated(db.GeneratedNote{CacheKey: key, Platform: spec.Platform, Owner: spec.Owner, Repo: spec.Repo, ReleaseID: spec.ReleaseID, FromTag: spec.FromTag, ToTag: spec.ToTag, DisplayVersion: spec.ToTag, ConfigDigest: digest, Notes: linked, SourceAttributions: string(attribution)}); err != nil {
 				t.Fatal(err)
 			}
-			platform.releaseErr = errors.New("cached quality failure must not reach the release API")
+			if !incomplete {
+				platform.releaseErr = errors.New("cached quality failure must not reach the release API")
+			}
 			preview, err := pip.GenerateNotes(context.Background(), spec, Options{})
-			if err != nil || preview.Outcome != "cached" || preview.Notes != linkedTestNotes(notes) || preview.WarningCode != "quality_review_required" || !slices.Equal(preview.QualityIssues, []string{issue}) {
+			wantWarning := "quality_review_required"
+			if incomplete {
+				wantWarning = "source_context_incomplete"
+			}
+			if err != nil || preview.Outcome != "cached" || preview.Notes != linkedTestNotes(notes) || preview.WarningCode != wantWarning || !slices.Equal(preview.QualityIssues, []string{issue}) {
 				t.Fatalf("cached preview=%+v err=%v", preview, err)
 			}
-			_, err = pip.GenerateNotes(context.Background(), spec, Options{Publish: true})
+			result, err := pip.GenerateNotes(context.Background(), spec, Options{Publish: true})
+			if incomplete {
+				// A context limit is advisory: cached notes keep their receipt
+				// and can be published directly.
+				if err != nil || result.Outcome != "cached" || result.WarningCode != "source_context_incomplete" || platform.edited != "" || stub.calls != 0 {
+					t.Fatalf("cached advisory preview=%+v edited=%q calls=%d err=%v", result, platform.edited, stub.calls, err)
+				}
+				platform.releases = map[string]*Release{spec.ToTag: {ID: 2, Body: "existing release"}}
+				published, err := pip.Publish(context.Background(), result, spec, platform, true)
+				if err != nil || !published || platform.edited != linkedTestNotes(notes)+"\n"+marker {
+					t.Fatalf("cached advisory publish=%q err=%v", platform.edited, err)
+				}
+				return
+			}
 			requireQualityError(t, err, []string{issue})
 			if stub.calls != 0 || platform.edited != "" || countGeneratedByReleaseID(t, pip.Cfg.Data.Dir, spec.ReleaseID) != 1 {
 				t.Fatalf("cached rejection called model, edited remote, or wrote cache: calls=%d", stub.calls)
@@ -276,8 +330,8 @@ func TestPublishRequiresCurrentQualityReceipt(t *testing.T) {
 			case "changed contract":
 				target.ReleaseID = "other-release-contract"
 			case "known issue":
-				result.QualityIssues = []string{"source_context_incomplete"}
-				issue = "source_context_incomplete"
+				result.QualityIssues = []string{"strict_prose_semicolon"}
+				issue = "strict_prose_semicolon"
 			}
 			published, err := pip.Publish(context.Background(), result, target, platform, true)
 			requireQualityError(t, err, []string{issue})
