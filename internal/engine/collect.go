@@ -805,13 +805,19 @@ type DiffContext struct {
 	ClippedHunks int
 }
 
+// noiseDirAt reports whether p sits in dir at the repository root (the path
+// is repo-relative without a leading slash) or in a nested directory segment.
+func noiseDirAt(p, dir string) bool {
+	return strings.HasPrefix(p, dir) || strings.Contains(p, "/"+dir)
+}
+
 // noiseFile reports paths whose hunks add bytes without explaining a
 // user-facing change: dependency locks, vendored trees, build output,
 // snapshots, minified assets, and test data. They stay in the --stat summary.
 func noiseFile(path string) bool {
 	p := strings.ToLower(strings.ReplaceAll(path, `\`, "/"))
-	if strings.Contains(p, "testdata/") || strings.Contains(p, "/__snapshots__/") ||
-		strings.Contains(p, "/vendor/") || strings.Contains(p, "node_modules/") {
+	if strings.Contains(p, "testdata/") || strings.Contains(p, "node_modules/") ||
+		noiseDirAt(p, "vendor/") || noiseDirAt(p, "__snapshots__/") {
 		return true
 	}
 	switch {

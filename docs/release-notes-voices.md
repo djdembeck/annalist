@@ -108,17 +108,21 @@ introductions, headings, code, or nested actions. Do not wrap changes in HTML
 blocks or comments.
 
 For prefixed tags, out-of-artifact commits remain omitted and need no item.
-Every other selected source must be represented, whether alone, grouped with
-related sources, or repeated across distinct concerns.
+Coverage is not checked for those tags, so an in-range omission in a scoped
+release publishes without a gate failure. For unprefixed tags, every selected
+source must be represented, whether alone, grouped with related sources, or
+repeated across distinct concerns.
 
 Annalist resolves those exact commit SHAs through authenticated platform APIs
 and renders one verified citation group per concern, such as
 `([#1754](https://github.com/OWNER/REPO/pull/1754))`. Sources associated with the
 same PR produce one visible link in that concern. A subject does not need a PR
 number. The model cannot supply citation URLs. Documentation links must come
-verbatim from the source. Missing coverage, unknown IDs, duplicate IDs within a
-group, malformed or misplaced attribution, and unverified links block publication
-and cache writes, even with `force`. Invalid attribution withholds preview text
+verbatim from the source. Unknown IDs, duplicate IDs within a group, malformed
+or misplaced attribution, and unverified links block publication and cache
+writes, even with `force`. The coverage check runs for unprefixed tags and
+fails publication when a selected source is missing. Invalid attribution
+withholds preview text
 rather than exposing internal tokens or unchecked links.
 
 GitHub paginates commit associations and links all merged PRs in the requested repository, sorted by number. An empty association array permits a fetched commit link with a short SHA. Open-only associations and API, permission, or transport failures remain unresolved. GitHub Apps need **Repository permissions → Pull requests → Read-only** in their registration. Existing installations also need the installation owner's approval of that additional permission. See [GitHub's permission-change instructions](https://docs.github.com/en/apps/maintaining-github-apps/modifying-a-github-app-registration#changing-the-permissions-of-a-github-app).

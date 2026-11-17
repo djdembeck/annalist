@@ -1766,6 +1766,36 @@ func TestCollectDiffSkipsNoiseHunks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "testdata", "fixture.json"), []byte("{\"seed\": true}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "vendor", "dep.js"), []byte("/* dep */\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "__snapshots__"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "__snapshots__", "rendered.txt"), []byte("snapshot content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "app", "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app", "vendor", "lib.js"), []byte("/* nested dep */\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "pkg", "__snapshots__"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "__snapshots__", "shot.txt"), []byte("nested snapshot\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "left-pad"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "node_modules", "left-pad", "index.js"), []byte("module.exports = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "bun.lock"), []byte("lockfile-version-1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1784,10 +1814,21 @@ func TestCollectDiffSkipsNoiseHunks(t *testing.T) {
 	if !strings.Contains(dc.Text, "main.go") {
 		t.Fatalf("source hunk missing; got:\n%s", dc.Text)
 	}
-	if !strings.Contains(dc.Text, "bun.lock") || !strings.Contains(dc.Text, "testdata/fixture.json") {
+	if !strings.Contains(dc.Text, "bun.lock") || !strings.Contains(dc.Text, "testdata/fixture.json") ||
+		!strings.Contains(dc.Text, "vendor/dep.js") || !strings.Contains(dc.Text, "__snapshots__/rendered.txt") ||
+		!strings.Contains(dc.Text, "app/vendor/lib.js") || !strings.Contains(dc.Text, "pkg/__snapshots__/shot.txt") ||
+		!strings.Contains(dc.Text, "node_modules/left-pad/index.js") {
 		t.Fatalf("stat summary must still list skipped noise files; got:\n%s", dc.Text)
 	}
-	for _, noise := range []string{"diff --git a/bun.lock", "diff --git a/testdata/fixture.json"} {
+	for _, noise := range []string{
+		"diff --git a/bun.lock",
+		"diff --git a/testdata/fixture.json",
+		"diff --git a/vendor/dep.js",
+		"diff --git a/__snapshots__/rendered.txt",
+		"diff --git a/app/vendor/lib.js",
+		"diff --git a/pkg/__snapshots__/shot.txt",
+		"diff --git a/node_modules/left-pad/index.js",
+	} {
 		if strings.Contains(dc.Text, noise) {
 			t.Fatalf("noise file hunks must not consume budget; got:\n%s", dc.Text)
 		}
