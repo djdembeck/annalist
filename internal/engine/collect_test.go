@@ -9,8 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseVersion(t *testing.T) {
@@ -390,31 +392,374 @@ func TestCollectCommitLog(t *testing.T) {
 	ctx := context.Background()
 
 	// Reverse chronological from HEAD yields all subjects oldest-first.
-	if got := CollectCommitLog(ctx, dir, "", "", nil); got != "- first\n- second\n- third\n- fourth" {
+	if got := CollectCommitLog(ctx, dir, "", "", nil).Text(); got != "- first\n- second\n- third\n- fourth" {
 		t.Errorf("CollectCommitLog(all) = %q", got)
 	}
 	// Range v0.1.0..HEAD excludes the tagged commit itself and (unlike the
 	// --reverse HEAD path) lists newest-first. HEAD is a rev name the
 	// validGitRef guard accepts (the fixture's only tag, v0.1.0, is the
 	// from-bound, so HEAD is load-bearing here).
-	if got := CollectCommitLog(ctx, dir, "v0.1.0", "HEAD", nil); got != "- fourth\n- third" {
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "HEAD", nil).Text(); got != "- fourth\n- third" {
 		t.Errorf("CollectCommitLog(range) = %q", got)
 	}
 	// Implicit HEAD: an empty toTag makes git resolve the missing range
 	// endpoint to HEAD, so the output must match the explicit v0.1.0..HEAD
 	// range above.
-	if got := CollectCommitLog(ctx, dir, "v0.1.0", "", nil); got != "- fourth\n- third" {
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "", nil).Text(); got != "- fourth\n- third" {
 		t.Errorf("CollectCommitLog(implicit HEAD) = %q", got)
 	}
 	// Equal bounds yield no commits.
-	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.1.0", nil); got != "" {
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.1.0", nil).Text(); got != "" {
 		t.Errorf("CollectCommitLog(equal) = %q, want empty", got)
 	}
 	// First release (empty from): the range is bounded at the release's own
 	// tag, not at the clone's HEAD, so commits that landed after the tag are
 	// excluded.
-	if got := CollectCommitLog(ctx, dir, "", "v0.1.0", nil); got != "- first\n- second" {
+	if got := CollectCommitLog(ctx, dir, "", "v0.1.0", nil).Text(); got != "- first\n- second" {
 		t.Errorf("CollectCommitLog(first release) = %q, want bounded-at-tag history", got)
+	}
+}
+
+// TestCollectCommitLogEmptyRepeat pins the zero-tree-delta empty-repeat
+// exclusion: a commit whose tree equals its first parent's tree is dropped
+// only when its full message (subject plus body) duplicates an already
+// retained change.
+func TestCollectCommitLogEmptyRepeat(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	writeRepoFile(t, dir, "v1")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: base")
+	gitTa(t, dir, "tag", "v1.0.0")
+	// A real, tree-changing commit, then its zero-tree-delta repeat.
+	writeRepoFile(t, dir, "v2")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: apply change", "-m", "Changes the thing.")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "fix: apply change", "-m", "Changes the thing.")
+	// A distinct zero-delta commit (different full message): must stay.
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "chore: bump")
+	// A second zero-delta commit identical to the first: must be dropped
+	// (its twin is retained and the twin is zero-delta, so the first in
+	// log order wins).
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "chore: bump")
+
+	// Guard the premise: the last chore: bump (HEAD) is zero-delta with its
+	// parent (HEAD~1), which is the first chore: bump.
+	if headTree := gitTaOut(t, dir, "rev-parse", "HEAD^{tree}"); headTree != gitTaOut(t, dir, "rev-parse", "HEAD~1^{tree}") {
+		t.Fatal("fixture broken: last chore: bump is not zero-delta")
+	}
+	// And the fix twin (HEAD~2) is zero-delta with the real fix commit.
+	if twinTree := gitTaOut(t, dir, "rev-parse", "HEAD~2^{tree}"); twinTree != gitTaOut(t, dir, "rev-parse", "HEAD~3^{tree}") {
+		t.Fatal("fixture broken: fix twin is not zero-delta")
+	}
+
+	// Range logs are newest-first, so the expected order is reversed
+	// relative to commit creation order.
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", nil).Text()
+	want := "- chore: bump\n- fix: apply change\n\nChanges the thing."
+	if got != want {
+		t.Errorf("CollectCommitLog(empty repeat) = %q, want %q", got, want)
+	}
+
+	// Type filter: the filtered-out zero-delta "chore: bump" commits never
+	// count as retained, and the fix twin stays with its body.
+	got = CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"fix"}).Text()
+	if got != "- fix: apply change\n\nChanges the thing." {
+		t.Errorf("CollectCommitLog(filter fix) = %q", got)
+	}
+
+	// "fix"+"chore": "chore: bump" is retained, so its zero-delta twin is
+	// dropped as an empty repeat; the fix-only case above proves the
+	// converse — when the twin is filtered out it is not counted as
+	// retained and the fix message is kept exactly once.
+	got = CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"fix", "chore"}).Text()
+	want = "- chore: bump\n- fix: apply change\n\nChanges the thing."
+	if got != want {
+		t.Errorf("CollectCommitLog(fix+chore) = %q, want %q", got, want)
+	}
+}
+
+// writeRepoFile writes a single tracked file with the given content, used
+// by log fixtures that need a real tree change between commits.
+func writeRepoFile(t *testing.T, dir, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCollectCommitLogGitFailure pins the failure contract: on a git
+// failure (no repository) the log is empty, which is indistinguishable
+// from a genuinely empty range — both are "" and no metadata is invented.
+func TestCollectCommitLogGitFailure(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.2.0", nil).Text(); got != "" {
+		t.Errorf("expected empty log on git failure, got:\n%s", got)
+	}
+	if got := CollectCommitLog(ctx, dir, "", "HEAD", nil).Text(); got != "" {
+		t.Errorf("expected empty log on git failure (first-release shape), got:\n%s", got)
+	}
+}
+
+// TestCatFileCommitTreesLargeBatch is a bounded regression for the
+// cat-file stdin deadlock: 2000 commit SHAs are about 80 KiB of batch
+// input — above the typical 64 KiB pipe capacity — so an implementation
+// that fills a StdinPipe before the process starts blocks forever here.
+// A plain context deadline on the inner call cannot fail fast against
+// that deadlock (git has not started to honor it), so the outer test
+// runs the real assertions in a child test-binary process and enforces
+// a hard 45 s parent deadline that kills the child even when the inner
+// cat-file never started. The repo is built with a single `git
+// fast-import` (one process, not 2000 commits' worth).
+const largeBatchChildMarker = "ANNALIST_CATFILE_LARGE_BATCH_CHILD"
+
+func TestCatFileCommitTreesLargeBatch(t *testing.T) {
+	if os.Getenv(largeBatchChildMarker) != "" {
+		runCatFileCommitTreesLargeBatch(t)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	cmd := exec.CommandContext(ctx, executable,
+		"-test.run", `^TestCatFileCommitTreesLargeBatch$`)
+	// Per-child env; the marker selects the child branch without global
+	// mutation.
+	cmd.Env = append(append([]string{}, os.Environ()...), largeBatchChildMarker+"=1")
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("large-batch cat-file child exceeded 45s parent deadline (stdin deadlock?):\n%s", out)
+	}
+	if err != nil {
+		t.Fatalf("large-batch cat-file child failed: %v\n%s", err, out)
+	}
+}
+
+func runCatFileCommitTreesLargeBatch(t *testing.T) {
+	const n = 2000
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+
+	var fi strings.Builder
+	for i := range n {
+		fi.WriteString("commit refs/heads/main\nmark :")
+		fmt.Fprintf(&fi, "%d", i+1)
+		fi.WriteString("\ncommitter t <t@e.i> 0 +0000\ndata 4\n")
+		fmt.Fprintf(&fi, "%04d", i) // exactly 4 bytes, as declared
+		if i > 0 {
+			fi.WriteString("\nfrom :")
+			fmt.Fprintf(&fi, "%d\n", i)
+		}
+	}
+	cmd := exec.Command("git", "fast-import")
+	cmd.Dir = dir
+	cmd.Env = gitTaEnv(dir)
+	cmd.Stdin = strings.NewReader(fi.String())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git fast-import: %v\n%s", err, out)
+	}
+
+	shas := strings.Fields(gitTaOut(t, dir, "rev-list", "--reverse", "main"))
+	if len(shas) != n {
+		t.Fatalf("fixture broken: %d commits, want %d", len(shas), n)
+	}
+	if input := n * 41; input <= 64*1024 {
+		t.Fatalf("fixture broken: batch input %d bytes must exceed the 64 KiB pipe capacity", input)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	trees := catFileCommitTrees(ctx, dir, shas)
+	if len(trees) != n {
+		t.Fatalf("catFileCommitTrees resolved %d of %d commits (deadline %v)", len(trees), n, ctx.Err())
+	}
+	// Spot-check both ends: resolved tree must be the real commit tree.
+	for _, i := range []int{0, n - 1} {
+		want := gitTaOut(t, dir, "rev-parse", shas[i]+"^{tree}")
+		if trees[shas[i]] != want {
+			t.Errorf("tree[%d] = %q, want %q", i, trees[shas[i]], want)
+		}
+	}
+}
+
+// TestCollectCommitLogNonLinearFirstParent exercises zero-delta detection
+// on non-linear history where the range's from-bound is NOT the first
+// parent of an in-log commit: the batched first-parent tree lookup must
+// resolve the parent from below the range, and the zero-tree-delta twin
+// must still be excluded.
+//
+//	P (base)
+//	 ├── rel:    A (feat: real), E (empty twin of A), tagged v0.1.0
+//	 └── hot:    B (fix: real), tagged v0.2.0
+//
+// Range v0.1.0..v0.2.0 is only B: its first parent P is below the range
+// and must be resolved by the batched lookup. The whole-history log
+// bounded at the rel tag v0.1.0 covers A and E (the rel side is not
+// reachable from v0.2.0), so the twin exclusion is asserted there.
+func TestCollectCommitLogNonLinearFirstParent(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: base")
+	p := gitTaOut(t, dir, "rev-parse", "HEAD")
+
+	gitTa(t, dir, "checkout", "-q", "-b", "rel")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "feat: real")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "feat: real") // zero-delta twin
+	gitTa(t, dir, "tag", "v0.1.0")
+
+	gitTa(t, dir, "checkout", "-q", "-b", "hot", p)
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: real")
+	gitTa(t, dir, "tag", "v0.2.0")
+
+	// Range log: only the hotfix commit, and it is retained with its
+	// tree-delta status intact.
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.2.0", nil).Text(); got != "- fix: real" {
+		t.Errorf("CollectCommitLog(non-linear range) = %q, want %q", got, "- fix: real")
+	}
+
+	// Whole-history (empty from) log bounded at the rel tag: oldest-first
+	// via --reverse, so the zero-delta twin between the two rel commits is
+	// excluded and only one "feat: real" survives.
+	got := CollectCommitLog(ctx, dir, "", "v0.1.0", nil).Text()
+	want := "- chore: base\n- feat: real"
+	if got != want {
+		t.Errorf("CollectCommitLog(non-linear whole) = %q, want %q", got, want)
+	}
+}
+
+// TestCollectCommitLogEmptyTwinAfterDelta pins order-independence: the
+// retained tree-changing twin lands LATER in the range than the zero-delta
+// repeat, so a naive "first in log order wins" implementation would drop
+// the real commit and keep the empty one.
+func TestCollectCommitLogEmptyTwinAfterDelta(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	writeRepoFile(t, dir, "v1")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: base")
+	gitTa(t, dir, "tag", "v1.0.0")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "fix: apply change", "-m", "Changes the thing.")
+	writeRepoFile(t, dir, "v2")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: apply change", "-m", "Changes the thing.")
+
+	// Guard: the delta twin (HEAD) must really change the tree, and the
+	// empty twin (HEAD~1) must not.
+	if a, b := gitTaOut(t, dir, "rev-parse", "HEAD~1^{tree}"), gitTaOut(t, dir, "rev-parse", "HEAD^{tree}"); a == b {
+		t.Fatal("fixture broken: delta twin is not tree-changing")
+	}
+
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", nil).Text()
+	want := "- fix: apply change\n\nChanges the thing."
+	if got != want {
+		t.Errorf("CollectCommitLog(twin after delta) = %q, want %q (exactly one retained)", got, want)
+	}
+}
+
+// TestCollectCommitLogRetainsDistinctEmpty proves distinct empty commits
+// and nonempty same-subject commits are never excluded.
+func TestCollectCommitLogRetainsDistinctEmpty(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	writeRepoFile(t, dir, "v1")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: base")
+	gitTa(t, dir, "tag", "v1.0.0")
+	writeRepoFile(t, dir, "v2")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: apply change")
+	writeRepoFile(t, dir, "v3")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: apply change")                  // same subject, new tree
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "fix: apply change") // zero-delta twin of BOTH
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "chore: first empty")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "chore: second empty")
+	writeRepoFile(t, dir, "v4")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: version only") // tree differs: metadata-only change
+
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", nil).Text()
+	// Range logs are newest-first.
+	want := "- chore: version only\n- chore: second empty\n- chore: first empty\n" +
+		"- fix: apply change\n- fix: apply change"
+	if got != want {
+		t.Errorf("CollectCommitLog(distinct) = %q, want %q", got, want)
+	}
+}
+
+// TestCollectCommitLogKeepAll pins the wildcard/empty include-set contract
+// through the metadata-aware collector: with keepAll in effect, EVERY typed
+// commit is retained (the per-record decision must not fall through to the
+// type match when keepAll is true), including zero-delta empty repeats of
+// distinct messages.
+func TestCollectCommitLogKeepAll(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	writeRepoFile(t, dir, "v1")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: base")
+	gitTa(t, dir, "tag", "v1.0.0")
+	writeRepoFile(t, dir, "v2")
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: apply change")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "docs: note one")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "docs: note two")
+	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "build(deps): bump dep")
+
+	// Wildcard: all typed commits retained, newest-first.
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"*"}).Text()
+	want := "- build(deps): bump dep\n- docs: note two\n- docs: note one\n- fix: apply change"
+	if got != want {
+		t.Errorf("CollectCommitLog(wildcard) = %q, want %q", got, want)
+	}
+
+	// Empty include set: same keep-all behavior.
+	got = CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", nil).Text()
+	if got != want {
+		t.Errorf("CollectCommitLog(nil) = %q, want %q", got, want)
+	}
+
+	// A narrow filter must drop the non-matching types; the zero-delta
+	// distinct empty commits prove keep-all is not the only path to
+	// retention.
+	got = CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"fix"}).Text()
+	if got != "- fix: apply change" {
+		t.Errorf("CollectCommitLog(fix only) = %q, want exactly the fix commit", got)
+	}
+}
+
+// TestFilterCommitLogNoDedup pins the raw-message contract: FilterCommitLog
+// has no tree/parent metadata, so identical full messages are never
+// deduplicated there — only CollectCommitLog's metadata-aware selection
+// excludes zero-tree-delta empty repeats.
+func TestFilterCommitLogNoDedup(t *testing.T) {
+	raw := "- fix: apply change\n\nChanges the thing.\x00- fix: apply change\n\nChanges the thing.\x00"
+	if got := FilterCommitLog(raw, nil); got != "- fix: apply change\n\nChanges the thing.\n- fix: apply change\n\nChanges the thing." {
+		t.Errorf("FilterCommitLog must keep both identical records, got:\n%q", got)
+	}
+	if got := FilterCommitLog(raw, []string{"fix"}); got != "- fix: apply change\n\nChanges the thing.\n- fix: apply change\n\nChanges the thing." {
+		t.Errorf("FilterCommitLog (typed) must keep both identical records, got:\n%q", got)
 	}
 }
 
@@ -593,7 +938,7 @@ func TestSelectHunks(t *testing.T) {
 	d := diffUnit{class: "docs", filePath: "x.md", fileHeader: "diff --git a/x.md b/x.md\n", hunkText: strings.Repeat("x", 15), origIndex: 2}
 
 	// Case A: budget 90 fits both source hunks (80) but not the docs hunk.
-	out, skipped := selectHunks([]diffUnit{a, b, d}, 90)
+	out, skipped, _ := selectHunks([]diffUnit{a, b, d}, 90)
 	if skipped != 1 {
 		t.Errorf("skipped = %d, want 1", skipped)
 	}
@@ -618,7 +963,7 @@ func TestSelectHunks(t *testing.T) {
 	src := diffUnit{class: "source", filePath: "c.go", fileHeader: "diff --git a/c.go b/c.go\n", hunkText: strings.Repeat("s", 15), origIndex: 2}
 	dx := diffUnit{class: "docs", filePath: "x.md", fileHeader: "diff --git a/x.md b/x.md\n", hunkText: strings.Repeat("x", 15), origIndex: 0}
 	dy := diffUnit{class: "docs", filePath: "y.md", fileHeader: "diff --git a/y.md b/y.md\n", hunkText: strings.Repeat("y", 15), origIndex: 1}
-	out2, skipped2 := selectHunks([]diffUnit{dy, src, dx}, 80)
+	out2, skipped2, _ := selectHunks([]diffUnit{dy, src, dx}, 80)
 	if skipped2 != 1 {
 		t.Errorf("skipped = %d, want 1", skipped2)
 	}
@@ -634,7 +979,7 @@ func TestSelectHunks(t *testing.T) {
 	// fits only one unit; the real comparator must pick z.go.
 	docA := diffUnit{class: "docs", filePath: "a.md", fileHeader: "diff --git a/a.md b/a.md\n", hunkText: strings.Repeat("A", 15), origIndex: 0}
 	srcZ := diffUnit{class: "source", filePath: "z.go", fileHeader: "diff --git a/z.go b/z.go\n", hunkText: strings.Repeat("Z", 15), origIndex: 1}
-	out4, skipped4 := selectHunks([]diffUnit{docA, srcZ}, 40)
+	out4, skipped4, _ := selectHunks([]diffUnit{docA, srcZ}, 40)
 	if skipped4 != 1 {
 		t.Errorf("class vs path: skipped = %d, want 1", skipped4)
 	}
@@ -648,11 +993,33 @@ func TestSelectHunks(t *testing.T) {
 	// both.
 	h := diffUnit{class: "source", filePath: "m.go", fileHeader: "H012345678", hunkText: strings.Repeat("m", 35), origIndex: 0}
 	h2 := diffUnit{class: "source", filePath: "m.go", fileHeader: "H012345678", hunkText: strings.Repeat("n", 35), origIndex: 1}
-	out3, skipped3 := selectHunks([]diffUnit{h, h2}, 80)
+	out3, skipped3, _ := selectHunks([]diffUnit{h, h2}, 80)
+	// A hunk that cannot fit whole is clipped at a line boundary instead of
+	// disappearing: the header line and the first whole lines survive, and the
+	// clipped count reports it.
+	big := diffUnit{class: "source", filePath: "big.go", fileHeader: "H\n", hunkText: "@@ -1,2 +1,2 @@\n keep one\n keep two\n drop this line\n", origIndex: 0}
+	out5, skipped5, clipped5 := selectHunks([]diffUnit{big}, len("H\n")+len("@@ -1,2 +1,2 @@\n")+len(" keep one\n"))
+	if skipped5 != 0 || clipped5 != 1 {
+		t.Errorf("clip: skipped = %d, clipped = %d, want 0/1", skipped5, clipped5)
+	}
+	if !strings.Contains(out5, "@@ -1,2 +1,2 @@") || !strings.Contains(out5, "keep one") || strings.Contains(out5, "drop this line") {
+		t.Errorf("clip output = %q, want header and first line only", out5)
+	}
+	if !strings.Contains(out5, "[hunk truncated]") {
+		t.Errorf("clip output must mark the elision: %q", out5)
+	}
+
 	if skipped3 != 0 || strings.Count(out3, "diff --git") != 0 ||
 		!strings.Contains(out3, strings.Repeat("m", 35)) || !strings.Contains(out3, strings.Repeat("n", 35)) {
 		t.Errorf("same-file hunks: skipped = %d, out = %q (want both hunks, one header)", skipped3, out3)
 	}
+}
+
+// rangeCommits returns the selected commits for a range, matching what the
+// pipeline passes to CollectDiff.
+func rangeCommits(t *testing.T, dir, from, to string) []Commit {
+	t.Helper()
+	return CollectCommitLog(context.Background(), dir, from, to, nil).Commits
 }
 
 func TestParseDiffBinary(t *testing.T) {
@@ -753,7 +1120,7 @@ func TestCollectCommitLogBreakingChange(t *testing.T) {
 	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "chore: tidy")
 
 	// Breaking commit body should survive even when chore is filtered
-	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"feat"})
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"feat"}).Text()
 	if !strings.Contains(got, "feat!: break api") {
 		t.Errorf("breaking commit missing; got %q", got)
 	}
@@ -803,7 +1170,7 @@ func TestCollectCommitLogExcludesMerges(t *testing.T) {
 
 	// With a "fix" type filter in effect: branch work (fix) is retained, the
 	// merge subject and its chore body are absent.
-	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"fix"})
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"fix"}).Text()
 	if got != "- fix: branch work" {
 		t.Fatalf("CollectCommitLog = %q, want exactly %q (merge commit must be omitted)", got, "- fix: branch work")
 	}
@@ -857,9 +1224,16 @@ func TestCollectDiff(t *testing.T) {
 	}
 	makeTaggedRepo(t, dir, plan)
 
-	got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), DiffBudgetBytes)
+	if err != nil {
+		t.Fatalf("CollectDiff: %v", err)
+	}
+	got := dc.Text
 	if got == "" {
 		t.Fatal("expected non-empty diff")
+	}
+	if dc.Truncated || dc.SkippedHunks != 0 {
+		t.Errorf("full budget: Truncated = %v, SkippedHunks = %d, want none", dc.Truncated, dc.SkippedHunks)
 	}
 	if !strings.Contains(got, "f.txt") {
 		t.Errorf("diff missing f.txt; got:\n%s", got)
@@ -928,7 +1302,11 @@ func TestCollectDiffThreeDotNonLinear(t *testing.T) {
 		t.Fatalf("fixture broken: expected three-dot diff to contain only file-c.txt; got:\n%s", three)
 	}
 
-	diff := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), DiffBudgetBytes)
+	if err != nil {
+		t.Fatalf("CollectDiff: %v", err)
+	}
+	diff := dc.Text
 	if !strings.Contains(diff, "file-c.txt") || !strings.Contains(diff, "+c") {
 		t.Errorf("three-dot diff missing file-c.txt; got:\n%s", diff)
 	}
@@ -964,19 +1342,31 @@ func TestCollectDiffBudget(t *testing.T) {
 	gitTa(t, dir, "commit", "-q", "-m", "second")
 	gitTa(t, dir, "tag", "v0.2.0")
 
-	full := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes)
+	fullDC, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), DiffBudgetBytes)
+	if err != nil {
+		t.Fatalf("CollectDiff: %v", err)
+	}
+	full := fullDC.Text
 	if !strings.Contains(full, "a.go") || !strings.Contains(full, "b.md") {
 		t.Fatalf("full diff missing files; got:\n%s", full)
 	}
-	if strings.Contains(full, "[diff truncated") {
-		t.Errorf("unbudgeted diff should not truncate; got:\n%s", full)
+	if fullDC.Truncated || fullDC.SkippedHunks != 0 {
+		t.Errorf("unbudgeted diff must not truncate: Truncated = %v, SkippedHunks = %d", fullDC.Truncated, fullDC.SkippedHunks)
 	}
 
-	// A 1-byte budget can emit at most one tiny hunk header's worth; most
-	// hunks must be skipped and the truncation note emitted.
-	tiny := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", 1)
-	if !strings.Contains(tiny, "[diff truncated") {
-		t.Errorf("tight budget should note truncation; got:\n%s", tiny)
+	// A 1-byte budget cannot fit a single hunk, so every hunk is skipped;
+	// the structured status must report it (the marker text stays in the
+	// output for display, but is not the status).
+	tinyDC, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), 1)
+	if err != nil {
+		t.Fatalf("CollectDiff: %v", err)
+	}
+	tiny := tinyDC.Text
+	if !tinyDC.Truncated {
+		t.Errorf("tight budget: Truncated = false, want true")
+	}
+	if tinyDC.SkippedHunks != 2 {
+		t.Errorf("tight budget: SkippedHunks = %d, want 2 (one per file)", tinyDC.SkippedHunks)
 	}
 	// The --stat summary is always present, regardless of budget.
 	if !strings.Contains(tiny, "2 files changed") {
@@ -1001,7 +1391,11 @@ func TestCollectDiffFirstRelease(t *testing.T) {
 	makeTaggedRepo(t, dir, plan)
 
 	// fromTag == "" diffs against the empty tree: the whole history up to v0.2.0.
-	got := CollectDiff(ctx, dir, "", "v0.2.0", DiffBudgetBytes)
+	dc, err := CollectDiff(ctx, dir, "", "v0.2.0", rangeCommits(t, dir, "", "v0.2.0"), DiffBudgetBytes)
+	if err != nil {
+		t.Fatalf("CollectDiff: %v", err)
+	}
+	got := dc.Text
 	if got == "" {
 		t.Fatal("expected non-empty first-release diff")
 	}
@@ -1021,9 +1415,14 @@ func TestCollectDiffFirstRelease(t *testing.T) {
 func TestCollectDiffGitFailure(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	// No git repo here: git diff must fail and CollectDiff returns "".
-	if got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", DiffBudgetBytes); got != "" {
-		t.Errorf("expected empty diff on git failure, got:\n%s", got)
+	// No git repo here: git diff must fail and the failure must surface as
+	// a non-nil error, never as a complete (empty) context.
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", nil, DiffBudgetBytes)
+	if err == nil {
+		t.Fatalf("expected error on git failure, got %+v", dc)
+	}
+	if dc.Truncated || dc.SkippedHunks != 0 || dc.Text != "" {
+		t.Errorf("failed diff must carry no content/status, got %+v", dc)
 	}
 }
 
@@ -1056,38 +1455,50 @@ func TestCollectDiffRejectsBadTags(t *testing.T) {
 	}
 	makeTaggedRepo(t, dir, plan)
 
-	// Option-injection attempts must be rejected before any git exec.
+	// Option-injection attempts must be rejected before any git exec:
+	// a non-nil error with no context content.
 	t.Run("badFromTag", func(t *testing.T) {
 		fakeDir, marker := fakeGitDir(t)
 		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-		if got := CollectDiff(ctx, dir, "--output=/tmp/evil", "v0.2.0", DiffBudgetBytes); got != "" {
-			t.Errorf("expected empty diff for bad fromTag, got:\n%s", got)
+		dc, err := CollectDiff(ctx, dir, "--output=/tmp/evil", "v0.2.0", nil, DiffBudgetBytes)
+		if err == nil {
+			t.Errorf("expected error for bad fromTag, got %+v", dc)
 		}
-		if _, err := os.Stat(marker); err == nil {
+		if _, merr := os.Stat(marker); merr == nil {
 			t.Error("git was executed for bad fromTag; guard must reject before exec")
 		}
 	})
 	t.Run("badToTag", func(t *testing.T) {
 		fakeDir, marker := fakeGitDir(t)
 		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-		if got := CollectDiff(ctx, dir, "v0.1.0", "-q", DiffBudgetBytes); got != "" {
-			t.Errorf("expected empty diff for bad toTag, got:\n%s", got)
+		dc, err := CollectDiff(ctx, dir, "v0.1.0", "-q", nil, DiffBudgetBytes)
+		if err == nil {
+			t.Errorf("expected error for bad toTag, got %+v", dc)
 		}
-		if _, err := os.Stat(marker); err == nil {
+		if _, merr := os.Stat(marker); merr == nil {
 			t.Error("git was executed for bad toTag; guard must reject before exec")
 		}
 	})
-	// Control: valid tags still work (the 1-byte budget forces a truncation
-	// note, but the output must still be non-empty). Runs under the real PATH
-	// (t.Setenv restored it when the subtests above ended).
-	if got := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", 1); got == "" {
+	// Control: valid tags still work (the 1-byte budget forces a truncation,
+	// reported by the structured fields, and the output must be non-empty).
+	// Runs under the real PATH (t.Setenv restored it when the subtests
+	// above ended).
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", rangeCommits(t, dir, "v0.1.0", "v0.2.0"), 1)
+	if err != nil {
+		t.Fatalf("valid tags: %v", err)
+	}
+	if dc.Text == "" {
 		t.Error("expected non-empty diff for valid tags")
 	}
 	// Control: implicit HEAD — an empty toTag makes git resolve the missing
 	// range endpoint to HEAD, so the diff covers the commit(s) after v0.1.0
 	// (here the "two" commit, which rewrites f.txt).
-	if got := CollectDiff(ctx, dir, "v0.1.0", "", DiffBudgetBytes); got == "" || !strings.Contains(got, "f.txt") {
-		t.Errorf("expected non-empty implicit-HEAD diff mentioning f.txt; got:\n%s", got)
+	implicitDC, err := CollectDiff(ctx, dir, "v0.1.0", "", rangeCommits(t, dir, "v0.1.0", ""), DiffBudgetBytes)
+	if err != nil {
+		t.Fatalf("implicit HEAD: %v", err)
+	}
+	if implicitDC.Text == "" || !strings.Contains(implicitDC.Text, "f.txt") {
+		t.Errorf("expected non-empty implicit-HEAD diff mentioning f.txt; got:\n%s", implicitDC.Text)
 	}
 }
 
@@ -1107,7 +1518,7 @@ func TestCollectCommitLogRejectsBadTags(t *testing.T) {
 	t.Run("badFromTag", func(t *testing.T) {
 		fakeDir, marker := fakeGitDir(t)
 		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-		if got := CollectCommitLog(ctx, dir, "--output=/tmp/evil", "v0.2.0", nil); got != "" {
+		if got := CollectCommitLog(ctx, dir, "--output=/tmp/evil", "v0.2.0", nil).Text(); got != "" {
 			t.Errorf("expected empty log for bad fromTag, got:\n%s", got)
 		}
 		if _, err := os.Stat(marker); err == nil {
@@ -1117,7 +1528,7 @@ func TestCollectCommitLogRejectsBadTags(t *testing.T) {
 	t.Run("badToTag", func(t *testing.T) {
 		fakeDir, marker := fakeGitDir(t)
 		t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-		if got := CollectCommitLog(ctx, dir, "v0.1.0", "--output=/tmp/evil", nil); got != "" {
+		if got := CollectCommitLog(ctx, dir, "v0.1.0", "--output=/tmp/evil", nil).Text(); got != "" {
 			t.Errorf("expected empty log for bad toTag, got:\n%s", got)
 		}
 		if _, err := os.Stat(marker); err == nil {
@@ -1126,8 +1537,38 @@ func TestCollectCommitLogRejectsBadTags(t *testing.T) {
 	})
 	// Control: valid tags still work. Runs under the real PATH (t.Setenv
 	// restored it when the subtests above ended).
-	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.2.0", nil); got == "" {
+	if got := CollectCommitLog(ctx, dir, "v0.1.0", "v0.2.0", nil).Text(); got == "" {
 		t.Error("expected non-empty log for valid tags")
+	}
+}
+
+func TestCollectCommitLogRetainsSelectedSHAAndMergeEvidence(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q", "--initial-branch=main")
+	gitTa(t, dir, "commit", "--allow-empty", "-m", "chore: baseline")
+	gitTa(t, dir, "tag", "v1.0.0")
+	gitTa(t, dir, "checkout", "-b", "fix-archive")
+	if err := os.WriteFile(filepath.Join(dir, "archive.txt"), []byte("verified"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", ".")
+	const subject = "fix: export verified archives"
+	const body = "Run annalist export --archive only for verified accounts. Archived records remain readable."
+	gitTa(t, dir, "commit", "-m", subject, "-m", body)
+	sourceSHA := TargetCommitSHA(ctx, dir, "HEAD")
+	gitTa(t, dir, "commit", "--allow-empty", "-m", subject, "-m", body)
+	repeatSHA := TargetCommitSHA(ctx, dir, "HEAD")
+	gitTa(t, dir, "commit", "--allow-empty", "-m", "docs: update a guide")
+	gitTa(t, dir, "checkout", "main")
+	gitTa(t, dir, "merge", "--no-ff", "fix-archive", "-m", "Merge archive changes")
+	mergeSHA := TargetCommitSHA(ctx, dir, "HEAD")
+	selected := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"fix"})
+	if len(selected.Commits) != 1 || selected.Commits[0].SHA != sourceSHA || selected.Commits[0].SHA == repeatSHA || selected.Commits[0].Subject != subject || selected.Commits[0].Body != body {
+		t.Fatalf("selection lost exact source identity or message: %+v", selected)
+	}
+	if len(selected.MergeSHAs) != 1 || selected.MergeSHAs[0] != mergeSHA || strings.Contains(selected.Text(), "Merge archive") || strings.Contains(selected.Text(), "docs:") {
+		t.Fatalf("merge evidence changed the selected source: %+v", selected)
 	}
 }
 
@@ -1143,7 +1584,7 @@ func TestCollectCommitLogBodies(t *testing.T) {
 	gitTa(t, dir, "commit", "-q", "--allow-empty", "-m", "chore: bump deps")
 
 	// Bodies of kept typed non-breaking commits survive filtering.
-	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"feat", "fix"})
+	got := CollectCommitLog(ctx, dir, "v1.0.0", "HEAD", []string{"feat", "fix"}).Text()
 	want := "- fix: correct chapter offset drift\n\nOffsets now come from container timestamps instead of the codec header.\n- feat: add import queue\n\nImports queue behind an explicit worker pool so large libraries do not block the UI thread."
 	if got != want {
 		t.Errorf("CollectCommitLog(bodies) = %q, want %q", got, want)
@@ -1220,4 +1661,179 @@ func TestCloneToCollision(t *testing.T) {
 		t.Errorf("workdir base = %q, want prefix %q-", filepath.Base(workdir), sum)
 	}
 	cleanup()
+}
+
+func TestFairShare(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		costs  []int
+		budget int
+		want   []int
+	}{
+		{"even split", []int{100, 100}, 100, []int{50, 50}},
+		{"small commit keeps its diff", []int{10, 1000}, 100, []int{10, 90}},
+		{"everything fits", []int{5, 5}, 100, []int{5, 5}},
+		{"single oversized commit", []int{300}, 100, []int{100}},
+		{"empty commits cost nothing", []int{0, 0}, 5, []int{0, 0}},
+		{"zero budget", []int{10, 10}, 0, []int{0, 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := fairShare(tc.costs, tc.budget)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("fairShare(%v, %d) = %v, want %v", tc.costs, tc.budget, got, tc.want)
+			}
+			if total := sumInts(got); total > tc.budget {
+				t.Fatalf("allocation %d exceeds budget %d", total, tc.budget)
+			}
+		})
+	}
+}
+
+func sumInts(values []int) int {
+	total := 0
+	for _, v := range values {
+		total += v
+	}
+	return total
+}
+
+// TestCollectDiffSharesBudgetAcrossCommits pins the property that one large
+// change cannot consume the evidence budget for the rest of the release.
+func TestCollectDiffSharesBudgetAcrossCommits(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: seed")
+	gitTa(t, dir, "tag", "v0.1.0")
+
+	var large strings.Builder
+	for i := range 400 {
+		fmt.Fprintf(&large, "line %d of the large change\n", i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "large.go"), []byte(large.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "feat: large change")
+
+	if err := os.WriteFile(filepath.Join(dir, "small.go"), []byte("small change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "fix: small change")
+	gitTa(t, dir, "tag", "v0.2.0")
+
+	commits := rangeCommits(t, dir, "v0.1.0", "v0.2.0")
+	if len(commits) != 2 {
+		t.Fatalf("commits = %d, want 2", len(commits))
+	}
+	// Enough for the small commit plus part of the large one, far less than
+	// the large commit needs alone.
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", commits, 2048)
+	if err != nil {
+		t.Fatalf("CollectDiff: %v", err)
+	}
+	for _, want := range []string{"feat: large change", "fix: small change", "small change", "large.go"} {
+		if !strings.Contains(dc.Text, want) {
+			t.Fatalf("budget-starved diff missing %q; got:\n%s", want, dc.Text)
+		}
+	}
+	if !dc.Truncated {
+		t.Fatal("expected the large commit's share to be truncated")
+	}
+}
+
+// TestCollectDiffSkipsNoiseHunks keeps lockfiles and test data in the --stat
+// summary without spending hunk budget on them.
+func TestCollectDiffSkipsNoiseHunks(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitTa(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "chore: seed")
+	gitTa(t, dir, "tag", "v0.1.0")
+
+	if err := os.MkdirAll(filepath.Join(dir, "testdata"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "testdata", "fixture.json"), []byte("{\"seed\": true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "vendor", "dep.js"), []byte("/* dep */\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "__snapshots__"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "__snapshots__", "rendered.txt"), []byte("snapshot content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "app", "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app", "vendor", "lib.js"), []byte("/* nested dep */\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "pkg", "__snapshots__"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "__snapshots__", "shot.txt"), []byte("nested snapshot\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "left-pad"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "node_modules", "left-pad", "index.js"), []byte("module.exports = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bun.lock"), []byte("lockfile-version-1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitTa(t, dir, "add", "-A")
+	gitTa(t, dir, "commit", "-q", "-m", "feat: add entry point")
+	gitTa(t, dir, "tag", "v0.2.0")
+
+	commits := rangeCommits(t, dir, "v0.1.0", "v0.2.0")
+	dc, err := CollectDiff(ctx, dir, "v0.1.0", "v0.2.0", commits, DiffBudgetBytes)
+	if err != nil {
+		t.Fatalf("CollectDiff: %v", err)
+	}
+	if !strings.Contains(dc.Text, "main.go") {
+		t.Fatalf("source hunk missing; got:\n%s", dc.Text)
+	}
+	if !strings.Contains(dc.Text, "bun.lock") || !strings.Contains(dc.Text, "testdata/fixture.json") ||
+		!strings.Contains(dc.Text, "vendor/dep.js") || !strings.Contains(dc.Text, "__snapshots__/rendered.txt") ||
+		!strings.Contains(dc.Text, "app/vendor/lib.js") || !strings.Contains(dc.Text, "pkg/__snapshots__/shot.txt") ||
+		!strings.Contains(dc.Text, "node_modules/left-pad/index.js") {
+		t.Fatalf("stat summary must still list skipped noise files; got:\n%s", dc.Text)
+	}
+	for _, noise := range []string{
+		"diff --git a/bun.lock",
+		"diff --git a/testdata/fixture.json",
+		"diff --git a/vendor/dep.js",
+		"diff --git a/__snapshots__/rendered.txt",
+		"diff --git a/app/vendor/lib.js",
+		"diff --git a/pkg/__snapshots__/shot.txt",
+		"diff --git a/node_modules/left-pad/index.js",
+	} {
+		if strings.Contains(dc.Text, noise) {
+			t.Fatalf("noise file hunks must not consume budget; got:\n%s", dc.Text)
+		}
+	}
+	if dc.Truncated {
+		t.Fatalf("noise filtering must not report truncation: %+v", dc)
+	}
 }

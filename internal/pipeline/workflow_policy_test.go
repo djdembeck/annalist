@@ -97,6 +97,7 @@ func runPublishScenarios(t *testing.T, template string) {
 		state       map[string]any // initial release state; nil = release does not exist
 		failLookup  bool           // release metadata read returns 500 (not an absence)
 		failGen     bool           // annalist generate returns 500
+		genResponse map[string]any // optional controlled preview response
 		ghView      string         // GH stub view mode: "", "missing", "failure"
 		ghOnly      bool           // drives only the GitHub stub; skipped on Forgejo
 		wantExit    int
@@ -140,8 +141,21 @@ func runPublishScenarios(t *testing.T, template string) {
 		{name: "completed release no-ops even when annalist is down",
 			state: map[string]any{"body": "HUMAN NOTES", "draft": false}, failGen: true,
 			wantExit: 0, wantBody: "HUMAN NOTES", wantDraft: false, wantCreated: true, wantID: 1, wantGen: 0},
-		// One generation request was made (and it is the one that 500s) —
-		// the step then fails without creating a release.
+		{name: "quality warning blocks a new release",
+			state: nil, ghView: "missing", genResponse: map[string]any{"notes": "UNREVIEWED NOTES", "warning_code": "quality_review_required", "quality_issues": []string{"strict_prose_semicolon"}},
+			wantExit: 5, wantBody: "", wantDraft: false, wantCreated: false, wantID: 0, wantGen: 1},
+		{name: "quality issues block an empty draft even without the warning code",
+			state: map[string]any{"body": "", "draft": true}, genResponse: map[string]any{"notes": "UNREVIEWED NOTES", "quality_issues": []string{"strict_prose_semicolon"}},
+			wantExit: 5, wantBody: "", wantDraft: true, wantCreated: true, wantID: 1, wantGen: 1},
+		{name: "advisory context issue still publishes",
+			state: map[string]any{"body": "", "draft": true}, genResponse: map[string]any{"notes": "ADVISORY NOTES", "warning_code": "source_context_incomplete", "quality_issues": []string{"source_context_incomplete"}},
+			wantExit: 0, wantBody: "ADVISORY NOTES", wantDraft: false, wantCreated: true, wantID: 1, wantGen: 1},
+		{name: "unknown warning blocks refilling a published release",
+			state: map[string]any{"body": "", "draft": false}, genResponse: map[string]any{"notes": "UNREVIEWED NOTES", "warning_code": "unknown_warning"},
+			wantExit: 5, wantBody: "", wantDraft: false, wantCreated: true, wantID: 1, wantGen: 1},
+		{name: "safe preview with empty quality metadata is publishable",
+			state: nil, ghView: "missing", genResponse: map[string]any{"notes": "REVIEWED NOTES", "warning_code": nil, "quality_issues": []string{}},
+			wantExit: 0, wantBody: "REVIEWED NOTES", wantDraft: false, wantCreated: true, wantID: 1, wantGen: 1},
 		{name: "missing release with annalist down fails without creating a release",
 			state: nil, failGen: true, ghView: "missing",
 			wantExit: 22, wantBody: "", wantDraft: false, wantCreated: false, wantID: 0, wantGen: 1},
@@ -155,7 +169,7 @@ func runPublishScenarios(t *testing.T, template string) {
 			if ghDir != "" {
 				ghState = filepath.Join(t.TempDir(), "gh-state.json")
 			}
-			fx.reset(tc.state, tc.failLookup, tc.failGen, ghState)
+			fx.reset(tc.state, tc.failLookup, tc.failGen, tc.genResponse, ghState)
 
 			var extra []string
 			if ghDir != "" {
@@ -176,6 +190,9 @@ func runPublishScenarios(t *testing.T, template string) {
 				t.Fatalf("publish step exited with %v, want %d\n%s", runErr, tc.wantExit, out)
 			}
 
+			if tc.wantExit == 5 && strings.Contains(out, "UNREVIEWED NOTES") {
+				t.Fatalf("quality rejection leaked generated notes: %s", out)
+			}
 			body, draft, created, id := fx.postState()
 			if body != tc.wantBody || draft != tc.wantDraft || created != tc.wantCreated || id != tc.wantID {
 				t.Errorf("release state = (body %q, draft %v, created %v, id %d), want (%q, %v, %v, %d)",
@@ -255,18 +272,19 @@ func runPublishScript(t *testing.T, script string, env, extra []string) (string,
 // annalist generate endpoint for both templates, and the Forgejo release API
 // (the GitHub template's release state lives in the gh stub's state file).
 type pubFixture struct {
-	mu         sync.Mutex
-	exists     bool
-	id         int
-	body       string
-	draft      bool
-	genCalls   int
-	failLookup bool
-	failGen    bool
-	ghState    string
+	mu          sync.Mutex
+	exists      bool
+	id          int
+	body        string
+	draft       bool
+	genCalls    int
+	failLookup  bool
+	failGen     bool
+	genResponse map[string]any
+	ghState     string
 }
 
-func (f *pubFixture) reset(state map[string]any, failLookup, failGen bool, ghState string) {
+func (f *pubFixture) reset(state map[string]any, failLookup, failGen bool, genResponse map[string]any, ghState string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.exists = state != nil
@@ -274,6 +292,7 @@ func (f *pubFixture) reset(state map[string]any, failLookup, failGen bool, ghSta
 	f.genCalls = 0
 	f.failLookup = failLookup
 	f.failGen = failGen
+	f.genResponse = genResponse
 	f.ghState = ghState
 	f.body, f.draft = "", false
 	if state == nil {
@@ -393,6 +412,7 @@ func (f *pubFixture) handle(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.genCalls++
 		down := f.failGen
+		response := f.genResponse
 		f.mu.Unlock()
 		if down {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -400,7 +420,10 @@ func (f *pubFixture) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"notes":"PING GENERATED NOTES","range_policy":"previous_published"}`)
+		if response == nil {
+			response = map[string]any{"notes": "PING GENERATED NOTES", "range_policy": "previous_published", "warning_code": nil, "quality_issues": nil}
+		}
+		_ = json.NewEncoder(w).Encode(response)
 	}
 }
 

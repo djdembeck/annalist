@@ -360,6 +360,15 @@ jobs:
             exit 0
           fi
 
+          extract_publishable_notes() {
+            jq -er '
+              if (.warning_code != null and .warning_code != "source_context_incomplete")
+                 or ((.quality_issues // []) | map(select(. != "source_context_incomplete")) | length > 0) then
+                error("Release notes need review. Publication blocked.")
+              else .notes | select(type == "string" and length > 0)
+              end'
+          }
+
           # Optional: a named release-note profile. Define profiles in the
           # repo at .annalist/release-notes.yaml (one prompt file per
           # profile), then request each with publish: false and publish the
@@ -367,7 +376,7 @@ jobs:
           #   NOTES_CUSTOMER=$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/github/${OWNER}/${REPO}/generate" \
           #     -H "Authorization: Bearer ${ANNALIST_ADMIN_TOKEN}" \
           #     -H "Content-Type: application/json" \
-          #     -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"profile\":\"customer\",\"display_version\":\"${VERSION#v}\",\"publish\":false}" | jq -r .notes)
+          #     -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"profile\":\"customer\",\"display_version\":\"${VERSION#v}\",\"publish\":false}" | extract_publishable_notes)
 
           # Optional: build and push your container image here. For
           # idempotent reruns guard with a manifest inspect, e.g.:
@@ -389,10 +398,11 @@ jobs:
             # non-prerelease ancestor release — full history for the first
             # published release — so an unfinished reservation cannot hide
             # unreleased changes. from_tag is intentionally omitted.
-            NOTES="$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/github/${OWNER}/${REPO}/generate" \
+            NOTES_RESPONSE="$(curl -fsS -X POST "${ANNALIST_URL}/api/repos/github/${OWNER}/${REPO}/generate" \
               -H "Authorization: Bearer ${ANNALIST_ADMIN_TOKEN}" \
               -H "Content-Type: application/json" \
-              -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"publish\":false}" | jq -r .notes)"
+              -d "{\"to_tag\":\"${VERSION}\",\"range_policy\":\"previous_published\",\"publish\":false}")"
+            NOTES="$(extract_publishable_notes <<<"${NOTES_RESPONSE}")"
           fi
 
           if [ "${EXISTS}" = "false" ]; then

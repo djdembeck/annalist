@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,10 +16,15 @@ import (
 )
 
 // Client talks to an OpenAI-compatible chat completions endpoint.
+//
+// Transient upstream conditions (429, 408, 5xx and transport failures) are
+// retried a bounded number of times; other 4xx responses fail immediately.
+// The pause hook exists so tests do not wait on real backoff.
 type Client struct {
 	BaseURL string
 	APIKey  string
 	HTTP    *http.Client
+	pause   func(context.Context, time.Duration) bool
 }
 
 // ChatRequest is a single chat completion request. BaseURL and APIKey, when
@@ -86,6 +92,7 @@ type chatResponse struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 }
 
@@ -116,9 +123,85 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 		return "", fmt.Errorf("llm: marshal request: %w", err)
 	}
 
+	var lastErr error
+	for attempt := 1; attempt <= chatAttempts; attempt++ {
+		out := c.chatOnce(ctx, base, apiKey, body)
+		if out.err == nil {
+			return out.content, nil
+		}
+		lastErr = out.err
+		// A reasoning model can spend the whole output budget before it
+		// writes anything. Grow the budget rather than fail a release on a
+		// truncation that a larger cap fixes.
+		if out.growBudget && payload.MaxTokens < chatMaxTokens {
+			payload.MaxTokens = min(payload.MaxTokens*2, chatMaxTokens)
+			if body, err = json.Marshal(payload); err != nil {
+				return "", fmt.Errorf("llm: marshal request: %w", err)
+			}
+			continue
+		}
+		if !out.retryable || attempt == chatAttempts || ctx.Err() != nil {
+			return "", out.err
+		}
+		wait := chatBackoff << (attempt - 1)
+		if out.retryAfter > 0 {
+			wait = out.retryAfter
+		}
+		if wait > chatMaxBackoff {
+			wait = chatMaxBackoff
+		}
+		if !c.pauseFor(ctx, wait) {
+			return "", lastErr
+		}
+	}
+	return "", lastErr
+}
+
+// chatAttempts bounds how many times one completion request is sent. Three
+// attempts cover a short provider blip without hiding a sustained outage.
+const (
+	chatAttempts   = 4
+	chatBackoff    = time.Second
+	chatMaxBackoff = 10 * time.Second
+	// chatMaxTokens caps the growth applied when a reasoning model returns
+	// nothing because it used the output budget on its own reasoning. One
+	// doubling keeps the worst-case latency bounded for a large range.
+	chatMaxTokens = 16384
+)
+
+// pauseFor waits for the backoff, returning false when the context ends first.
+func (c *Client) pauseFor(ctx context.Context, d time.Duration) bool {
+	pause := c.pause
+	if pause == nil {
+		pause = func(ctx context.Context, d time.Duration) bool {
+			timer := time.NewTimer(d)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return false
+			case <-timer.C:
+				return true
+			}
+		}
+	}
+	return pause(ctx, d)
+}
+
+// chatOutcome is one attempt's result. growBudget marks an empty response
+// that hit the output cap, where a larger budget can still succeed.
+type chatOutcome struct {
+	content    string
+	retryAfter time.Duration
+	retryable  bool
+	growBudget bool
+	err        error
+}
+
+// chatOnce performs one attempt and classifies the failure.
+func (c *Client) chatOnce(ctx context.Context, base, apiKey string, body []byte) chatOutcome {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("llm: build request: %w", err)
+		return chatOutcome{err: fmt.Errorf("llm: build request: %w", err)}
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	if apiKey != "" {
@@ -127,27 +210,72 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("llm: request failed: %w", err)
+		return chatOutcome{retryable: ctx.Err() == nil, err: fmt.Errorf("llm: request failed: %w", err)}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("llm: unexpected status %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+		return chatOutcome{
+			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			retryable:  retryableStatus(resp.StatusCode),
+			err:        fmt.Errorf("llm: unexpected status %s: %s", resp.Status, strings.TrimSpace(string(raw))),
+		}
 	}
 
 	var result chatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("llm: decode response: %w", err)
+		return chatOutcome{err: fmt.Errorf("llm: decode response: %w", err)}
 	}
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("llm: response contained no choices")
+		return chatOutcome{err: fmt.Errorf("llm: response contained no choices")}
 	}
-	content := strings.TrimSpace(result.Choices[0].Message.Content)
+	choice := result.Choices[0]
+	content := strings.TrimSpace(choice.Message.Content)
+	// A length-truncated answer is never usable, even when it has text: the
+	// note would end mid-sentence and lose its trailing attribution. Grow the
+	// budget; at the cap the attempt fails rather than returning the fragment.
+	if choice.FinishReason == "length" {
+		return chatOutcome{growBudget: true, err: fmt.Errorf("llm: output budget reached before the answer completed; raise max_tokens or lower the thinking level")}
+	}
 	if content == "" {
-		return "", fmt.Errorf("llm: response message content is empty")
+		return chatOutcome{err: fmt.Errorf("llm: response message content is empty")}
 	}
-	return content, nil
+	return chatOutcome{content: content}
+}
+
+// retryableStatus reports whether a provider status is transient: rate
+// limiting, request timeout, or a server-side failure. Model and auth errors
+// (400, 401, 403, 404, 422) are permanent.
+func retryableStatus(code int) bool {
+	switch code {
+	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests,
+		http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
+// parseRetryAfter reads a Retry-After header in seconds or HTTP-date form. A
+// missing or malformed value yields zero, meaning "use the standard backoff".
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if when, err := http.ParseTime(value); err == nil {
+		if wait := time.Until(when); wait > 0 {
+			return wait
+		}
+	}
+	return 0
 }
 
 // ListModels fetches the model ids the endpoint advertises via /v1/models,

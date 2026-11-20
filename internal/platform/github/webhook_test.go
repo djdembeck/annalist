@@ -7,13 +7,14 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +53,14 @@ func (f *fakePlatform) EditReleaseBody(ctx context.Context, owner, repo string, 
 }
 func (f *fakePlatform) CloneInfo(ctx context.Context, owner, repo string) (string, string, error) {
 	return f.origin, "Bearer test-token", nil
+}
+
+func (f *fakePlatform) ResolveCommitReferences(_ context.Context, owner, repo string, shas, _ []string) (map[string]pipeline.CommitReference, error) {
+	refs := make(map[string]pipeline.CommitReference, len(shas))
+	for _, sha := range shas {
+		refs[sha] = pipeline.CommitReference{PullRequests: []pipeline.PullRequestReference{{Number: 23, URL: "https://github.com/" + owner + "/" + repo + "/pull/23"}}}
+	}
+	return refs, nil
 }
 
 func gitNoAsk(t *testing.T, dir string, args ...string) {
@@ -162,9 +171,26 @@ func countGenerated(dataDir string) (int, error) {
 func llmStub(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
+		var request struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		var items []string
+		for _, message := range request.Messages {
+			if message.Role != "user" {
+				continue
+			}
+			for line := range strings.SplitSeq(message.Content, "\n") {
+				if token, ok := strings.CutPrefix(line, "Source: "); ok {
+					items = append(items, "- GITHUB NOTES "+token)
+				}
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"GITHUB NOTES"}}]}`))
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": strings.Join(items, "\n")}}}})
 	}))
 	t.Cleanup(srv.Close)
 	return srv

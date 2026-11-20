@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/djdembeck/annalist/internal/config"
 )
@@ -181,6 +182,7 @@ func TestChatNon2xx(t *testing.T) {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			srv, _, _ := llmTestServer(t, status, `{"error":"boom"}`)
 			c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+			c.pause = func(context.Context, time.Duration) bool { return true }
 			_, err := c.Chat(context.Background(), ChatRequest{User: "u"})
 			if err == nil {
 				t.Fatalf("Chat(%d) succeeded, want error", status)
@@ -344,4 +346,218 @@ func TestChatAuthorizationHeader(t *testing.T) {
 			t.Errorf("Authorization = %q, want Bearer per-req", auth)
 		}
 	})
+}
+
+// TestChatRetriesTransientStatus covers the bounded retry: a provider that
+// answers 503 once and then succeeds must not fail the run.
+func TestChatRetriesTransientStatus(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"code":"quota_exhausted"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"NOTES"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	c.pause = func(context.Context, time.Duration) bool { return true }
+	notes, err := c.Chat(context.Background(), ChatRequest{User: "u"})
+	if err != nil || notes != "NOTES" {
+		t.Fatalf("Chat = %q, %v; want NOTES and no error after retry", notes, err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+// TestChatStopsAfterRetryBudget keeps a sustained outage bounded: three
+// attempts, then the provider error surfaces unchanged.
+func TestChatStopsAfterRetryBudget(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"code":"quota_exhausted"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	c.pause = func(context.Context, time.Duration) bool { return true }
+	_, err := c.Chat(context.Background(), ChatRequest{User: "u"})
+	if err == nil || !strings.Contains(err.Error(), "quota_exhausted") {
+		t.Fatalf("error = %v, want the provider body surfaced", err)
+	}
+	if calls != chatAttempts {
+		t.Fatalf("calls = %d, want %d", calls, chatAttempts)
+	}
+}
+
+// TestChatDoesNotRetryPermanentErrors: an invalid model or auth failure is not
+// transient, so it must fail on the first response.
+func TestChatDoesNotRetryPermanentErrors(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusUnprocessableEntity} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var calls int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"error":"permanent"}`))
+			}))
+			defer srv.Close()
+
+			c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+			c.pause = func(context.Context, time.Duration) bool { return true }
+			if _, err := c.Chat(context.Background(), ChatRequest{User: "u"}); err == nil {
+				t.Fatalf("status %d succeeded, want error", status)
+			}
+			if calls != 1 {
+				t.Fatalf("calls = %d, want 1 for a permanent error", calls)
+			}
+		})
+	}
+}
+
+// TestChatHonorsRetryAfter checks the server-requested delay is used instead
+// of the built-in backoff.
+func TestChatHonorsRetryAfter(t *testing.T) {
+	var calls int
+	var waits []time.Duration
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "4")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	c.pause = func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true }
+	if _, err := c.Chat(context.Background(), ChatRequest{User: "u"}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(waits) != 1 || waits[0] != 4*time.Second {
+		t.Fatalf("waits = %v, want one 4s pause from Retry-After", waits)
+	}
+}
+
+// TestChatGrowsBudgetOnEmptyTruncatedAnswer covers a reasoning model that
+// spends the whole output budget before writing: the retry raises max_tokens
+// instead of failing the release.
+func TestChatGrowsBudgetOnEmptyTruncatedAnswer(t *testing.T) {
+	var budgets []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		budgets = append(budgets, req.MaxTokens)
+		if len(budgets) == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":""},"finish_reason":"length"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"NOTES"},"finish_reason":"stop"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	notes, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 4096})
+	if err != nil || notes != "NOTES" {
+		t.Fatalf("Chat = %q, %v", notes, err)
+	}
+	if len(budgets) != 2 || budgets[0] != 4096 || budgets[1] != 8192 {
+		t.Fatalf("budgets = %v, want [4096 8192]", budgets)
+	}
+}
+
+// TestChatStopsGrowingAtCap keeps the growth bounded when every attempt is
+// truncated, and reports the actionable error.
+func TestChatStopsGrowingAtCap(t *testing.T) {
+	var budgets []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		budgets = append(budgets, req.MaxTokens)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":""},"finish_reason":"length"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	_, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 16384})
+	if err == nil || !strings.Contains(err.Error(), "raise max_tokens") {
+		t.Fatalf("error = %v, want the budget guidance", err)
+	}
+	if len(budgets) != 1 {
+		t.Fatalf("budgets = %v, want a single attempt at the cap", budgets)
+	}
+}
+
+// TestChatEmptyContentWithoutTruncationStillFails: an empty answer with a
+// normal finish reason is a provider contract violation, not a budget issue.
+func TestChatEmptyContentWithoutTruncationStillFails(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"   "},"finish_reason":"stop"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	if _, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 4096}); err == nil {
+		t.Fatal("Chat succeeded on empty content without truncation")
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+// TestChatGrowsBudgetForPartialAnswer covers the dangerous truncation: text
+// that stops mid-sentence must not be returned as if it were complete.
+func TestChatGrowsBudgetForPartialAnswer(t *testing.T) {
+	var budgets []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		budgets = append(budgets, req.MaxTokens)
+		if len(budgets) == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Version 1 adds admin"},"finish_reason":"length"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Version 1 adds admin controls. [[annalist:abc]]"},"finish_reason":"stop"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	notes, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 8192})
+	if err != nil || !strings.HasSuffix(notes, "[[annalist:abc]]") {
+		t.Fatalf("notes = %q, err = %v", notes, err)
+	}
+	if len(budgets) != 2 || budgets[1] != chatMaxTokens {
+		t.Fatalf("budgets = %v, want 8192 then %d", budgets, chatMaxTokens)
+	}
+}
+
+// TestChatFailsOnTruncatedAnswerAtCap: retrying stops at the cap, and the
+// partial text is never returned.
+func TestChatFailsOnTruncatedAnswerAtCap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"partial"},"finish_reason":"length"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	notes, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 16384})
+	if err == nil || notes != "" {
+		t.Fatalf("notes = %q, err = %v; want failure with no partial text", notes, err)
+	}
+	if !strings.Contains(err.Error(), "before the answer completed") {
+		t.Fatalf("error = %v", err)
+	}
 }
