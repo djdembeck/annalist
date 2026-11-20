@@ -494,8 +494,8 @@ func TestChatStopsGrowingAtCap(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "raise max_tokens") {
 		t.Fatalf("error = %v, want the budget guidance", err)
 	}
-	if len(budgets) != 2 || budgets[0] != 16384 || budgets[1] != chatMaxTokens {
-		t.Fatalf("budgets = %v, want growth to stop at the cap %d", budgets, chatMaxTokens)
+	if len(budgets) != 1 {
+		t.Fatalf("budgets = %v, want a single attempt at the cap", budgets)
 	}
 }
 
@@ -539,8 +539,8 @@ func TestChatGrowsBudgetForPartialAnswer(t *testing.T) {
 	if err != nil || !strings.HasSuffix(notes, "[[annalist:abc]]") {
 		t.Fatalf("notes = %q, err = %v", notes, err)
 	}
-	if len(budgets) != 2 || budgets[1] != 16384 {
-		t.Fatalf("budgets = %v, want 8192 then 16384", budgets)
+	if len(budgets) != 2 || budgets[1] != chatMaxTokens {
+		t.Fatalf("budgets = %v, want 8192 then %d", budgets, chatMaxTokens)
 	}
 }
 

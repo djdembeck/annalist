@@ -164,8 +164,9 @@ const (
 	chatBackoff    = time.Second
 	chatMaxBackoff = 10 * time.Second
 	// chatMaxTokens caps the growth applied when a reasoning model returns
-	// nothing because it used the output budget on its own reasoning.
-	chatMaxTokens = 32768
+	// nothing because it used the output budget on its own reasoning. One
+	// doubling keeps the worst-case latency bounded for a large range.
+	chatMaxTokens = 16384
 )
 
 // pauseFor waits for the backoff, returning false when the context ends first.
