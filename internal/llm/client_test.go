@@ -517,3 +517,47 @@ func TestChatEmptyContentWithoutTruncationStillFails(t *testing.T) {
 		t.Fatalf("calls = %d, want 1", calls)
 	}
 }
+
+// TestChatGrowsBudgetForPartialAnswer covers the dangerous truncation: text
+// that stops mid-sentence must not be returned as if it were complete.
+func TestChatGrowsBudgetForPartialAnswer(t *testing.T) {
+	var budgets []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		budgets = append(budgets, req.MaxTokens)
+		if len(budgets) == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Version 1 adds admin"},"finish_reason":"length"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Version 1 adds admin controls. [[annalist:abc]]"},"finish_reason":"stop"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	notes, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 8192})
+	if err != nil || !strings.HasSuffix(notes, "[[annalist:abc]]") {
+		t.Fatalf("notes = %q, err = %v", notes, err)
+	}
+	if len(budgets) != 2 || budgets[1] != 16384 {
+		t.Fatalf("budgets = %v, want 8192 then 16384", budgets)
+	}
+}
+
+// TestChatFailsOnTruncatedAnswerAtCap: retrying stops at the cap, and the
+// partial text is never returned.
+func TestChatFailsOnTruncatedAnswerAtCap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"partial"},"finish_reason":"length"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	notes, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 16384})
+	if err == nil || notes != "" {
+		t.Fatalf("notes = %q, err = %v; want failure with no partial text", notes, err)
+	}
+	if !strings.Contains(err.Error(), "before the answer completed") {
+		t.Fatalf("error = %v", err)
+	}
+}

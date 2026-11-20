@@ -75,7 +75,7 @@ func ValidateSourceURL(root, owner, repo, kind, identity, raw string) error {
 }
 
 var (
-	sourceTokenRE           = regexp.MustCompile(`\[\[annalist:([0-9a-f]{40})\]\]`)
+	sourceTokenRE           = regexp.MustCompile(`\[\[annalist:([0-9a-fA-F]{8,40})\]\]`)
 	reservedSourceRE        = regexp.MustCompile(`(?i)(?:\[\[annalist|annalist:)`)
 	primaryItemRE           = regexp.MustCompile(`^( {0,3})(?:[-+*]|[0-9]{1,9}[.)])[ \t]+`)
 	headingRE               = regexp.MustCompile(`^ {0,3}#{1,6}(?:[ \t]|$)`)
@@ -109,6 +109,26 @@ func attributedSources(notes string, commits engine.CommitLog, scoped bool) ([]s
 		}
 		known[commit.SHA] = true
 	}
+	// A model may copy a short object-name prefix instead of the full token.
+	// Resolve it only when it names exactly one selected commit; an ambiguous
+	// or unknown prefix still fails.
+	resolve := func(token string) (string, bool) {
+		token = strings.ToLower(token)
+		if known[token] {
+			return token, true
+		}
+		match := ""
+		for sha := range known {
+			if !strings.HasPrefix(sha, token) {
+				continue
+			}
+			if match != "" {
+				return "", false
+			}
+			match = sha
+		}
+		return match, match != ""
+	}
 	matches := sourceTokenRE.FindAllStringSubmatchIndex(notes, -1)
 	if len(reservedSourceRE.FindAllStringIndex(notes, -1)) != len(matches) {
 		return nil, errors.New("malformed source token")
@@ -116,8 +136,8 @@ func attributedSources(notes string, commits engine.CommitLog, scoped bool) ([]s
 	seen := make(map[string]bool, len(commits.Commits))
 	uses := make([]sourceUse, 0, len(matches))
 	for _, m := range matches {
-		sha := notes[m[2]:m[3]]
-		if !known[sha] {
+		sha, ok := resolve(notes[m[2]:m[3]])
+		if !ok {
 			return nil, errors.New("unknown source identity")
 		}
 		seen[sha] = true

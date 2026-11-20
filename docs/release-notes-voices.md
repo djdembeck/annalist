@@ -76,7 +76,9 @@ Saved prompts remain authoritative. When updating one, replace any
 one-bullet-per-commit rule with this concern-based contract.
 
 **What full coverage means.** Every selected distinct change appears, and every
-in-scope source identity is accounted for. Source counts and bullet counts need
+in-scope source identity is accounted for. A unique object-name prefix of at
+least eight characters names the same source as its full token. Source counts
+and bullet counts need
 not match. One source may support several concerns, and several related sources
 may support one concern. Required facts stay with their concern. Internal
 implementation and review details do not need a line-by-line inventory.
@@ -100,7 +102,7 @@ subject remain. Output bullets are never deduplicated after generation.
 Every voice and profile receives the same mandatory citation contract in
 Annalist's generated user message. Custom full prompts keep their system text
 unchanged. Each primary concern must be a top-level Markdown list item. End its
-first paragraph with the exact supplied source tokens for every contributing
+first paragraph with the supplied source tokens for every contributing
 commit, separated by spaces on one line. A source appears once within a group
 and may recur in other concern items. Keep multiline qualifiers, commands, and
 nested required actions inside their concern. Tokens cannot appear in

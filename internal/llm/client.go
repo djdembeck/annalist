@@ -231,10 +231,13 @@ func (c *Client) chatOnce(ctx context.Context, base, apiKey string, body []byte)
 	}
 	choice := result.Choices[0]
 	content := strings.TrimSpace(choice.Message.Content)
+	// A length-truncated answer is never usable, even when it has text: the
+	// note would end mid-sentence and lose its trailing attribution. Grow the
+	// budget; at the cap the attempt fails rather than returning the fragment.
+	if choice.FinishReason == "length" {
+		return chatOutcome{growBudget: true, err: fmt.Errorf("llm: output budget reached before the answer completed; raise max_tokens or lower the thinking level")}
+	}
 	if content == "" {
-		if choice.FinishReason == "length" {
-			return chatOutcome{growBudget: true, err: fmt.Errorf("llm: output budget reached before any content; raise max_tokens or lower the thinking level")}
-		}
 		return chatOutcome{err: fmt.Errorf("llm: response message content is empty")}
 	}
 	return chatOutcome{content: content}

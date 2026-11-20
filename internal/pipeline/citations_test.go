@@ -478,3 +478,32 @@ func TestVerifiedMultipleAssociationsAndCommitFallback(t *testing.T) {
 		})
 	}
 }
+
+// TestSourceTokenPrefixResolution: a model that copies an eight-character
+// object-name prefix is accepted when the prefix names exactly one selected
+// commit, and rejected when it is ambiguous or unknown.
+func TestSourceTokenPrefixResolution(t *testing.T) {
+	// Crafted identities keep the ambiguity case deterministic.
+	const a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const b = "aaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	commits := engine.CommitLog{Commits: []engine.Commit{{SHA: a}, {SHA: b}}}
+	unique := engine.CommitLog{Commits: []engine.Commit{{SHA: a}, {SHA: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}}
+	for _, tc := range []struct {
+		name    string
+		log     engine.CommitLog
+		notes   string
+		wantErr bool
+	}{
+		{name: "full token", log: commits, notes: "- One change. [[annalist:" + a + "]]\n- Another change. [[annalist:" + b + "]]"},
+		{name: "unique prefix", log: unique, notes: "- One change. [[annalist:aaaaaaaa]]\n- Another change. [[annalist:bbbbbbbb]]"},
+		{name: "ambiguous prefix", log: commits, notes: "- One change. [[annalist:aaaaaaaa]]\n- Another change. [[annalist:aaaaaaaa]]", wantErr: true},
+		{name: "unknown prefix", log: commits, notes: "- One change. [[annalist:ffffffff]]\n- Another change. [[annalist:aaaaaaaa]]", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := attributedSources(tc.notes, tc.log, false)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, want error=%v", err, tc.wantErr)
+			}
+		})
+	}
+}
