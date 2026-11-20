@@ -150,7 +150,8 @@ type llmStub struct {
 	calls     int
 	answer    string
 	attribute bool
-	errStatus int // if > 0, respond with this HTTP status instead of 200
+	errStatus int      // if > 0, respond with this HTTP status instead of 200
+	answers   []string // per-call replies, last one repeats
 }
 
 func newStub(answer string) *llmStub {
@@ -162,7 +163,14 @@ func newStub(answer string) *llmStub {
 		s.calls++
 		errStatus := s.errStatus
 		answer := s.answer
-		attribute := s.attribute
+		if len(s.answers) > 0 {
+			index := s.calls - 1
+			if index >= len(s.answers) {
+				index = len(s.answers) - 1
+			}
+			answer = s.answers[index]
+		}
+		attribute := s.attribute && len(s.answers) == 0
 		s.mu.Unlock()
 		var request wireReq
 		_ = json.Unmarshal(raw, &request)

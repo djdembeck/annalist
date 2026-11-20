@@ -358,3 +358,28 @@ func TestGenerateDoesNotRetryCustomPrompts(t *testing.T) {
 		t.Fatalf("LLM calls = %d, want 1 for an authoritative prompt", calls)
 	}
 }
+
+// TestGenerateAppendsCorrectionHint keeps a retry's reason in the user message
+// and out of the system prompt, so authoritative prompts stay verbatim.
+func TestGenerateAppendsCorrectionHint(t *testing.T) {
+	var got llmWireRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"x"}}]}`))
+	}))
+	defer srv.Close()
+
+	eng := &Engine{LLM: llm.New(config.LLMConfig{BaseURL: srv.URL, APIKey: "key"})}
+	const prompt = "Repo-owned prompt."
+	if _, err := eng.Generate(context.Background(),
+		Resolved{Tone: "engineer", Instructions: prompt, Model: "m", Correction: "fix the tokens"},
+		"", "", "v1.0.0", "v1.0.0", "", CommitLog{}, ""); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !strings.Contains(got.Messages[1].Content, "Correction for this attempt: fix the tokens") {
+		t.Fatalf("user message missing the correction: %q", got.Messages[1].Content)
+	}
+	if strings.Contains(got.Messages[0].Content, "fix the tokens") {
+		t.Fatalf("authoritative system prompt was modified: %q", got.Messages[0].Content)
+	}
+}

@@ -681,6 +681,25 @@ func (p *Pipeline) GenerateNotes(ctx context.Context, spec Spec, opts Options) (
 		if attributionErr == nil {
 			attributionErr = validateModelLinks(notes, source)
 		}
+		if attributionErr != nil && hasChanges {
+			// The model's own attribution failed, so ask once more with the
+			// reason. The new draft is validated from scratch: a retry can
+			// fix a dropped token, and a forged link still fails the gate.
+			corrected := resolved
+			corrected.Correction = "The previous draft failed source attribution (" + attributionErr.Error() + "). End each primary item's first paragraph with exactly one group of the supplied source tokens, one token per contributing source, with no prose after the group, and do not write links yourself."
+			retryNotes, retryErr := p.Engine.Generate(ctx, corrected, eff.BaseURL, eff.APIKey, displayVersionFor(spec), spec.ToTag, from, commitLog, diff.Text)
+			if retryErr != nil {
+				return Result{}, retryErr
+			}
+			retryUses, retryAttributionErr := attributedSources(retryNotes, commitLog, scoped)
+			if retryAttributionErr == nil {
+				retryAttributionErr = validateModelLinks(retryNotes, source)
+			}
+			if retryAttributionErr == nil {
+				notes, uses, attributionErr = retryNotes, retryUses, nil
+				qualityIssues = engine.CheckNotes(resolved, notes)
+			}
+		}
 		if attributionErr == nil {
 			stage = "source_links"
 			notes, sourceAttributions, err = p.linkSources(ctx, platform, spec, notes, uses, commitLog.MergeSHAs)

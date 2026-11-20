@@ -230,7 +230,7 @@ All built-in voices check each primary prose paragraph for more than two prose s
 
 A preview that fails a blocking check returns the actual notes, `quality_issues`, and `warning_code: "quality_review_required"`. Invalid attribution adds `source_attribution_invalid` and withholds the note text. The dashboard shows the reasons. Server history records the general warning with the existing outcome. Publication fails before any remote edit or cache write, even with `force: true`. Custom prompts do not bypass source-completeness checks.
 
-A failed prose check gets one corrective regeneration that names the reason, so a semicolon or an oversized bullet does not end the run. If the second draft still fails, the run stops. Attribution is never retried: another draft cannot establish a missing or forged link.
+A failed prose check gets one corrective regeneration that names the reason, so a semicolon or an oversized bullet does not end the run. If the second draft still fails, the run stops. Attribution gets the same single corrective regeneration: the new draft is validated from scratch, so a dropped token can recover, while a forged link still fails the gate.
 
 Transient provider failures (rate limits, request timeouts, and 5xx responses) retry up to three attempts with backoff, honoring `Retry-After`. Authentication, model, and other 4xx errors fail on the first response.
 

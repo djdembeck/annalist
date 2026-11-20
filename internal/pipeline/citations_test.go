@@ -140,10 +140,41 @@ func TestInvalidAttributionCannotEscapePublishOrCache(t *testing.T) {
 			}
 			result, err := pip.GenerateNotes(context.Background(), spec, Options{Publish: true, Force: true})
 			requireQualityError(t, err, []string{"source_attribution_invalid"})
-			if result.Notes != "" || platform.edited != "" || platform.referenceCalls != 0 || stub.calls != 2 || countGeneratedByReleaseID(t, pip.Cfg.Data.Dir, spec.ReleaseID) != 0 {
+			if result.Notes != "" || platform.edited != "" || platform.referenceCalls != 0 || stub.calls != 4 || countGeneratedByReleaseID(t, pip.Cfg.Data.Dir, spec.ReleaseID) != 0 {
 				t.Fatalf("invalid attribution escaped or retried: result=%+v model_calls=%d lookups=%d", result, stub.calls, platform.referenceCalls)
 			}
 		})
+	}
+}
+
+// TestAttributionRetryRecoversOnce covers the single corrective regeneration
+// after the model's own attribution fails: the second draft is validated from
+// scratch, so a dropped token can recover without weakening the gate.
+func TestAttributionRetryRecoversOnce(t *testing.T) {
+	origin, exportSHA, perfSHA := citationOrigin(t)
+	good := "- Export archives only for verified accounts. " + engine.SourceToken(exportSHA) + " " + engine.SourceToken(perfSHA)
+	stub := newStub("- Export archives only for verified accounts.")
+	stub.answers = []string{"- Export archives only for verified accounts.", good}
+	pip, _, platform, _ := fixtureWithStub(t, stub, nil, map[string]*Release{"v1.1.0": {ID: 1}})
+	platform.origin = origin
+	platform.references = map[string]CommitReference{
+		exportSHA: {PullRequests: []PullRequestReference{{Number: 1754, URL: "https://github.com/djdembeck/annalist/pull/1754"}}},
+		perfSHA:   {PullRequests: []PullRequestReference{{Number: 1779, URL: "https://github.com/djdembeck/annalist/pull/1779"}}},
+	}
+	spec := genSpec("v1.1.0", "attribution-retry")
+	spec.FromTag = "v1.0.0"
+	result, err := pip.GenerateNotes(context.Background(), spec, Options{Publish: true})
+	if err != nil || result.Outcome != "published" || len(result.QualityIssues) != 0 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if stub.calls != 2 {
+		t.Fatalf("model calls = %d, want the first draft plus one correction", stub.calls)
+	}
+	if !strings.Contains(result.Notes, "https://github.com/djdembeck/annalist/pull/1754") || !strings.Contains(result.Notes, "https://github.com/djdembeck/annalist/pull/1779") {
+		t.Fatalf("recovered notes lack verified links: %q", result.Notes)
+	}
+	if strings.Contains(result.Notes, "annalist:") {
+		t.Fatalf("source tokens leaked: %q", result.Notes)
 	}
 }
 
