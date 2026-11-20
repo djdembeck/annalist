@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/djdembeck/annalist/internal/config"
 )
@@ -181,6 +182,7 @@ func TestChatNon2xx(t *testing.T) {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			srv, _, _ := llmTestServer(t, status, `{"error":"boom"}`)
 			c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+			c.pause = func(context.Context, time.Duration) bool { return true }
 			_, err := c.Chat(context.Background(), ChatRequest{User: "u"})
 			if err == nil {
 				t.Fatalf("Chat(%d) succeeded, want error", status)
@@ -344,4 +346,104 @@ func TestChatAuthorizationHeader(t *testing.T) {
 			t.Errorf("Authorization = %q, want Bearer per-req", auth)
 		}
 	})
+}
+
+// TestChatRetriesTransientStatus covers the bounded retry: a provider that
+// answers 503 once and then succeeds must not fail the run.
+func TestChatRetriesTransientStatus(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"code":"quota_exhausted"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"NOTES"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	c.pause = func(context.Context, time.Duration) bool { return true }
+	notes, err := c.Chat(context.Background(), ChatRequest{User: "u"})
+	if err != nil || notes != "NOTES" {
+		t.Fatalf("Chat = %q, %v; want NOTES and no error after retry", notes, err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+// TestChatStopsAfterRetryBudget keeps a sustained outage bounded: three
+// attempts, then the provider error surfaces unchanged.
+func TestChatStopsAfterRetryBudget(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"code":"quota_exhausted"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	c.pause = func(context.Context, time.Duration) bool { return true }
+	_, err := c.Chat(context.Background(), ChatRequest{User: "u"})
+	if err == nil || !strings.Contains(err.Error(), "quota_exhausted") {
+		t.Fatalf("error = %v, want the provider body surfaced", err)
+	}
+	if calls != chatAttempts {
+		t.Fatalf("calls = %d, want %d", calls, chatAttempts)
+	}
+}
+
+// TestChatDoesNotRetryPermanentErrors: an invalid model or auth failure is not
+// transient, so it must fail on the first response.
+func TestChatDoesNotRetryPermanentErrors(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusUnprocessableEntity} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var calls int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"error":"permanent"}`))
+			}))
+			defer srv.Close()
+
+			c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+			c.pause = func(context.Context, time.Duration) bool { return true }
+			if _, err := c.Chat(context.Background(), ChatRequest{User: "u"}); err == nil {
+				t.Fatalf("status %d succeeded, want error", status)
+			}
+			if calls != 1 {
+				t.Fatalf("calls = %d, want 1 for a permanent error", calls)
+			}
+		})
+	}
+}
+
+// TestChatHonorsRetryAfter checks the server-requested delay is used instead
+// of the built-in backoff.
+func TestChatHonorsRetryAfter(t *testing.T) {
+	var calls int
+	var waits []time.Duration
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "4")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	c.pause = func(_ context.Context, d time.Duration) bool { waits = append(waits, d); return true }
+	if _, err := c.Chat(context.Background(), ChatRequest{User: "u"}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(waits) != 1 || waits[0] != 4*time.Second {
+		t.Fatalf("waits = %v, want one 4s pause from Retry-After", waits)
+	}
 }

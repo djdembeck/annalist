@@ -232,6 +232,8 @@ A preview that fails a blocking check returns the actual notes, `quality_issues`
 
 A failed prose check gets one corrective regeneration that names the reason, so a semicolon or an oversized bullet does not end the run. If the second draft still fails, the run stops. Attribution is never retried: another draft cannot establish a missing or forged link.
 
+Transient provider failures (rate limits, request timeouts, and 5xx responses) retry up to three attempts with backoff, honoring `Retry-After`. Authentication, model, and other 4xx errors fail on the first response.
+
 These checks do not prove factual coverage. Review upgrade actions, conditions, exceptions, and certainty against the source before publishing. Automated API consumers must stop when `warning_code` is set or `quality_issues` is nonempty. The example release workflows enforce this before publishing a preview. Cache identity includes an explicit source, generation, and quality contract version, and eligible cached notes are checked again with current source completeness.
 
 ## Configuration
