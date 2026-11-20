@@ -92,6 +92,7 @@ type chatResponse struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 }
 
@@ -124,17 +125,27 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 
 	var lastErr error
 	for attempt := 1; attempt <= chatAttempts; attempt++ {
-		content, retryAfter, retryable, err := c.chatOnce(ctx, base, apiKey, body)
-		if err == nil {
-			return content, nil
+		out := c.chatOnce(ctx, base, apiKey, body)
+		if out.err == nil {
+			return out.content, nil
 		}
-		lastErr = err
-		if !retryable || attempt == chatAttempts || ctx.Err() != nil {
-			return "", err
+		lastErr = out.err
+		// A reasoning model can spend the whole output budget before it
+		// writes anything. Grow the budget rather than fail a release on a
+		// truncation that a larger cap fixes.
+		if out.growBudget && payload.MaxTokens < chatMaxTokens {
+			payload.MaxTokens = min(payload.MaxTokens*2, chatMaxTokens)
+			if body, err = json.Marshal(payload); err != nil {
+				return "", fmt.Errorf("llm: marshal request: %w", err)
+			}
+			continue
+		}
+		if !out.retryable || attempt == chatAttempts || ctx.Err() != nil {
+			return "", out.err
 		}
 		wait := chatBackoff << (attempt - 1)
-		if retryAfter > 0 {
-			wait = retryAfter
+		if out.retryAfter > 0 {
+			wait = out.retryAfter
 		}
 		if wait > chatMaxBackoff {
 			wait = chatMaxBackoff
@@ -149,9 +160,12 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (string, error) {
 // chatAttempts bounds how many times one completion request is sent. Three
 // attempts cover a short provider blip without hiding a sustained outage.
 const (
-	chatAttempts   = 3
+	chatAttempts   = 4
 	chatBackoff    = time.Second
 	chatMaxBackoff = 10 * time.Second
+	// chatMaxTokens caps the growth applied when a reasoning model returns
+	// nothing because it used the output budget on its own reasoning.
+	chatMaxTokens = 32768
 )
 
 // pauseFor waits for the backoff, returning false when the context ends first.
@@ -172,12 +186,21 @@ func (c *Client) pauseFor(ctx context.Context, d time.Duration) bool {
 	return pause(ctx, d)
 }
 
-// chatOnce performs one attempt. It reports whether the failure is worth
-// retrying and any server-requested delay.
-func (c *Client) chatOnce(ctx context.Context, base, apiKey string, body []byte) (content string, retryAfter time.Duration, retryable bool, err error) {
+// chatOutcome is one attempt's result. growBudget marks an empty response
+// that hit the output cap, where a larger budget can still succeed.
+type chatOutcome struct {
+	content    string
+	retryAfter time.Duration
+	retryable  bool
+	growBudget bool
+	err        error
+}
+
+// chatOnce performs one attempt and classifies the failure.
+func (c *Client) chatOnce(ctx context.Context, base, apiKey string, body []byte) chatOutcome {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", 0, false, fmt.Errorf("llm: build request: %w", err)
+		return chatOutcome{err: fmt.Errorf("llm: build request: %w", err)}
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	if apiKey != "" {
@@ -186,28 +209,35 @@ func (c *Client) chatOnce(ctx context.Context, base, apiKey string, body []byte)
 
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
-		return "", 0, ctx.Err() == nil, fmt.Errorf("llm: request failed: %w", err)
+		return chatOutcome{retryable: ctx.Err() == nil, err: fmt.Errorf("llm: request failed: %w", err)}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", parseRetryAfter(resp.Header.Get("Retry-After")), retryableStatus(resp.StatusCode),
-			fmt.Errorf("llm: unexpected status %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+		return chatOutcome{
+			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			retryable:  retryableStatus(resp.StatusCode),
+			err:        fmt.Errorf("llm: unexpected status %s: %s", resp.Status, strings.TrimSpace(string(raw))),
+		}
 	}
 
 	var result chatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", 0, false, fmt.Errorf("llm: decode response: %w", err)
+		return chatOutcome{err: fmt.Errorf("llm: decode response: %w", err)}
 	}
 	if len(result.Choices) == 0 {
-		return "", 0, false, fmt.Errorf("llm: response contained no choices")
+		return chatOutcome{err: fmt.Errorf("llm: response contained no choices")}
 	}
-	content = strings.TrimSpace(result.Choices[0].Message.Content)
+	choice := result.Choices[0]
+	content := strings.TrimSpace(choice.Message.Content)
 	if content == "" {
-		return "", 0, false, fmt.Errorf("llm: response message content is empty")
+		if choice.FinishReason == "length" {
+			return chatOutcome{growBudget: true, err: fmt.Errorf("llm: output budget reached before any content; raise max_tokens or lower the thinking level")}
+		}
+		return chatOutcome{err: fmt.Errorf("llm: response message content is empty")}
 	}
-	return content, 0, false, nil
+	return chatOutcome{content: content}
 }
 
 // retryableStatus reports whether a provider status is transient: rate

@@ -447,3 +447,73 @@ func TestChatHonorsRetryAfter(t *testing.T) {
 		t.Fatalf("waits = %v, want one 4s pause from Retry-After", waits)
 	}
 }
+
+// TestChatGrowsBudgetOnEmptyTruncatedAnswer covers a reasoning model that
+// spends the whole output budget before writing: the retry raises max_tokens
+// instead of failing the release.
+func TestChatGrowsBudgetOnEmptyTruncatedAnswer(t *testing.T) {
+	var budgets []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		budgets = append(budgets, req.MaxTokens)
+		if len(budgets) == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":""},"finish_reason":"length"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"NOTES"},"finish_reason":"stop"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	notes, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 4096})
+	if err != nil || notes != "NOTES" {
+		t.Fatalf("Chat = %q, %v", notes, err)
+	}
+	if len(budgets) != 2 || budgets[0] != 4096 || budgets[1] != 8192 {
+		t.Fatalf("budgets = %v, want [4096 8192]", budgets)
+	}
+}
+
+// TestChatStopsGrowingAtCap keeps the growth bounded when every attempt is
+// truncated, and reports the actionable error.
+func TestChatStopsGrowingAtCap(t *testing.T) {
+	var budgets []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		budgets = append(budgets, req.MaxTokens)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":""},"finish_reason":"length"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	_, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 16384})
+	if err == nil || !strings.Contains(err.Error(), "raise max_tokens") {
+		t.Fatalf("error = %v, want the budget guidance", err)
+	}
+	if len(budgets) != 2 || budgets[0] != 16384 || budgets[1] != chatMaxTokens {
+		t.Fatalf("budgets = %v, want growth to stop at the cap %d", budgets, chatMaxTokens)
+	}
+}
+
+// TestChatEmptyContentWithoutTruncationStillFails: an empty answer with a
+// normal finish reason is a provider contract violation, not a budget issue.
+func TestChatEmptyContentWithoutTruncationStillFails(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"   "},"finish_reason":"stop"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(config.LLMConfig{BaseURL: srv.URL, APIKey: "k"})
+	if _, err := c.Chat(context.Background(), ChatRequest{User: "u", MaxTokens: 4096}); err == nil {
+		t.Fatal("Chat succeeded on empty content without truncation")
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
