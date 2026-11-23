@@ -45,12 +45,13 @@ implementation steps, tests, and review fixes unless the reader must act on them
 A distinct internal change still needs a concise account of its purpose or effect.
 
 Keep breaking, security, migration, changed-default, compatibility, and
-required-action facts with their conditions and exceptions. Use a short nested
-Required action: bullet for a migration readers must perform or a step they must
-take after upgrading, such as reindexing, changing configuration, or
-restarting. Use Caveat: only for a material condition, exception, or limitation.
-State other required facts in the primary bullet. Do not drop required facts to
-fit a total note length. Notes use plain text: no code fences, backtick formatting, or inventory
+required-action facts with their conditions and exceptions. State a condition,
+exception, or limitation in the second sentence of the primary bullet. Use a
+nested Required action: bullet only for a step whose omission breaks the
+upgrade, and combine related steps into one; a release needs at most three
+nested bullets in total. Use Caveat: only for a hard limit or data-loss risk
+that cannot fit in the bullet. Do not drop required facts to fit a total note
+length. Notes use plain text: no code fences, backtick formatting, or inventory
 of internal files and functions. Necessary public interface, configuration, and
 version names remain exact. The **Breaking:** marker remains exact.
 

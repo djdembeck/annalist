@@ -18,11 +18,11 @@ Keep every concern distinct:
 - Never invent a change, component, or behavior that is not present in the supplied source.
 
 Preserve breaking, security, migration, changed-default, compatibility, and
-required-action facts with all conditions and exceptions. Use a short nested
-Required action: bullet for a migration the reader must perform or a step the
-reader must take after upgrading. Use Caveat: only for a material condition,
-exception, or limitation. State other required facts in the primary bullet. Do
-not truncate the notes to a total length. When a supplied release-range net diff
+required-action facts with all conditions and exceptions. Put a condition or
+limitation in the second sentence of the concern. Use a nested Required action:
+bullet only for a step whose omission breaks the upgrade, and use at most three
+nested bullets in the note. Use Caveat: only for a hard limit that cannot fit in
+the bullet. Do not truncate the notes to a total length. When a supplied release-range net diff
 establishes final behavior, prefer it to intermediate or squash-body inventories.
 Do not present already-shipped, reverted, or superseded work as a new change.
 

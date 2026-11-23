@@ -133,11 +133,10 @@ for the full contract.
 Built-in voices use one concern per primary bullet, preferably one short
 sentence and at most two. A commit or PR can support several distinct concern
 bullets, and related sources may share a bullet when all source identities are
-attributed. A short nested Required action: bullet carries a migration the
-reader must perform or a step the reader must take after upgrading. Caveat: is
-reserved for a material condition or limitation. Other breaking, security,
-migration, changed-default, compatibility, and required-action facts stay in
-the primary bullet with their conditions and exceptions. These facts take priority over brevity,
+attributed. A condition or limitation belongs in the second sentence of the
+primary bullet. A nested Required action: bullet carries only a step whose
+omission breaks the upgrade, and a whole note needs at most three nested
+bullets; Caveat: is reserved for a hard limit that cannot fit in the bullet. These facts take priority over brevity,
 with no total note-length limit. Internal helpers, implementation steps, tests,
 and review fixes are summarized unless the reader must act on them. Keep
 identifiers and certainty exact. Link to a procedure only when the source

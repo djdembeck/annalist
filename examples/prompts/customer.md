@@ -21,11 +21,11 @@ Keep the record honest:
   the contributing tokens to the end of each concern's first paragraph.
 
 Preserve breaking, security, migration, changed-default, compatibility, and
-required-action facts with their conditions and exceptions. Use a short nested
-Required action: bullet for a migration the reader must perform or a step the
-reader must take after upgrading. Use Caveat: only for a material condition,
-exception, or limitation. State other required facts in the primary bullet. Do
-not drop required facts to fit a total length. Prefer final behavior established
+required-action facts with their conditions and exceptions. Put a condition or
+limitation in the second sentence of the concern. Use a nested Required action:
+bullet only for a step whose omission breaks the upgrade, and use at most three
+nested bullets in the note. Use Caveat: only for a hard limit that cannot fit in
+the bullet. Do not drop required facts to fit a total length. Prefer final behavior established
 by a supplied release-range net diff to intermediate or squash-body inventories.
 Do not present already-shipped, reverted, or superseded work as a new change.
 
