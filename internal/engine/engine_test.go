@@ -383,3 +383,67 @@ func TestGenerateAppendsCorrectionHint(t *testing.T) {
 		t.Fatalf("authoritative system prompt was modified: %q", got.Messages[0].Content)
 	}
 }
+
+// TestGenerateRetriesOverloadedPrimaryWithRuleAlignedHint pins the corrective
+// instruction: an overloaded primary paragraph gets a prose limit and the
+// system rules' own nested-bullet condition, not an instruction to manufacture
+// Caveat entries for implementation detail.
+func TestGenerateRetriesOverloadedPrimaryWithRuleAlignedHint(t *testing.T) {
+	overloaded := "- The publisher contract changes in several places at once. " +
+		strings.Repeat("Credits are stored and read through the same path. ", 12) +
+		"Restart the service. Reindex afterwards.\n"
+	good := "- The publisher contract changes. Restart the service.\n  - Required action: Reindex afterwards.\n"
+	var userMsgs []string
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if msgs, ok := req["messages"].([]any); ok {
+				for _, m := range msgs {
+					if entry, ok := m.(map[string]any); ok && entry["role"] == "user" {
+						userMsgs = append(userMsgs, entry["content"].(string))
+					}
+				}
+			}
+		}
+		answer := good
+		if calls == 0 {
+			answer = overloaded
+		}
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]string{"content": answer}}},
+		})
+	}))
+	defer srv.Close()
+
+	eng := &Engine{LLM: llm.New(config.LLMConfig{BaseURL: srv.URL, APIKey: "key"})}
+	notes, err := eng.Generate(context.Background(), Resolved{Tone: "engineer", Model: "m"}, "", "", "v1.0.0", "v1.0.0", "", CommitLog{}, "")
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("LLM calls = %d, want 2", calls)
+	}
+	if strings.TrimSpace(notes) != strings.TrimSpace(good) {
+		t.Fatalf("notes = %q, want the corrected draft", notes)
+	}
+	if len(userMsgs) != 2 {
+		t.Fatalf("captured %d user messages, want 2", len(userMsgs))
+	}
+	second := userMsgs[1]
+	for _, want := range []string{
+		"at most 60 words",
+		"Use nested bullets only when the system rules call for Required action: or Caveat:",
+		"Keep every distinct in-scope change",
+	} {
+		if !strings.Contains(second, want) {
+			t.Errorf("retry request missing %q", want)
+		}
+	}
+	if strings.Contains(second, "move required actions and caveats into nested bullets") {
+		t.Error("retry request still asks for manufactured nested caveats")
+	}
+}

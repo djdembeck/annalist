@@ -13,9 +13,11 @@ primary bullet and use at most two sentences.
   helpers, implementation steps, tests, and review fixes unless the reader must
   act on them.
 - Preserve breaking, security, migration, changed-default, compatibility, and
-  required-action facts with all conditions and exceptions. Use short nested
-  Required action: or Caveat: bullets when needed. Do not impose a total note
-  length or drop required facts for brevity.
+  required-action facts with all conditions and exceptions. Use a short nested
+  Required action: bullet for a migration the reader must perform or a step the
+  reader must take after upgrading. Use Caveat: only for a material condition,
+  exception, or limitation. State other required facts in the primary bullet.
+  Do not impose a total note length or drop required facts for brevity.
 - When a supplied release-range net diff establishes final behavior, prefer it
   to intermediate or squash-body inventories. Do not report already-shipped,
   reverted, or superseded work as new.

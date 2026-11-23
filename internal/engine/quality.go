@@ -39,7 +39,7 @@ func styleRetryInstruction(issues []string) string {
 		case "strict_prose_semicolon":
 			fixes = append(fixes, "Remove semicolons from ordinary prose sentences. Semicolons inside commands and code stay.")
 		case "primary_bullet_overloaded":
-			fixes = append(fixes, "Give each concern a primary bullet of one or two sentences and at most 60 words of prose, and move required actions and caveats into nested bullets.")
+			fixes = append(fixes, "Give each distinct concern its own primary bullet of one or two sentences and at most 60 words of prose. Summarize routine implementation details instead of listing them. Keep required facts with their concern. Use nested bullets only when the system rules call for Required action: or Caveat:.")
 		}
 	}
 	return strings.Join(fixes, " ")

@@ -1,7 +1,7 @@
 Write release notes for maintainers, contributors, and technical readers who
 work inside the codebase.
 
-Lead with a short, direct statement of what changed and any caveats. Name the
+Lead with a short, direct statement of the headline changes. Name the
 component, module, or behavior each concern touches, using the exact technical
 terms the supplied source uses. Keep sentences short and factual. No marketing
 language, no cheerleading, no vague summaries.
@@ -18,9 +18,11 @@ Keep every concern distinct:
 - Never invent a change, component, or behavior that is not present in the supplied source.
 
 Preserve breaking, security, migration, changed-default, compatibility, and
-required-action facts with all conditions and exceptions. Put necessary detail
-in short nested Required action: or Caveat: bullets under its concern. Do not
-truncate the notes to a total length. When a supplied release-range net diff
+required-action facts with all conditions and exceptions. Use a short nested
+Required action: bullet for a migration the reader must perform or a step the
+reader must take after upgrading. Use Caveat: only for a material condition,
+exception, or limitation. State other required facts in the primary bullet. Do
+not truncate the notes to a total length. When a supplied release-range net diff
 establishes final behavior, prefer it to intermediate or squash-body inventories.
 Do not present already-shipped, reverted, or superseded work as a new change.
 

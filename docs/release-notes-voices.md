@@ -15,7 +15,7 @@ A changelog records what changed in a release, one concern per entry. It is not 
 **Additional fidelity guidance (sourced from [LiteLLM's RELEASE_NOTES_GENERATION_INSTRUCTIONS](https://github.com/BerriAI/litellm/blob/main/cookbook/misc/RELEASE_NOTES_GENERATION_INSTRUCTIONS.md)):**
 
 - Categorize each change before writing it.
-- Preserve the factual content of every commit — the identity of each change, and any breaking, security, or migration information the reader must act on. Tone and phrasing are presentation layers, not filters on the facts. Covering every change fully does not mean inventorying every implementation detail behind it.
+- Preserve the factual content of every commit — the identity of each change, and every breaking, security, and migration fact, whether or not the reader must act. Tone and phrasing are presentation layers, not filters on the facts. Covering every change fully does not mean inventorying every implementation detail behind it.
 
 ## 2. Why LLM release notes lose fidelity
 
@@ -45,10 +45,12 @@ implementation steps, tests, and review fixes unless the reader must act on them
 A distinct internal change still needs a concise account of its purpose or effect.
 
 Keep breaking, security, migration, changed-default, compatibility, and
-required-action facts with their conditions and exceptions. Put necessary detail
-in short nested Required action: or Caveat: bullets under the affected concern.
-Do not extend the primary paragraph or drop required facts to fit a total note
-length. Notes use plain text: no code fences, backtick formatting, or inventory
+required-action facts with their conditions and exceptions. Use a short nested
+Required action: bullet for a migration readers must perform or a step they must
+take after upgrading, such as reindexing, changing configuration, or
+restarting. Use Caveat: only for a material condition, exception, or limitation.
+State other required facts in the primary bullet. Do not drop required facts to
+fit a total note length. Notes use plain text: no code fences, backtick formatting, or inventory
 of internal files and functions. Necessary public interface, configuration, and
 version names remain exact. The **Breaking:** marker remains exact.
 
@@ -69,7 +71,7 @@ its own section.
 
 ```
 ## Fidelity
-When the release tag has the form <prefix>/vX.Y.Z, report only changes to the artifact that prefix names. Omit commits that touch only other artifacts, shared tooling, CI, release automation, or repository-wide documentation, including the pipeline work that cut the tag. Cover every distinct in-scope change. Write one concern per primary bullet, independent of commit or pull-request boundaries. Split unrelated changes from one source into separate bullets with the same source identity. Related commits may share a bullet only when they address the same concern and all contributing sources are attributed. Preserve each change's identity and every breaking, security, migration, changed-default, compatibility, and required-action fact, with its conditions and exceptions. Keep necessary actions and caveats in short nested bullets under their concern. Summarize internal helpers, implementation steps, tests, and review fixes unless the reader must act on them. Never omit a selected distinct change or invent facts or associations. Tone changes phrasing, not coverage or certainty.
+When the release tag has the form <prefix>/vX.Y.Z, report only changes to the artifact that prefix names. Omit commits that touch only other artifacts, shared tooling, CI, release automation, or repository-wide documentation, including the pipeline work that cut the tag. Cover every distinct in-scope change. Write one concern per primary bullet, independent of commit or pull-request boundaries. Split unrelated changes from one source into separate bullets with the same source identity. Related commits may share a bullet only when they address the same concern and all contributing sources are attributed. Preserve each change's identity and every breaking, security, migration, changed-default, compatibility, and required-action fact, with its conditions and exceptions. Keep those facts with the concern they qualify, whether or not they warrant a nested label. Summarize internal helpers, implementation steps, tests, and review fixes unless the reader must act on them. Never omit a selected distinct change or invent facts or associations. Tone changes phrasing, not coverage or certainty.
 ```
 
 Saved prompts remain authoritative. When updating one, replace any
@@ -175,7 +177,7 @@ remain authoritative and receive none of the built-in voice instructions.
 
 **Purpose:** Write for maintainers, contributors, and technical readers who need precise, unembellished records.
 
-**Personality:** Direct, terse, precise. Leads with a short statement of the changes and any caveats. Uses exact technical terms and short factual sentences. Names a public interface or configuration when the source states it. No marketing language, cheerleading, or technically meaningless adjectives.
+**Personality:** Direct, terse, precise. Leads with a short statement of the headline changes. Uses exact technical terms and short factual sentences. Names a public interface or configuration when the source states it. No marketing language, cheerleading, or technically meaningless adjectives.
 
 **Fidelity:** Bound by the fidelity contract. The technical voice changes nothing about change coverage — only that the phrasing is dry and specific.
 

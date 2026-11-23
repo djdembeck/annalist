@@ -25,8 +25,10 @@ The block below is the `fidelityBlock` constant from `internal/engine/personas.g
 shared by every built-in voice. Built-in voices and the neutral default also
 share a short opening naming the version, category headings, and compact primary
 bullets. Each primary bullet covers one concern in preferably one short sentence
-and at most two. Short nested Required action: or Caveat: bullets preserve
-necessary detail. A commit or PR may need several concern bullets, and related
+and never more than two. A short nested Required action: bullet carries a
+migration readers must perform or a step they must take after upgrading; Caveat:
+is reserved for a material condition or limitation. Other required facts stay in
+the primary bullet. A commit or PR may need several concern bullets, and related
 commits may share one when all sources are attributed. There is no total
 note-length limit. Notes use plain text, with no code fences, backtick
 formatting, or inventory of implementation details.
@@ -90,12 +92,15 @@ faithfully.
   headline changes and their impact.
 - `## What's new` — bullet list of features/improvements.
 - `## Fixes` — bullet list, only when there are user-relevant fixes.
-- `## Notes` — distinct operational concerns not covered elsewhere. Keep required
-  actions and caveats nested under the concern they qualify.
+- `## Notes` — distinct operational concerns not covered elsewhere. Keep each
+  required step nested under the concern it qualifies.
 
-Keep each primary concern compact: preferably one short sentence and at most
-two. Put necessary detail in short nested Required action: or Caveat: bullets.
-Preserve every required fact, condition, and exception without a total length
-limit. End the first paragraph of each primary concern with the supplied source
+Keep each primary concern compact: preferably one short sentence and never more
+than two. Use a short nested Required action: bullet for a migration the reader
+must perform or a step the reader must take after upgrading, such as reindexing,
+changing configuration, or restarting. Use Caveat: only for a source-supported
+condition, exception, or limitation that materially changes what affected
+readers can do or expect. State other required facts in the primary bullet.
+Preserve every required fact and exception without a total length limit. End the first paragraph of each primary concern with the supplied source
 attribution group. Use each contributing source once in the group and reuse it
 under other concerns when needed. Do not create PR or commit links yourself.
