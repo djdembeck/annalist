@@ -13,12 +13,14 @@ primary bullet and use at most two sentences.
   helpers, implementation steps, tests, and review fixes unless the reader must
   act on them.
 - Preserve breaking, security, migration, changed-default, compatibility, and
-  required-action facts with all conditions and exceptions. Put a condition or
-  limitation in the second sentence of the primary bullet. Use a nested Required
-  action: bullet only for a step whose omission breaks the upgrade, and use at
-  most three nested bullets in the note. Use Caveat: only for a hard limit that
-  cannot fit in the bullet. Do not impose a total note length or drop required
-  facts for brevity.
+  required-action facts with all conditions and exceptions. Group changes by
+  what ships rather than by commit or review round, and state each outcome once
+  with a condition or limitation in the second sentence. Use a nested Required
+  action: bullet only for a step the source shows is necessary to complete the
+  upgrade, and name what a conditional step affects. Use at most three nested
+  bullets in the note; Caveat: is reserved for a hard limit that cannot fit in
+  the bullet. Do not impose a total note length or drop required facts for
+  brevity.
 - When a supplied release-range net diff establishes final behavior, prefer it
   to intermediate or squash-body inventories. Do not report already-shipped,
   reverted, or superseded work as new.

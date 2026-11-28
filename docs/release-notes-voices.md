@@ -45,13 +45,16 @@ implementation steps, tests, and review fixes unless the reader must act on them
 A distinct internal change still needs a concise account of its purpose or effect.
 
 Keep breaking, security, migration, changed-default, compatibility, and
-required-action facts with their conditions and exceptions. State a condition,
-exception, or limitation in the second sentence of the primary bullet. Use a
-nested Required action: bullet only for a step whose omission breaks the
-upgrade, and combine related steps into one; a release needs at most three
-nested bullets in total. Use Caveat: only for a hard limit or data-loss risk
-that cannot fit in the bullet. Do not drop required facts to fit a total note
-length. Notes use plain text: no code fences, backtick formatting, or inventory
+required-action facts with their conditions and exceptions. Group changes by
+what ships, not by commit, pull request, or review round, and state each shipped
+outcome once. State a condition, exception, or limitation in the second sentence
+of the primary bullet. Use a nested Required action: bullet only for steps the
+source shows are necessary to complete the upgrade, and state who or what a
+conditional step affects before the instruction. Keep recovery advice for
+individual failures with its concern, outside the label. A release needs at most
+three nested bullets in total. Use Caveat: only for a hard limit or data-loss
+risk that cannot fit in the bullet. Do not drop required facts to fit a total
+note length. Notes use plain text: no code fences, backtick formatting, or inventory
 of internal files and functions. Necessary public interface, configuration, and
 version names remain exact. The **Breaking:** marker remains exact.
 
@@ -72,7 +75,7 @@ its own section.
 
 ```
 ## Fidelity
-When the release tag has the form <prefix>/vX.Y.Z, report only changes to the artifact that prefix names. Omit commits that touch only other artifacts, shared tooling, CI, release automation, or repository-wide documentation, including the pipeline work that cut the tag. Cover every distinct in-scope change. Write one concern per primary bullet, independent of commit or pull-request boundaries. Split unrelated changes from one source into separate bullets with the same source identity. Related commits may share a bullet only when they address the same concern and all contributing sources are attributed. Preserve each change's identity and every breaking, security, migration, changed-default, compatibility, and required-action fact, with its conditions and exceptions. Keep those facts with the concern they qualify, whether or not they warrant a nested label. Summarize internal helpers, implementation steps, tests, and review fixes unless the reader must act on them. Never omit a selected distinct change or invent facts or associations. Tone changes phrasing, not coverage or certainty.
+When the release tag has the form <prefix>/vX.Y.Z, report only changes to the artifact that prefix names. Omit commits that touch only other artifacts, shared tooling, CI, release automation, or repository-wide documentation, including the pipeline work that cut the tag. Cover every distinct in-scope change. Group changes by what ships, not by commit, pull request, or review round. Use one primary bullet for each distinct shipped outcome or distinct internal change. Summarize internal helpers, implementation steps, tests, and review fixes that contribute to the same outcome in that bullet. Preserve any separate shipped effect, including one introduced by a follow-up. Attribute every contributing source to the concern it supports. If a source supports separate concerns, cite it in each. Preserve each change's identity and every breaking, security, migration, changed-default, compatibility, and required-action fact, with its conditions and exceptions. Keep those facts with the concern they qualify, whether or not they warrant a nested label. Never omit a selected distinct change or invent facts or associations. Tone changes phrasing, not coverage or certainty.
 ```
 
 Saved prompts remain authoritative. When updating one, replace any

@@ -24,11 +24,13 @@ confident, and concise"].
 The block below is the `fidelityBlock` constant from `internal/engine/personas.go`,
 shared by every built-in voice. Built-in voices and the neutral default also
 share a short opening naming the version, category headings, and compact primary
-bullets. Each primary bullet covers one concern in one or two short sentences,
-and a condition or limitation belongs in the second sentence. Most concerns have
-no nested bullet. A nested Required action: bullet carries only a step whose
-omission breaks the upgrade, and a release needs at most three nested bullets;
-Caveat: is reserved for a hard limit that cannot fit in the bullet. A commit or PR may need several concern bullets, and related
+bullets. Group changes by what ships rather than by commit, pull request, or
+review round, and state each shipped outcome once in one or two short sentences.
+A condition or limitation belongs in the second sentence. A nested Required
+action: bullet carries only a step the source shows is necessary to complete the
+upgrade, names what a conditional step affects, and leaves recovery advice with
+its concern; a release needs at most three nested bullets. Caveat: is reserved
+for a hard limit that cannot fit in the bullet. A commit or PR may need several concern bullets, and related
 commits may share one when all sources are attributed. There is no total
 note-length limit. Notes use plain text, with no code fences, backtick
 formatting, or inventory of implementation details.
@@ -94,11 +96,13 @@ faithfully.
 - `## Fixes` — bullet list, only when there are user-relevant fixes.
 - `## Notes` — distinct operational concerns not covered elsewhere.
 
-Keep each primary concern compact: one or two short sentences, with a condition
-or limitation in the second sentence. Use a nested Required action: bullet only
-for a step whose omission breaks the upgrade, combine related steps into one,
-and use at most three nested bullets in the whole note. Use Caveat: only for a
-hard limit that cannot fit in the bullet. Preserve every required fact and
-exception without a total length limit. End the first paragraph of each primary concern with the supplied source
+State each shipped outcome once, in one or two short sentences, with a condition
+or limitation in the second sentence. Fold implementation detail, review fixes,
+and follow-up work into the outcome they refine; a follow-up that ships its own
+effect gets its own bullet. Use a nested Required action: bullet only for steps
+the source shows are necessary to complete the upgrade, state what a conditional
+step affects, and use at most three nested bullets in the whole note. Use
+Caveat: only for a hard limit that cannot fit in the bullet. Preserve every
+required fact and exception without a total length limit. End the first paragraph of each primary concern with the supplied source
 attribution group. Use each contributing source once in the group and reuse it
 under other concerns when needed. Do not create PR or commit links yourself.
