@@ -92,6 +92,7 @@ export type GenerateResult = {
   published: boolean;
   outcome: "published" | "generated" | "cached" | "preserved";
   warning_code: string | null;
+  quality_issues: string[] | null;
   profile: string;
   display_version: string;
   from_tag: string;
@@ -163,6 +164,20 @@ export function setToken(t: string): void {
   }
 }
 
+export class QualityReviewError extends Error {
+  constructor(public readonly issues: string[]) {
+    super("Notes need quality review before publication.");
+    this.name = "QualityReviewError";
+  }
+}
+
+export class SourceLinksError extends Error {
+  constructor() {
+    super("Source links could not be resolved.");
+    this.name = "SourceLinksError";
+  }
+}
+
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -193,6 +208,27 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
           `The backend may be unreachable or the proxy may be misconfigured. ` +
           `Set VITE_API_BASE or check the Vite server proxy target.`,
       );
+    }
+    if (res.status === 502) {
+      const body: unknown = await res.json();
+      if (
+        typeof body === "object" && body !== null &&
+        "error_code" in body && body.error_code === "source_links"
+      ) {
+        throw new SourceLinksError();
+      }
+    }
+    if (res.status === 422) {
+      const body: unknown = await res.json();
+      if (
+        typeof body === "object" && body !== null &&
+        "warning_code" in body && body.warning_code === "quality_review_required"
+      ) {
+        const issues = "quality_issues" in body && Array.isArray(body.quality_issues)
+          ? body.quality_issues.filter((issue): issue is string => typeof issue === "string")
+          : [];
+        throw new QualityReviewError(issues);
+      }
     }
     throw new Error(`Request failed: ${res.status} ${res.statusText}`);
   }

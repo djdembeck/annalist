@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -317,25 +318,20 @@ func validGitRef(s string) bool {
 // are always kept. Typed commits are kept only if their type is in includeTypes.
 // If includeTypes is nil or empty, all commits are kept; an include set
 // containing the wildcard "*" is an explicit keep-all and behaves the same.
+//
+// This raw-message filter has no tree/parent metadata, so it never dedups
+// commits: identical subjects are always both kept here. CollectCommitLog
+// applies the same per-record decision plus the metadata-based empty-repeat
+// exclusion.
 func FilterCommitLog(raw string, includeTypes []string) string {
 	if raw == "" {
 		return ""
 	}
 
-	records := strings.Split(raw, "\x00")
+	keepAll := keepAllFor(includeTypes)
 	var kept []string
 
-	keepAll := len(includeTypes) == 0
-	if !keepAll {
-		for _, allowed := range includeTypes {
-			if allowed == "*" {
-				keepAll = true
-				break
-			}
-		}
-	}
-
-	for _, rec := range records {
+	for _, rec := range strings.Split(raw, "\x00") {
 		rec = strings.TrimSpace(rec)
 		if rec == "" {
 			continue
@@ -355,79 +351,157 @@ func FilterCommitLog(raw string, includeTypes []string) string {
 			body = strings.TrimSpace(parts[1])
 		}
 
-		// Parse conventional commit type
-		matches := commitTypeRe.FindStringSubmatch(subject)
-		hasType := matches != nil
-		breaking := false
-
-		if hasType {
-			// Group 3 is "!" shorthand
-			breaking = matches[3] == "!"
-		}
-		// Also check body for BREAKING CHANGE: trailer, even on untyped
-		// subjects — untyped breaking commits must keep their body too.
-		if !breaking && body != "" {
-			breaking = breakingChangeRe.MatchString(body)
-		}
-
-		// Keep rules
-		keptLine := "- " + subject
-		if body != "" {
-			keptLine += "\n\n" + body
-		}
-		if breaking {
-			// Breaking commits always kept, with body
-			kept = append(kept, keptLine)
-		} else if !hasType {
-			// Untyped commits always kept
-			kept = append(kept, keptLine)
-		} else if keepAll {
-			// No filter configured, or explicit wildcard keep-all
-			kept = append(kept, keptLine)
-		} else {
-			// Check if type is in include set (case-insensitive)
-			commitType := strings.ToLower(matches[1])
-			for _, allowed := range includeTypes {
-				if commitType == strings.ToLower(allowed) {
-					kept = append(kept, keptLine)
-					break
-				}
+		if commitKeepDecision(subject, body, includeTypes, keepAll) {
+			line := "- " + subject
+			if body != "" {
+				line += "\n\n" + body
 			}
+			kept = append(kept, line)
 		}
 	}
 
 	return strings.Join(kept, "\n")
 }
 
-// CollectCommitLog collects the commit log between fromTag and toTag. With
-// fromTag == "" it uses `git log --pretty=format:- %s%n%b%x00 --no-merges
-// --reverse <toTag>` — the whole history reachable from the release's own tag,
-// not from the clone's default-branch HEAD, so a first release never picks up
-// commits that landed after it. An empty toTag (not expected; production
-// callers always supply one) falls back to HEAD. Otherwise it uses
-// `<from>..<to>`. The raw
-// output consists of NUL-delimited records: each record holds a commit subject
-// prefixed with "- " followed by the commit body. The records are then passed
-// through FilterCommitLog, which applies conventional-commit type filtering
-// and keeps breaking-change commits with their body. Returns "" on git error.
-// Invalid (non-ref-name) tags are rejected, causing the function to return ""
-// like a git failure, so tags are never spliced into git argv unsanitized.
-// An empty toTag is not expected (production callers always supply one); if
-// it occurs, git resolves the missing range endpoint to HEAD, so the
-// function returns the log output up to HEAD rather than "".
-func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, includeTypes []string) string {
-	if (toTag != "" && !validGitRef(toTag)) || (fromTag != "" && !validGitRef(fromTag)) {
-		return ""
+// keepAllFor reports whether no type filtering applies: an empty include set,
+// or an explicit wildcard.
+func keepAllFor(includeTypes []string) bool {
+	if len(includeTypes) == 0 {
+		return true
+	}
+	for _, allowed := range includeTypes {
+		if allowed == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// commitKeepDecision applies the conventional-commit type filter to one
+// commit's subject/body. Breaking commits and untyped commits are always
+// kept; typed commits are kept when keepAll or when their type is in
+// includeTypes (case-insensitive).
+func commitKeepDecision(subject, body string, includeTypes []string, keepAll bool) bool {
+	// Parse conventional commit type
+	matches := commitTypeRe.FindStringSubmatch(subject)
+	hasType := matches != nil
+	breaking := false
+
+	if hasType {
+		// Group 3 is "!" shorthand
+		breaking = matches[3] == "!"
+	}
+	// Also check body for BREAKING CHANGE: trailer, even on untyped
+	// subjects — untyped breaking commits must keep their body too.
+	if !breaking && body != "" {
+		breaking = breakingChangeRe.MatchString(body)
 	}
 
-	// --no-merges keeps Merge commits out of the raw log: a merge subject
-	// has no "type: description" form, so FilterCommitLog would treat it as
-	// untyped and always keep it — letting a merge body that effectively
-	// carries non-selected types (chore/docs, etc.) leak into the LLM log
-	// even when a type filter is in effect. `--no-merges` omits the merge
-	// commit's subject and body entirely; Git still traverses non-merge commits
-	// reachable from both parents, so branch work remains available while
-	// merge-only text is dropped.
+	keep := breaking || !hasType || keepAll
+	if !keep {
+		// Check if type is in include set (case-insensitive)
+		commitType := strings.ToLower(matches[1])
+		for _, allowed := range includeTypes {
+			if commitType == strings.ToLower(allowed) {
+				keep = true
+				break
+			}
+		}
+	}
+
+	return keep
+}
+
+// Commit is a retained source change. SHA is the exact Git object identity.
+type Commit struct {
+	SHA     string
+	Subject string
+	Body    string
+}
+
+// CommitLog keeps selected source commits and the range's merge identities.
+// MergeSHAs are association evidence only, never release-note source items.
+type CommitLog struct {
+	Commits   []Commit
+	MergeSHAs []string
+}
+
+// Text renders the source messages without losing their bodies or qualifiers.
+func (commits CommitLog) Text() string {
+	var text strings.Builder
+	for i, commit := range commits.Commits {
+		if i > 0 {
+			text.WriteByte('\n')
+		}
+		text.WriteString("- ")
+		text.WriteString(commit.Subject)
+		if commit.Body != "" {
+			text.WriteString("\n\n")
+			text.WriteString(commit.Body)
+		}
+	}
+	return text.String()
+}
+
+// SourceToken identifies a source commit in the model's output. Only Annalist
+// replaces it with a verified link, after checking the complete attribution.
+func SourceToken(sha string) string {
+	return "[[annalist:" + sha + "]]"
+}
+
+func (commits CommitLog) promptText() string {
+	var text strings.Builder
+	for i, commit := range commits.Commits {
+		if i > 0 {
+			text.WriteString("\n\n")
+		}
+		text.WriteString("Source: [[annalist:")
+		text.WriteString(commit.SHA)
+		text.WriteString("]]\n- ")
+		text.WriteString(commit.Subject)
+		if commit.Body != "" {
+			text.WriteString("\n\n")
+			text.WriteString(commit.Body)
+		}
+	}
+	return text.String()
+}
+
+// CollectCommitLog collects selected commit identities and messages between fromTag and toTag. With
+// fromTag == "" it uses `git log --reverse <toTag>` — the whole
+// history reachable from the release's own tag, not from the clone's default-
+// branch HEAD, so a first release never picks up commits that landed after
+// it. An empty toTag (not expected; production callers always supply one)
+// falls back to HEAD. Otherwise it uses `<from>..<to>`.
+//
+// Each commit is read with tree/parent metadata (%H %T %P %s %b) so the
+// per-record keep decision (conventional-commit type filtering, breaking and
+// untyped commits always kept — the same rules as FilterCommitLog) can also
+// exclude zero-tree-delta empty repeats: a commit whose tree equals its
+// first parent's tree is provably redundant when its full message (subject
+// plus body) duplicates an already retained change. Distinct empty commits,
+// metadata-only changes (different tree), and nonempty commits sharing a
+// subject are all retained. Filtered-out commits never count as retained,
+// so deduplication can only suppress a commit whose identical twin was kept.
+// Returns an empty log on git error. Invalid (non-ref-name) tags are rejected,
+// like a git failure, so tags are never spliced
+// into git argv unsanitized. An empty toTag is not expected (production
+// callers always supply one); if it occurs, git resolves the missing range
+// endpoint to HEAD, so the function returns the log output up to HEAD
+// rather than an empty log.
+func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, includeTypes []string) CommitLog {
+	if (toTag != "" && !validGitRef(toTag)) || (fromTag != "" && !validGitRef(fromTag)) {
+		return CommitLog{}
+	}
+
+	// Read merge metadata in the same log, but never select a merge's subject
+	// or body as a source item. Forgejo uses these exact merge identities to
+	// find verified PRs, then checks retained branch commits by API membership.
+
+	// The format carries one NUL-delimited field per record: SHA, tree,
+	// parent SHAs, subject, body. Git escapes control characters in the
+	// text fields, so NUL can only be the field separator.
+	const format = `--pretty=format:%H%x00%T%x00%P%x00%s%x00%b%x00`
 	var args []string
 	if fromTag == "" {
 		// A release with no predecessor covers the artifact's whole history,
@@ -439,18 +513,226 @@ func CollectCommitLog(ctx context.Context, workdir, fromTag, toTag string, inclu
 		if end == "" {
 			end = "HEAD"
 		}
-		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--no-merges", "--reverse", end}
+		args = []string{"log", format, "--reverse", end}
 	} else {
-		args = []string{"log", `--pretty=format:- %s%n%b%x00`, "--no-merges", fromTag + ".." + toTag}
+		args = []string{"log", format, fromTag + ".." + toTag}
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = workdir
 	out, err := cmd.Output()
 	if err != nil {
-		return ""
+		return CommitLog{}
 	}
-	return FilterCommitLog(string(out), includeTypes)
+	return selectLogRecords(ctx, workdir, string(out), includeTypes)
+}
+
+// logRecord is one commit from the metadata log format.
+type logRecord struct {
+	Commit
+	tree    string
+	parents []string
+}
+
+// fullMessage is the normalized full commit message: subject, with the
+// trimmed body appended when present. Two records are message-identical
+// iff their fullMessage values are equal — subject alone never dedups.
+func (r logRecord) fullMessage() string {
+	if r.Body == "" {
+		return r.Subject
+	}
+	return r.Subject + "\n\n" + r.Body
+}
+
+// zeroDelta reports whether the commit changed no file content: its tree
+// equals its first parent's tree. A root (parentless) commit is never
+// zero-delta — its tree IS the change. A parent whose tree is unknown
+// (unresolvable) is treated as non-equal, so an unverifiable commit is
+// retained, never dropped.
+func (r logRecord) zeroDelta(treeOf map[string]string) bool {
+	if len(r.parents) == 0 {
+		return false
+	}
+	return treeOf[r.parents[0]] == r.tree
+}
+
+// parseLogRecords splits a metadata log (records of
+// sha \x00 tree \x00 parents \x00 subject \x00 body \x00) into records. A
+// trailing partial group from a malformed final record is dropped.
+func parseLogRecords(raw string) []logRecord {
+	fields := strings.Split(raw, "\x00")
+	var recs []logRecord
+	for i := 0; i+4 < len(fields); i += 5 {
+		recs = append(recs, logRecord{
+			Commit: Commit{
+				SHA:     strings.TrimSpace(fields[i]),
+				Subject: fields[i+3],
+				Body:    strings.TrimSpace(fields[i+4]),
+			},
+			tree:    fields[i+1],
+			parents: strings.Fields(fields[i+2]),
+		})
+	}
+	return recs
+}
+
+// firstParentTrees maps commit SHA to tree SHA for every first parent that
+// is not itself a recorded commit (typically the range's from-bound and, on
+// non-linear history, parents below it). The in-log commits' own trees seed
+// the map; the remaining SHAs are resolved with ONE batched `git
+// cat-file --batch` call — never one process per commit. A failed batch
+// leaves those parents unresolved (their children then fail closed to
+// retained by zeroDelta).
+func firstParentTrees(ctx context.Context, workdir string, recs []logRecord) map[string]string {
+	trees := make(map[string]string, len(recs))
+	for _, r := range recs {
+		trees[r.SHA] = r.tree
+	}
+	var missing []string
+	seen := make(map[string]bool, len(recs))
+	for _, r := range recs {
+		if len(r.parents) == 0 {
+			continue
+		}
+		p := r.parents[0]
+		if _, ok := trees[p]; !ok && !seen[p] {
+			seen[p] = true
+			missing = append(missing, p)
+		}
+	}
+	if extra := catFileCommitTrees(ctx, workdir, missing); extra != nil {
+		for sha, tree := range extra {
+			trees[sha] = tree
+		}
+	}
+	return trees
+}
+
+// catFileCommitTrees resolves commit SHAs to their tree SHAs in a single
+// `git cat-file --batch` invocation. Returns nil on git failure or I/O
+// error; unknown objects in the batch are simply absent from the result.
+// The batch input is fed via cmd.Stdin (a reader), not a StdinPipe: a
+// pre-started pipe fill would block on the pipe capacity for large batches
+// while the process has not run yet.
+func catFileCommitTrees(ctx context.Context, workdir string, shas []string) map[string]string {
+	if len(shas) == 0 {
+		return nil
+	}
+	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
+	cmd.Dir = workdir
+	var input strings.Builder
+	for _, s := range shas {
+		input.WriteString(s)
+		input.WriteByte('\n')
+	}
+	cmd.Stdin = strings.NewReader(input.String())
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	trees := make(map[string]string, len(shas))
+	data := out
+	for len(data) > 0 {
+		nl := bytes.IndexByte(data, '\n')
+		if nl < 0 {
+			break
+		}
+		// Header line: "<sha> <type> <size>".
+		header := data[:nl]
+		data = data[nl+1:]
+		fields := strings.Fields(string(header))
+		if len(fields) != 3 || fields[1] != "commit" {
+			continue
+		}
+		size, err := strconv.Atoi(fields[2])
+		if err != nil || len(data) < size {
+			continue
+		}
+		obj := data[:size]
+		data = data[size:]
+		// The raw object is followed by a single separator newline.
+		if len(data) > 0 && data[0] == '\n' {
+			data = data[1:]
+		}
+		tree, ok := strings.CutPrefix(string(obj), "tree ")
+		if !ok {
+			continue
+		}
+		if end := strings.IndexByte(tree, '\n'); end >= 0 {
+			tree = tree[:end]
+		}
+		trees[fields[0]] = tree
+	}
+	return trees
+}
+
+// selectLogRecords applies the per-record keep decision plus the
+// zero-tree-delta empty-repeat exclusion to a metadata log. The exclusion
+// is order-independent with respect to tree-delta commits: a zero-delta
+// commit is provably the redundant one whenever any retained commit shares
+// its full message, regardless of log order. Among zero-delta commits, the
+// first in log order is retained and later identical ones are dropped.
+func selectLogRecords(ctx context.Context, workdir, raw string, includeTypes []string) CommitLog {
+	recs := parseLogRecords(raw)
+	if len(recs) == 0 {
+		return CommitLog{}
+	}
+	keepAll := keepAllFor(includeTypes)
+	trees := firstParentTrees(ctx, workdir, recs)
+
+	// Pass 1: per-record type-filter decision. Filtered-out commits never
+	// become "retained", so a zero-delta commit whose message matches a
+	// filtered commit is not suppressed.
+	type decision struct {
+		keep    bool
+		commit  Commit
+		delta   bool
+		message string
+	}
+	decs := make([]decision, len(recs))
+	var kept CommitLog
+	for i, r := range recs {
+		if len(r.parents) > 1 {
+			kept.MergeSHAs = append(kept.MergeSHAs, r.SHA)
+			continue
+		}
+		keep := commitKeepDecision(r.Subject, r.Body, includeTypes, keepAll)
+		if !keep {
+			continue
+		}
+		decs[i] = decision{
+			keep:    keep,
+			commit:  r.Commit,
+			delta:   r.zeroDelta(trees),
+			message: r.fullMessage(),
+		}
+	}
+
+	// Pass 2: zero-tree-delta empty-repeat exclusion. A zero-delta commit
+	// is provably redundant iff its full message is owned by a retained
+	// NON-zero-delta commit (log-order independent — the delta twin
+	// provably contains the change) or by an earlier retained zero-delta
+	// twin in log order. Delta commits are never dropped.
+	deltaOwned := make(map[string]bool, len(decs))
+	for _, d := range decs {
+		if d.keep && !d.delta {
+			deltaOwned[d.message] = true
+		}
+	}
+	zeroDeltaClaimed := make(map[string]bool, len(decs))
+	for _, d := range decs {
+		if !d.keep {
+			continue
+		}
+		if d.delta && (deltaOwned[d.message] || zeroDeltaClaimed[d.message]) {
+			continue
+		}
+		kept.Commits = append(kept.Commits, d.commit)
+		if d.delta {
+			zeroDeltaClaimed[d.message] = true
+		}
+	}
+	return kept
 }
 
 // DiffBudgetBytes caps the hunk content (excluding the always-included --stat
@@ -509,26 +791,143 @@ type diffUnit struct {
 	origIndex  int
 }
 
-// CollectDiff assembles the deep-mode diff between fromTag and toTag: a
-// `git diff --stat` summary (always included, regardless of budget) followed
-// by hunks selected under maxBytes by file-class priority. Returns "" on git
-// failure or when there is no diff content at all.
+// DiffContext is the structured result of CollectDiff. Text is the
+// assembled diff (always-included --stat summary plus the hunks selected
+// under the byte budget). Truncated is true only when the selection
+// actually omitted hunks to honor the budget, and SkippedHunks counts
+// them; consumers must use these fields, not search Text for the marker.
+// Text carries the same human-readable truncation marker as before for
+// display purposes, but the marker is not a status.
+type DiffContext struct {
+	Text         string
+	Truncated    bool
+	SkippedHunks int
+	ClippedHunks int
+}
+
+// noiseDirAt reports whether p sits in dir at the repository root (the path
+// is repo-relative without a leading slash) or in a nested directory segment.
+func noiseDirAt(p, dir string) bool {
+	return strings.HasPrefix(p, dir) || strings.Contains(p, "/"+dir)
+}
+
+// noiseFile reports paths whose hunks add bytes without explaining a
+// user-facing change: dependency locks, vendored trees, build output,
+// snapshots, minified assets, and test data. They stay in the --stat summary.
+func noiseFile(path string) bool {
+	p := strings.ToLower(strings.ReplaceAll(path, `\`, "/"))
+	if strings.Contains(p, "testdata/") || strings.Contains(p, "node_modules/") ||
+		noiseDirAt(p, "vendor/") || noiseDirAt(p, "__snapshots__/") {
+		return true
+	}
+	switch {
+	case strings.HasSuffix(p, ".snap"), strings.HasSuffix(p, ".min.js"), strings.HasSuffix(p, ".min.css"),
+		strings.HasSuffix(p, ".lock"), strings.HasSuffix(p, "-lock.json"), strings.HasSuffix(p, "lock.json"),
+		strings.HasSuffix(p, ".sum"):
+		return true
+	}
+	return false
+}
+
+// commitDiffPart is one selected commit's budgeted diff evidence.
+type commitDiffPart struct {
+	title string
+	units []diffUnit
+	cost  int
+}
+
+// unitsCost is the byte cost of a commit's units: hunk text plus one file
+// header per touched file.
+func unitsCost(units []diffUnit) int {
+	seen := make(map[string]bool, len(units))
+	total := 0
+	for _, u := range units {
+		total += len(u.hunkText)
+		if !seen[u.filePath] {
+			seen[u.filePath] = true
+			total += len(u.fileHeader)
+		}
+	}
+	return total
+}
+
+// fairShare distributes budget across per-commit costs, max-min fair: a
+// commit that needs less than an even share keeps its whole diff and the
+// surplus goes to the larger ones. One huge commit therefore cannot starve
+// every other commit in the release.
+func fairShare(costs []int, budget int) []int {
+	alloc := make([]int, len(costs))
+	remaining := budget
+	pending := make([]int, 0, len(costs))
+	for i := range costs {
+		pending = append(pending, i)
+	}
+	for len(pending) > 0 {
+		share := remaining / len(pending)
+		larger := make([]int, 0, len(pending))
+		for _, idx := range pending {
+			if costs[idx] <= share {
+				alloc[idx] = costs[idx]
+				remaining -= costs[idx]
+				continue
+			}
+			larger = append(larger, idx)
+		}
+		if len(larger) == len(pending) {
+			for _, idx := range larger {
+				alloc[idx] = share
+			}
+			return alloc
+		}
+		pending = larger
+	}
+	return alloc
+}
+
+// validCommitSHA accepts a full lowercase or uppercase hex object name.
+func validCommitSHA(sha string) bool {
+	if len(sha) != 40 {
+		return false
+	}
+	for i := 0; i < len(sha); i++ {
+		c := sha[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// shortSHA is the eight-character display prefix of a commit identity.
+func shortSHA(sha string) string {
+	if len(sha) > 8 {
+		return sha[:8]
+	}
+	return sha
+}
+
+// CollectDiff assembles the deep-mode diff evidence for the selected commits:
+// a `git diff --stat` summary of the tag range (always included, regardless of
+// budget) followed by per-commit patch sections selected under maxBytes.
+// maxBytes is split max-min fair across commits, so a single large change
+// cannot consume the budget that every other change needs, and the omitted
+// count reflects hunks skipped inside their own commit's share.
 //
-// When fromTag is non-empty the range is three-dot (from...to): git diffs
+// Lockfiles, vendored trees, snapshots, minified assets, and test data
+// contribute no hunks (the --stat summary still lists them). A git failure is
+// returned as a non-nil error, never as a zero DiffContext. When there is no
+// diff content at all the context is empty (no Text, not truncated).
+//
+// When fromTag is non-empty the stat range is three-dot (from...to): git diffs
 // from merge-base(from,to), which equals from on linear history and stays
-// correct on rebased branches — the merge-base anchoring tag-to-tag release
-// flow needs. The unchanged commit log (from..to) covers the same endpoints
-// in the common linear case. When fromTag is empty (first release) the diff
-// is taken against the empty tree, which has no merge base with toTag, so a
-// plain two-commit range is used.
-// Invalid (non-ref-name) tags are rejected, causing the function to return ""
-// like a git failure, so tags are never spliced into git argv unsanitized.
-// An empty toTag is not expected (production callers always supply one); if
-// it occurs, git resolves the missing range endpoint to HEAD, so the
-// function returns the diff output up to HEAD rather than "".
-func CollectDiff(ctx context.Context, workdir, fromTag, toTag string, maxBytes int) string {
+// correct on rebased branches. When fromTag is empty (first release) the stat
+// is taken against the empty tree. Commit sections use each selected commit's
+// own diff, which carries the same content the three-dot range would for that
+// commit. An empty toTag is not expected (production callers always supply
+// one); if it occurs, git resolves the missing range endpoint to HEAD.
+func CollectDiff(ctx context.Context, workdir, fromTag, toTag string, commits []Commit, maxBytes int) (DiffContext, error) {
 	if (toTag != "" && !validGitRef(toTag)) || (fromTag != "" && !validGitRef(fromTag)) {
-		return ""
+		return DiffContext{}, fmt.Errorf("invalid git ref in diff range: from=%q to=%q", fromTag, toTag)
 	}
 
 	rangeSpec := fromTag + "..." + toTag
@@ -537,32 +936,76 @@ func CollectDiff(ctx context.Context, workdir, fromTag, toTag string, maxBytes i
 		cmd.Dir = workdir
 		treeOut, err := cmd.Output()
 		if err != nil {
-			return ""
+			return DiffContext{}, fmt.Errorf("empty tree hash: %w", err)
 		}
 		rangeSpec = strings.TrimSpace(string(treeOut)) + ".." + toTag
 	}
 
 	statOut, err := runGit(ctx, workdir, "diff", "--stat", rangeSpec)
 	if err != nil {
-		return ""
-	}
-	patchOut, err := runGit(ctx, workdir, "diff", "--patch", "-U3", rangeSpec)
-	if err != nil {
-		return ""
+		return DiffContext{}, fmt.Errorf("git diff --stat %s: %w", rangeSpec, err)
 	}
 	statText := strings.TrimSpace(string(statOut))
 
-	units := parseDiff(string(patchOut))
-	body, skipped := selectHunks(units, maxBytes)
+	parts := make([]commitDiffPart, 0, len(commits))
+	for _, commit := range commits {
+		if !validCommitSHA(commit.SHA) {
+			continue
+		}
+		patch, err := runGit(ctx, workdir, "show", "--format=", "--patch", "-U3", "--find-renames", commit.SHA)
+		if err != nil {
+			return DiffContext{}, fmt.Errorf("git show %s: %w", commit.SHA, err)
+		}
+		units := make([]diffUnit, 0, 8)
+		for _, unit := range parseDiff(string(patch)) {
+			if noiseFile(unit.filePath) {
+				continue
+			}
+			units = append(units, unit)
+		}
+		if len(units) == 0 {
+			continue
+		}
+		parts = append(parts, commitDiffPart{
+			title: shortSHA(commit.SHA) + " " + commit.Subject,
+			units: units,
+			cost:  unitsCost(units),
+		})
+	}
+	costs := make([]int, len(parts))
+	for i := range parts {
+		costs[i] = parts[i].cost
+	}
+	alloc := fairShare(costs, maxBytes)
 
 	var b strings.Builder
-	b.WriteString(statText)
-	b.WriteString("\n")
-	b.WriteString(body)
-	if skipped > 0 {
-		fmt.Fprintf(&b, "\n\n[diff truncated: %d more hunk(s) omitted to stay within the %d-byte budget]", skipped, maxBytes)
+	if statText != "" {
+		b.WriteString(statText)
+		b.WriteString("\n")
 	}
-	return strings.TrimSpace(b.String())
+	skipped, clipped := 0, 0
+	for i, part := range parts {
+		body, partSkipped, partClipped := selectHunks(part.units, alloc[i])
+		skipped += partSkipped
+		clipped += partClipped
+		if body == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\n### %s\n", part.title)
+		b.WriteString(body)
+		b.WriteString("\n")
+		if partSkipped+partClipped > 0 {
+			fmt.Fprintf(&b, "[commit diff truncated: %d hunk(s) clipped, %d omitted]\n", partClipped, partSkipped)
+		}
+	}
+
+	dc := DiffContext{Truncated: skipped+clipped > 0, SkippedHunks: skipped, ClippedHunks: clipped}
+	text := strings.TrimSpace(b.String())
+	if text != "" && skipped+clipped > 0 {
+		text += fmt.Sprintf("\n\n[diff truncated: %d hunk(s) clipped, %d omitted within the %d-byte budget]", clipped, skipped, maxBytes)
+	}
+	dc.Text = text
+	return dc, nil
 }
 
 // runGit runs a git subcommand in workdir and returns raw stdout.
@@ -658,10 +1101,12 @@ func diffFilePath(section string) string {
 }
 
 // selectHunks deterministically orders units by (class priority, file path,
-// original position) and greedily emits hunks under maxBytes. A hunk that
-// would exceed the budget is skipped whole (never truncated mid-hunk); later
-// cheaper hunks may still fit. Returns the emitted text and skip count.
-func selectHunks(units []diffUnit, maxBytes int) (string, int) {
+// original position) and emits hunks under maxBytes. A hunk that fits is
+// emitted whole; one that does not fit is clipped at a line boundary and
+// marked, so a single oversized hunk cannot hide its whole commit. Only a
+// hunk with no room for even its first line is skipped. Returns the emitted
+// text, the count of fully omitted hunks, and the count of clipped hunks.
+func selectHunks(units []diffUnit, maxBytes int) (string, int, int) {
 	sorted := make([]diffUnit, len(units))
 	copy(sorted, units)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -677,22 +1122,51 @@ func selectHunks(units []diffUnit, maxBytes int) (string, int) {
 
 	emitted := make(map[string]bool, len(sorted))
 	var out strings.Builder
-	used, skipped := 0, 0
+	used, skipped, clipped := 0, 0, 0
 	for _, u := range sorted {
-		cost := len(u.hunkText)
+		headerCost := 0
 		if !emitted[u.filePath] {
-			cost += len(u.fileHeader)
+			headerCost = len(u.fileHeader)
 		}
-		if used+cost > maxBytes {
-			skipped++
-			continue
+		body := u.hunkText
+		wasClipped := false
+		if used+headerCost+len(body) > maxBytes {
+			body = clipHunk(u.hunkText, maxBytes-used-headerCost)
+			if body == "" {
+				skipped++
+				continue
+			}
+			wasClipped = true
 		}
 		if !emitted[u.filePath] {
 			out.WriteString(u.fileHeader)
 			emitted[u.filePath] = true
+			used += headerCost
 		}
-		out.WriteString(u.hunkText)
-		used += cost
+		out.WriteString(body)
+		used += len(body)
+		if wasClipped {
+			clipped++
+		}
 	}
-	return out.String(), skipped
+	return out.String(), skipped, clipped
+}
+
+// clipHunk keeps whole lines of one hunk within budget and marks the elision.
+// It returns "" when not even the hunk header line fits.
+func clipHunk(hunk string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(hunk, "\n") {
+		if b.Len()+len(line) > budget {
+			break
+		}
+		b.WriteString(line)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return b.String() + "... [hunk truncated]\n"
 }

@@ -20,6 +20,8 @@
     getInRepoInstructions,
     getModels,
     getRuns,
+    QualityReviewError,
+    SourceLinksError,
     type GenerationRun,
     type Repo,
   } from "$lib/api";
@@ -89,6 +91,7 @@
   let historyError = $state<Record<string, string>>({});
   let historyPending = $state<Record<string, boolean>>({});
   let generationMessage = $state<Record<string, string>>({});
+  let qualityIssues = $state<Record<string, string[]>>({});
   // User-initiated refresh only; the 15s poll must not disable/relabel the
   // manual Refresh button.
   let manualRefreshing = $state(false);
@@ -120,6 +123,10 @@
         return "Check repository instructions and access permissions, then try again.";
       case "generation":
         return "The model could not generate notes. Check the provider and model settings, then try again.";
+      case "source_links":
+        return "Source links could not be resolved. Check pull-request read access and the platform API. For GitHub Apps, enable Pull requests: Read-only and have the installation owner approve the change.";
+      case "quality":
+        return "Publication was blocked by required quality checks. Open a preview to review the notes and source.";
       case "publication":
         return "Notes could not be published. Check release permissions and try again.";
       case "timeout":
@@ -134,9 +141,31 @@
   }
 
   function warningCopy(code: string | null): string {
-    return code === "cache_persistence"
-      ? "Published, but the local note cache could not be saved. Check server storage before generating again."
-      : "The run completed with a warning. Check server configuration before generating again.";
+    switch (code) {
+      case "cache_persistence":
+        return "Published, but the local note cache could not be saved. Check server storage before generating again.";
+      case "quality_review_required":
+        return "Quality review is required. Review the notes and the full source range before publishing.";
+      case "source_context_incomplete":
+        return "Some diff hunks did not fit the source context. The notes use the full commit log; review the release range for actions that only the diff would show.";
+      default:
+        return "The run completed with a warning. Check server configuration before generating again.";
+    }
+  }
+
+  function qualityIssueCopy(issue: string): string {
+    switch (issue) {
+      case "strict_prose_semicolon":
+        return "Strict engineer prose contains semicolons. Review the wording without changing technical text.";
+      case "source_context_incomplete":
+        return "Some diff hunks did not fit the source context. Review the full release range for missing actions and conditions.";
+      case "source_attribution_invalid":
+        return "Source attribution is invalid, so the preview was withheld. Check for missing, duplicate, or unknown source IDs and unverified links. Follow the citation contract before generating again.";
+      case "quality_check_required":
+        return "The notes do not have a current quality check. Generate a new preview before publishing.";
+      default:
+        return "A required quality check did not pass. Review the notes and source before publishing.";
+    }
   }
 
   async function loadHistory(r: Repo): Promise<void> {
@@ -349,6 +378,7 @@
     genTagError[key] = null;
     genError[key] = null;
     notesOut[key] = null;
+    qualityIssues[key] = [];
     // The generate panel keeps its publish/force checkboxes, so say what the
     // panel will actually do on submit.
     generationMessage[key] = publish[key]
@@ -416,6 +446,7 @@
     const toTag = (generateTag[key] ?? "").trim();
     notesOut[key] = null;
     generationMessage[key] = "";
+    qualityIssues[key] = [];
     genError[key] = null;
     genTagError[key] = null;
     if (!toTag) {
@@ -437,6 +468,7 @@
         publish: publish[key] ?? false,
       });
       notesOut[key] = result.notes;
+      qualityIssues[key] = result.quality_issues ?? [];
       const messages = {
         published: "Notes published to the release.",
         generated: "Preview generated. Nothing was published.",
@@ -451,8 +483,15 @@
       overwriteConfirm[key] = false;
     } catch (e) {
       if (handleAuthError(e)) return;
-      genError[key] =
-        "Generation did not complete. Check that the tag exists, repository access is configured, and the model provider is reachable.";
+      if (e instanceof QualityReviewError) {
+        genError[key] = "Publication blocked. Nothing was published. Run a preview to review the notes and source.";
+        qualityIssues[key] = e.issues;
+      } else if (e instanceof SourceLinksError) {
+        genError[key] = failureCopy("source_links");
+      } else {
+        genError[key] =
+          "Generation did not complete. Check that the tag exists, repository access is configured, and the model provider is reachable.";
+      }
       await refresh();
     } finally {
       pending[key] = { ...(pending[key] ?? {}), generating: false };
@@ -1041,6 +1080,11 @@
                             >
                               {generationMessage[key]}
                             </p>{/if}
+                          {#if qualityIssues[key]?.length}
+                            <ul class="mt-2 list-disc pl-5 text-sm" aria-label="Quality review reasons">
+                              {#each qualityIssues[key] as issue}<li>{qualityIssueCopy(issue)}</li>{/each}
+                            </ul>
+                          {/if}
                           {#if notesOut[key]}
                             <div class="mt-4">
                               <MarkdownPreview source={notesOut[key] ?? ""} />

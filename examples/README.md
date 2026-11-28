@@ -128,6 +128,50 @@ Both workflow examples include a commented, optional second generate call
 showing a named-profile request. See [docs/release-notes-voices.md](../docs/release-notes-voices.md)
 for the full contract.
 
+## Source detail and review-needed previews
+
+Built-in voices use one concern per primary bullet, preferably one short
+sentence and at most two. A commit or PR can support several distinct concern
+bullets, and related sources may share a bullet when all source identities are
+attributed. Changes are grouped by what ships, not by commit or review round,
+and each outcome is stated once with a condition or limitation in its second
+sentence. A nested Required action: bullet carries only a step the source shows
+is necessary to complete the upgrade and names what a conditional step affects;
+a whole note needs at most three nested bullets, and Caveat: is reserved for a
+hard limit that cannot fit in the bullet. These facts take priority over brevity,
+with no total note-length limit. Internal helpers, implementation steps, tests,
+and review fixes are summarized unless the reader must act on them. Keep
+identifiers and certainty exact. Link to a procedure only when the source
+provides the correct guide. When the release-range net diff establishes final
+behavior, prefer it to intermediate or squash-body inventories. Full-prompt
+examples define their own rules and are not rewritten by Annalist.
+
+Commit collection drops an empty repeat only when Git metadata proves no tree
+change and the full message duplicates a retained entry. Distinct empty commits
+and nonempty commits with the same subject stay in scope. Annalist does not
+remove repeated-looking output bullets.
+
+Deep mode has a 256 KiB hunk budget shared max-min fair across the selected
+commits, so one large change cannot crowd out the rest. Clipped or omitted
+hunks produce `source_context_incomplete`, even when a custom prompt is
+selected. Built-in
+voices reject primary prose paragraphs with more than two prose sentences or
+60 prose words as `primary_bullet_overloaded`. Recognizable commands, URLs,
+identifiers, code, and nested required actions are excluded. Built-in engineer
+prose also checks semicolons outside protected technical text. Authoritative
+full prompts and custom tones bypass these prose checks.
+
+A preview can return HTTP 200 with actual notes and
+`warning_code: "quality_review_required"`. Its `quality_issues` explain which
+required checks failed. Both workflow templates stop on `quality_review_required`
+or on any issue other than the advisory `source_context_incomplete` before they
+extract notes or change a release. Apply the same check to any custom API
+consumer. Do not treat HTTP 200 alone as publication approval.
+CLI previews keep the notes on stdout, print review reasons to stderr, and exit
+nonzero. `force` does not bypass a publish rejection. These checks do not prove
+semantic coverage, so review the actions, conditions, exceptions, and certainty
+against the source before publication.
+
 ## Adapting
 
 - **Trigger branch:** change `branches:` in the workflow to wherever your team

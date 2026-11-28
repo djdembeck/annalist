@@ -628,7 +628,22 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		DisplayVersion: displayVersion,
 	}, pipeline.Options{Source: "manual", Force: req.Force, Publish: publish, Mode: req.Mode})
 	if err != nil {
+		var qualityErr *pipeline.QualityError
+		var sourceErr *pipeline.SourceReferenceError
 		switch {
+		case errors.As(err, &sourceErr):
+			writeJSON(w, http.StatusBadGateway, map[string]any{
+				"error":      sourceErr.Error(),
+				"error_code": "source_links",
+				"published":  false,
+			})
+		case errors.As(err, &qualityErr):
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+				"error":          qualityErr.Error(),
+				"published":      false,
+				"warning_code":   "quality_review_required",
+				"quality_issues": qualityErr.Issues,
+			})
 		case errors.Is(err, pipeline.ErrInvalidProfile), errors.Is(err, pipeline.ErrInvalidDisplayVersion):
 			writeErr(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, pipeline.ErrProfileConfig):
@@ -645,6 +660,7 @@ func (a *api) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		"published":       result.Outcome == "published",
 		"outcome":         result.Outcome,
 		"warning_code":    nullableCode(result.WarningCode),
+		"quality_issues":  result.QualityIssues,
 		"profile":         result.Profile,
 		"display_version": result.DisplayVersion,
 		"from_tag":        result.FromTag,

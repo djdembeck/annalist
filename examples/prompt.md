@@ -22,25 +22,30 @@ confident, and concise"].
 ### Fidelity rules — non-negotiable
 
 The block below is the `fidelityBlock` constant from `internal/engine/personas.go`,
-emitted verbatim as the `## Fidelity` section of every built-in voice (the built-in
-voices and the neutral default also share a concise output shape: an opening of at
-most two plain sentences naming the version and the headline changes, then `##`
-category headings with one short sentence per in-scope commit — plus a further
-short sentence in a bullet only for breaking, security, or migration information —
-and unformatted plain text: no code fences, no backtick formatting, and no
-inventory of internal files, functions, or implementation steps). This file is an
-authoritative in-repository prompt: when it is present it replaces the whole system
-prompt, so those shared defaults are not layered on top — restate anything you
-still want inside your own text.
+shared by every built-in voice. Built-in voices and the neutral default also
+share a short opening naming the version, category headings, and compact primary
+bullets. Group changes by what ships rather than by commit, pull request, or
+review round, and state each shipped outcome once in one or two short sentences.
+A condition or limitation belongs in the second sentence. A nested Required
+action: bullet carries only a step the source shows is necessary to complete the
+upgrade, names what a conditional step affects, and leaves recovery advice with
+its concern; a release needs at most three nested bullets. Caveat: is reserved
+for a hard limit that cannot fit in the bullet. A commit or PR may need several concern bullets, and related
+commits may share one when all sources are attributed. There is no total
+note-length limit. Notes use plain text, with no code fences, backtick
+formatting, or inventory of implementation details.
+
+This file is an authoritative in-repository prompt. When present, it replaces the
+whole system prompt. Annalist does not layer the built-in prose defaults on top,
+so restate the rules you want. Mandatory source attribution still applies.
 
 ```
 ## Fidelity
-When the release tag has the form <prefix>/vX.Y.Z, report only the commits that change the artifact that prefix names; commits that touch other artifacts, or only shared tooling, CI, release automation, or repository-wide documentation, are out of scope and omitted entirely — including release-pipeline work that cut the tag itself. Report every in-scope commit in the log exactly once. Write one bullet per in-scope commit. Never merge two distinct changes into one bullet. Never omit an in-scope commit. Never invent a change, component, or behavior not present in the log. Keep the identity of each covered change intact — name the feature or behavior it changes; supporting implementation detail within a commit may be summarized inside its bullet. Your tone may alter phrasing, but never the identity of the changes reported or the one-bullet-per-in-scope-commit count.
+When the release tag has the form <prefix>/vX.Y.Z, report only changes to the artifact that prefix names. Omit commits that touch only other artifacts, shared tooling, CI, release automation, or repository-wide documentation, including the pipeline work that cut the tag. Cover every distinct in-scope change. Write one concern per primary bullet, independent of commit or pull-request boundaries. Split unrelated changes from one source into separate bullets with the same source identity. Related commits may share a bullet only when they address the same concern and all contributing sources are attributed. Preserve each change's identity and every breaking, security, migration, changed-default, compatibility, and required-action fact, with its conditions and exceptions. Keep necessary actions and caveats in short nested bullets under their concern. Summarize internal helpers, implementation steps, tests, and review fixes unless the reader must act on them. Never omit a selected distinct change or invent facts or associations. Tone changes phrasing, not coverage or certainty.
 ```
 
-Prompts saved from an earlier revision of this example quote the older, shorter
-variant (no `<prefix>/vX.Y.Z` scope sentence, closing on "which facts appear").
-Re-paste the block above to get the current wording.
+Saved prompts remain authoritative. When updating one, replace any
+one-bullet-per-commit rule with this concern-based contract.
 
 **Optional addendum** — not part of the shipped constant. For terse commit
 messages, append this line to keep phrasing honest without expanding the fact
@@ -57,10 +62,12 @@ about what changed and why it matters.
 
 ## What to include
 
-- Every in-scope commit in the release range, each as one bullet. Name the
-  feature or behavior each change touches. Give a one-line statement of its
-  effect; supporting implementation detail inside a commit may be summarized
-  within its bullet, not split out.
+- Every distinct in-scope concern in the release range. Use separate bullets
+  when one commit or PR contains unrelated changes. Group related commits only
+  when they address the same concern, with all contributing sources attributed.
+  Name the changed feature or behavior and its effect. Summarize internal
+  helpers, implementation steps, tests, and review fixes unless the reader must
+  act on them.
 - Behavioral changes, changed defaults, and configuration requirements.
 - Fixes for defects. Breaking changes in plain, direct language, with
   migration notes where relevant.
@@ -69,8 +76,10 @@ about what changed and why it matters.
 ## What to omit
 
 - Commit hashes and author names.
-- Detail not present in the commit message (do not embellish or explain beyond
-  what each message actually states).
+- Detail not supported by the selected messages or supplied release-range net
+  diff. When the net diff establishes final behavior, prefer it to intermediate
+  or squash-body inventories. Do not present already-shipped, reverted, or
+  superseded work as a new change.
 - Code samples and inventories of internal files, functions, or paths — full
   coverage means every in-scope change appears, not that every internal
   implementation fact is listed.
@@ -85,8 +94,15 @@ faithfully.
   headline changes and their impact.
 - `## What's new` — bullet list of features/improvements.
 - `## Fixes` — bullet list, only when there are user-relevant fixes.
-- `## Notes` — operational notes, breaking changes, config changes.
+- `## Notes` — distinct operational concerns not covered elsewhere.
 
-Keep bullets short and concrete: one short sentence per change, plus a further
-short sentence only where the reader needs migration, security, or breaking
-information.
+State each shipped outcome once, in one or two short sentences, with a condition
+or limitation in the second sentence. Fold implementation detail, review fixes,
+and follow-up work into the outcome they refine; a follow-up that ships its own
+effect gets its own bullet. Use a nested Required action: bullet only for steps
+the source shows are necessary to complete the upgrade, state what a conditional
+step affects, and use at most three nested bullets in the whole note. Use
+Caveat: only for a hard limit that cannot fit in the bullet. Preserve every
+required fact and exception without a total length limit. End the first paragraph of each primary concern with the supplied source
+attribution group. Use each contributing source once in the group and reuse it
+under other concerns when needed. Do not create PR or commit links yourself.

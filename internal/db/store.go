@@ -50,18 +50,19 @@ type RepoSetting struct {
 // from the old release-id-keyed table carry legacy metadata (empty
 // from_tag/profile/config_digest, to_tag as display_version).
 type GeneratedNote struct {
-	CacheKey       string
-	Platform       string
-	Owner          string
-	Repo           string
-	ReleaseID      string
-	FromTag        string
-	ToTag          string
-	Profile        string
-	DisplayVersion string
-	ConfigDigest   string
-	Notes          string
-	CreatedAt      string
+	CacheKey           string
+	Platform           string
+	Owner              string
+	Repo               string
+	ReleaseID          string
+	FromTag            string
+	ToTag              string
+	Profile            string
+	DisplayVersion     string
+	ConfigDigest       string
+	Notes              string
+	SourceAttributions string // Private source groups and exact-body binding, never public Markdown.
+	CreatedAt          string
 }
 
 // migrations are applied in order at Store construction.
@@ -143,6 +144,7 @@ func (s *Store) migrate() error {
 	for _, col := range []struct {
 		table, name, ddl string
 	}{
+		{"generated_notes", "source_attributions", "ALTER TABLE generated_notes ADD COLUMN source_attributions TEXT NOT NULL DEFAULT ''"},
 		{"settings", "commit_types", "ALTER TABLE settings ADD COLUMN commit_types TEXT"},
 		{"repo_settings", "commit_types", "ALTER TABLE repo_settings ADD COLUMN commit_types TEXT"},
 		{"settings", "base_url", "ALTER TABLE settings ADD COLUMN base_url TEXT"},
@@ -413,10 +415,10 @@ func (s *Store) UpsertRepoSettings(r RepoSetting) error {
 // the same contract).
 func (s *Store) MarkGenerated(note GeneratedNote) error {
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO generated_notes (cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR REPLACE INTO generated_notes (cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes, source_attributions)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		note.CacheKey, note.Platform, note.Owner, note.Repo, note.ReleaseID,
-		note.FromTag, note.ToTag, note.Profile, note.DisplayVersion, note.ConfigDigest, note.Notes,
+		note.FromTag, note.ToTag, note.Profile, note.DisplayVersion, note.ConfigDigest, note.Notes, note.SourceAttributions,
 	)
 	return err
 }
@@ -426,10 +428,10 @@ func (s *Store) MarkGenerated(note GeneratedNote) error {
 func (s *Store) GetGenerated(cacheKey string) (*GeneratedNote, error) {
 	var n GeneratedNote
 	err := s.db.QueryRow(
-		`SELECT cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes, created_at
+		`SELECT cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes, source_attributions, created_at
 		 FROM generated_notes WHERE cache_key = ?`,
 		cacheKey,
-	).Scan(&n.CacheKey, &n.Platform, &n.Owner, &n.Repo, &n.ReleaseID, &n.FromTag, &n.ToTag, &n.Profile, &n.DisplayVersion, &n.ConfigDigest, &n.Notes, &n.CreatedAt)
+	).Scan(&n.CacheKey, &n.Platform, &n.Owner, &n.Repo, &n.ReleaseID, &n.FromTag, &n.ToTag, &n.Profile, &n.DisplayVersion, &n.ConfigDigest, &n.Notes, &n.SourceAttributions, &n.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

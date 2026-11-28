@@ -80,7 +80,11 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return pipeline.ErrNotFound
+		var payload struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&payload)
+		return &notFoundError{message: payload.Message}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -93,6 +97,19 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		}
 	}
 	return nil
+}
+
+type notFoundError struct{ message string }
+
+func (e *notFoundError) Error() string { return "forgejo: resource not found" }
+func (e *notFoundError) Unwrap() error { return pipeline.ErrNotFound }
+
+// Forgejo's GetCommitPullRequest handler returns this model error only after
+// an authenticated repository lookup succeeds. A generic route/auth 404 does
+// not establish the absence of a recorded merged-commit association.
+func missingPullRecord(err error) bool {
+	var missing *notFoundError
+	return errors.As(err, &missing) && strings.HasPrefix(missing.message, "pull request does not exist [")
 }
 
 // apiPath escapes a path segment for use inside a URL path.
@@ -241,6 +258,150 @@ func (c *Client) GetReleaseByTag(ctx context.Context, owner, repo, tag string) (
 func (c *Client) EditReleaseBody(ctx context.Context, owner, repo string, releaseID int64, body string) error {
 	p := "/repos/" + apiPath(owner) + "/" + apiPath(repo) + "/releases/" + strconv.FormatInt(releaseID, 10)
 	return c.do(ctx, http.MethodPatch, p, map[string]string{"body": body}, nil)
+}
+
+type associatedPull struct {
+	Number         int    `json:"number"`
+	HTMLURL        string `json:"html_url"`
+	Merged         bool   `json:"merged"`
+	MergeCommitSHA string `json:"merge_commit_sha"`
+	Base           struct {
+		Repo struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
+	} `json:"base"`
+}
+
+func (c *Client) pullReference(owner, repo string, pr associatedPull) (pipeline.PullRequestReference, error) {
+	if !pr.Merged || pr.MergeCommitSHA == "" || pr.Number <= 0 || !strings.EqualFold(pr.Base.Repo.FullName, owner+"/"+repo) {
+		return pipeline.PullRequestReference{}, errors.New("forgejo: response does not establish a merged association in the requested repository")
+	}
+	if err := pipeline.ValidateSourceURL(c.cfg.URL, owner, repo, "pulls", strconv.Itoa(pr.Number), pr.HTMLURL); err != nil {
+		return pipeline.PullRequestReference{}, fmt.Errorf("forgejo: %w", err)
+	}
+	return pipeline.PullRequestReference{Number: pr.Number, URL: pr.HTMLURL}, nil
+}
+
+// ResolveCommitReferences uses the exact merged-commit route first. Branch
+// commits are checked against the verified PRs of merges from the same Git log.
+// Only Forgejo's explicit missing-record response permits a commit fallback;
+// generic 404s, unavailable membership, and other API errors remain unresolved.
+func (c *Client) ResolveCommitReferences(ctx context.Context, owner, repo string, shas, mergeSHAs []string) (map[string]pipeline.CommitReference, error) {
+	refs := make(map[string]pipeline.CommitReference, len(shas))
+	if len(shas) == 0 {
+		return refs, nil
+	}
+	if c.cfg.Token == "" {
+		return nil, errors.New("forgejo: no token configured for source lookup")
+	}
+	prefix := "/repos/" + apiPath(owner) + "/" + apiPath(repo)
+	lookup := func(sha string) (*associatedPull, error) {
+		var pr associatedPull
+		path := prefix + "/commits/" + apiPath(sha) + "/pull"
+		if err := c.do(ctx, http.MethodGet, path, nil, &pr); err != nil {
+			if missingPullRecord(err) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("forgejo: commit pull-request lookup is unresolved (a generic 404 is not a missing association): %w", err)
+		}
+		if pr.MergeCommitSHA != sha {
+			return nil, errors.New("forgejo: merged association has a different commit SHA")
+		}
+		return &pr, nil
+	}
+	pending := make(map[string]bool)
+	for _, sha := range shas {
+		pr, err := lookup(sha)
+		if err != nil {
+			return nil, err
+		}
+		if pr == nil {
+			pending[sha] = true
+			continue
+		}
+		ref, err := c.pullReference(owner, repo, *pr)
+		if err != nil {
+			return nil, err
+		}
+		refs[sha] = pipeline.CommitReference{PullRequests: []pipeline.PullRequestReference{ref}}
+	}
+	if len(pending) == 0 {
+		return refs, nil
+	}
+	seen := make(map[int]string)
+	for _, mergeSHA := range mergeSHAs {
+		pr, err := lookup(mergeSHA)
+		if err != nil {
+			return nil, err
+		}
+		if pr == nil {
+			continue
+		}
+		ref, err := c.pullReference(owner, repo, *pr)
+		if err != nil {
+			return nil, err
+		}
+		if previous, ok := seen[pr.Number]; ok {
+			if previous != ref.URL {
+				return nil, errors.New("forgejo: inconsistent merged pull-request association")
+			}
+			continue
+		}
+		seen[pr.Number] = ref.URL
+		for page := 1; ; page++ {
+			var commits []struct {
+				SHA string `json:"sha"`
+			}
+			path := prefix + "/pulls/" + strconv.Itoa(pr.Number) + "/commits?limit=" + strconv.Itoa(defaultReposPerPage) + "&page=" + strconv.Itoa(page)
+			if err := c.do(ctx, http.MethodGet, path, nil, &commits); err != nil {
+				return nil, fmt.Errorf("forgejo: cannot establish merged PR commit membership: %w", err)
+			}
+			if commits == nil || (page == 1 && len(commits) == 0) {
+				return nil, errors.New("forgejo: merged PR commit membership is unavailable")
+			}
+			for _, commit := range commits {
+				if !pending[commit.SHA] {
+					continue
+				}
+				current := refs[commit.SHA]
+				duplicate := false
+				for _, existing := range current.PullRequests {
+					if existing.Number == ref.Number {
+						duplicate = true
+						break
+					}
+				}
+				if !duplicate {
+					current.PullRequests = append(current.PullRequests, ref)
+				}
+				refs[commit.SHA] = current
+			}
+			if len(commits) < defaultReposPerPage {
+				break
+			}
+		}
+	}
+	for _, sha := range shas {
+		if !pending[sha] || len(refs[sha].PullRequests) != 0 {
+			continue
+		}
+		var commit struct {
+			SHA     string `json:"sha"`
+			HTMLURL string `json:"html_url"`
+		}
+		path := prefix + "/git/commits/" + apiPath(sha) + "?stat=false&verification=false&files=false"
+		if err := c.do(ctx, http.MethodGet, path, nil, &commit); err != nil {
+			return nil, fmt.Errorf("forgejo: commit URL lookup: %w", err)
+		}
+		if commit.SHA != sha {
+			return nil, errors.New("forgejo: commit response has a different SHA")
+		}
+		if err := pipeline.ValidateSourceURL(c.cfg.URL, owner, repo, "commit", sha, commit.HTMLURL); err != nil {
+			return nil, fmt.Errorf("forgejo: %w", err)
+		}
+		refs[sha] = pipeline.CommitReference{CommitURL: commit.HTMLURL}
+	}
+	return refs, nil
 }
 
 // CloneInfo returns the clone URL and the Authorization header value needed to

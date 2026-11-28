@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -27,17 +29,21 @@ import (
 // fakePlatform satisfies pipeline.Platform without any network. It points the
 // clone at a local git repository and serves repo files / releases from maps.
 type fakePlatform struct {
-	origin      string // local dir used as the clone source
-	files       map[string]string
-	releases    map[string]*Release // keyed by tag
-	releaseList []ReleaseMeta       // for ListReleases; nil = nothing listed
-	edited      string
-	cloneErr    error // if set, CloneInfo returns it
-	editErr     error // if set, EditReleaseBody returns it
-	readErr     error // if set, ReadRepoFile returns it (before checking files)
-	releaseErr  error // if set, GetReleaseByTag returns it (before checking releases)
-	readMu      sync.Mutex
-	reads       []readRec // (path, ref) of every ReadRepoFile call, in order
+	origin         string // local dir used as the clone source
+	files          map[string]string
+	releases       map[string]*Release // keyed by tag
+	releaseList    []ReleaseMeta       // for ListReleases; nil = nothing listed
+	edited         string
+	cloneErr       error // if set, CloneInfo returns it
+	editErr        error // if set, EditReleaseBody returns it
+	readErr        error // if set, ReadRepoFile returns it (before checking files)
+	releaseErr     error // if set, GetReleaseByTag returns it (before checking releases)
+	readMu         sync.Mutex
+	reads          []readRec // (path, ref) of every ReadRepoFile call, in order
+	references     map[string]CommitReference
+	referenceErr   error
+	referenceCalls int
+	referenceSHAs  []string
 }
 
 // readRec records a single repo-file read so tests can assert tag-pinning.
@@ -112,6 +118,28 @@ func (f *fakePlatform) CloneInfo(ctx context.Context, owner, repo string) (strin
 	return f.origin, "Bearer test-token", nil
 }
 
+func (f *fakePlatform) ResolveCommitReferences(_ context.Context, owner, repo string, shas, _ []string) (map[string]CommitReference, error) {
+	f.readMu.Lock()
+	defer f.readMu.Unlock()
+	f.referenceCalls++
+	f.referenceSHAs = append([]string(nil), shas...)
+	if f.referenceErr != nil {
+		return nil, f.referenceErr
+	}
+	if f.references != nil {
+		return f.references, nil
+	}
+	refs := make(map[string]CommitReference, len(shas))
+	for _, sha := range shas {
+		refs[sha] = CommitReference{PullRequests: []PullRequestReference{{Number: 1754, URL: "https://github.com/" + owner + "/" + repo + "/pull/1754"}}}
+	}
+	return refs, nil
+}
+
+const testCitation = "([#1754](https://github.com/djdembeck/annalist/pull/1754))"
+
+func linkedTestNotes(prose string) string { return "- " + prose + " " + testCitation }
+
 // llmStub records every chat request and returns a fixed, non-empty answer.
 // Concurrent generation calls (e.g. two profiles in flight) hit the handler
 // at once, so the recording fields are mutex-guarded.
@@ -121,7 +149,9 @@ type llmStub struct {
 	body      []byte
 	calls     int
 	answer    string
-	errStatus int // if > 0, respond with this HTTP status instead of 200
+	attribute bool
+	errStatus int      // if > 0, respond with this HTTP status instead of 200
+	answers   []string // per-call replies, last one repeats
 }
 
 func newStub(answer string) *llmStub {
@@ -133,7 +163,29 @@ func newStub(answer string) *llmStub {
 		s.calls++
 		errStatus := s.errStatus
 		answer := s.answer
+		if len(s.answers) > 0 {
+			index := s.calls - 1
+			if index >= len(s.answers) {
+				index = len(s.answers) - 1
+			}
+			answer = s.answers[index]
+		}
+		attribute := s.attribute && len(s.answers) == 0
 		s.mu.Unlock()
+		var request wireReq
+		_ = json.Unmarshal(raw, &request)
+		if attribute {
+			var items []string
+			for _, message := range request.Messages {
+				if message.Role != "user" {
+					continue
+				}
+				for _, token := range sourceLabelRE.FindAllStringSubmatch(message.Content, -1) {
+					items = append(items, "- "+answer+" "+token[1])
+				}
+			}
+			answer = strings.Join(items, "\n")
+		}
 		if errStatus > 0 {
 			w.WriteHeader(errStatus)
 			_, _ = fmt.Fprint(w, "boom")
@@ -142,6 +194,16 @@ func newStub(answer string) *llmStub {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%q}}]}`, answer)
 	}))
+	return s
+}
+
+var sourceLabelRE = regexp.MustCompile(`(?m)^Source: (\[\[annalist:[0-9a-f]{40}\]\])$`)
+
+// newAttributedStub supplies valid source metadata for tests of other contracts.
+// Attribution-rejection tests use newStub to control the raw output exactly.
+func newAttributedStub(prose string) *llmStub {
+	s := newStub(prose)
+	s.attribute = true
 	return s
 }
 
@@ -290,7 +352,7 @@ func sharedStandardOrigin(t *testing.T) string {
 // fixture wires a full pipeline: temp store + config, LLM stub, local origin
 // repo, and a fake platform.
 func fixture(t *testing.T, files map[string]string, releases map[string]*Release) (*Pipeline, *llmStub, *fakePlatform, *db.Store) {
-	return fixtureWithStub(t, newStub("FLOWING PROSE"), files, releases)
+	return fixtureWithStub(t, newAttributedStub("FLOWING PROSE"), files, releases)
 }
 
 func fixtureWithStub(t *testing.T, stub *llmStub, files map[string]string, releases map[string]*Release) (*Pipeline, *llmStub, *fakePlatform, *db.Store) {
@@ -343,9 +405,9 @@ func generatedByReleaseID(t *testing.T, dataDir, releaseID string) (*db.Generate
 	defer conn.Close()
 	var n db.GeneratedNote
 	err = conn.QueryRow(
-		`SELECT cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes, created_at
+		`SELECT cache_key, platform, owner, repo, release_id, from_tag, to_tag, profile, display_version, config_digest, notes, source_attributions, created_at
 		 FROM generated_notes WHERE release_id = ?`, releaseID,
-	).Scan(&n.CacheKey, &n.Platform, &n.Owner, &n.Repo, &n.ReleaseID, &n.FromTag, &n.ToTag, &n.Profile, &n.DisplayVersion, &n.ConfigDigest, &n.Notes, &n.CreatedAt)
+	).Scan(&n.CacheKey, &n.Platform, &n.Owner, &n.Repo, &n.ReleaseID, &n.FromTag, &n.ToTag, &n.Profile, &n.DisplayVersion, &n.ConfigDigest, &n.Notes, &n.SourceAttributions, &n.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -796,7 +858,7 @@ func TestGenerateNotesDeepMode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GenerateNotes deep: %v", err)
 		}
-		if res.Notes != "FLOWING PROSE" {
+		if res.Notes != linkedTestNotes("FLOWING PROSE") {
 			t.Errorf("notes = %q, want FLOWING PROSE", res.Notes)
 		}
 		if stub.calls != 1 {
@@ -899,7 +961,7 @@ func TestInstructionsPrecedence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GenerateNotes: %v", err)
 		}
-		if res.Notes != "FLOWING PROSE" {
+		if res.Notes != linkedTestNotes("FLOWING PROSE") {
 			t.Errorf("notes = %q", res.Notes)
 		}
 		sys := stub.system()
@@ -1041,8 +1103,8 @@ func TestGenerateNotesCommitTypeFilter(t *testing.T) {
 			t.Errorf("user message should not contain %q; got:\n%s", absent, userMsg)
 		}
 	}
-	// Notes are returned (LLM returned "FLOWING PROSE")
-	if res.Notes != "FLOWING PROSE" {
+	// Each of the three retained source commits remains a separate linked item.
+	if res.Notes != strings.Join([]string{linkedTestNotes("FLOWING PROSE"), linkedTestNotes("FLOWING PROSE"), linkedTestNotes("FLOWING PROSE")}, "\n") {
 		t.Errorf("notes = %q, want FLOWING PROSE", res.Notes)
 	}
 }
@@ -1106,10 +1168,10 @@ func TestGenerateNotesIdempotentAndPublishGuard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("first GenerateNotes: %v", err)
 		}
-		if !strings.HasSuffix(res.Notes, "FLOWING PROSE") {
+		if res.Notes != linkedTestNotes("FLOWING PROSE") {
 			t.Errorf("notes = %q", res.Notes)
 		}
-		wantBody := "FLOWING PROSE\n<!-- generated by annalist -->"
+		wantBody := linkedTestNotes("FLOWING PROSE") + "\n<!-- generated by annalist -->"
 		if f.edited != wantBody {
 			t.Errorf("published body = %q, want %q", f.edited, wantBody)
 		}
@@ -1209,7 +1271,7 @@ func TestGenerateNotesReadRepoFileErrorDrop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateNotes: expected in-repo file error to be dropped, got %v", err)
 	}
-	if res.Notes != "FLOWING PROSE" {
+	if res.Notes != linkedTestNotes("FLOWING PROSE") {
 		t.Errorf("notes = %q, want %q", res.Notes, "FLOWING PROSE")
 	}
 }
@@ -1217,7 +1279,7 @@ func TestGenerateNotesReadRepoFileErrorDrop(t *testing.T) {
 // TestGenerateNotesLLMError verifies an LLM failure propagates with no
 // fallback text and nothing is published or recorded.
 func TestGenerateNotesLLMError(t *testing.T) {
-	stub := newStub("FLOWING PROSE")
+	stub := newAttributedStub("FLOWING PROSE")
 	pip, stub2, f, _ := fixtureWithStub(t, stub, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
 	stub2.errStatus = http.StatusInternalServerError
 
@@ -1239,20 +1301,25 @@ func TestGenerateNotesLLMError(t *testing.T) {
 // TestPublishErrorsAndGuard covers Publish error branches and the
 // don't-clobber guard directly.
 func TestPublishErrorsAndGuard(t *testing.T) {
-	published := func(notes, from string) Result {
-		return Result{Notes: notes, FromTag: from, ToTag: "v0.2.0", ConfigDigest: "d"}
+	published := func(pip *Pipeline, spec Spec, notes string) Result {
+		result := Result{Notes: notes, FromTag: "v0.1.0", ToTag: "v0.2.0", ConfigDigest: "d"}
+		result.qualityReceipt = qualityReceipt{
+			cacheKey:  pip.cacheKey(spec, result.FromTag, result.ConfigDigest),
+			notesHash: sha256.Sum256([]byte(notes)),
+		}
+		return result
 	}
 
 	t.Run("fetch release error propagates", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, nil) // no releases map -> tag missing
-		_, err := pip.Publish(context.Background(), published("notes", "v0.1.0"), genSpec("v0.2.0", "rel-fetch"), f, false)
+		_, err := pip.Publish(context.Background(), published(pip, genSpec("v0.2.0", "rel-fetch"), "notes"), genSpec("v0.2.0", "rel-fetch"), f, false)
 		if err == nil || !strings.Contains(err.Error(), "pipeline: fetch release") {
 			t.Fatalf("err = %v, want fetch-release error", err)
 		}
 	})
 	t.Run("human-edited body not clobbered without force", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
-		_, err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
+		_, err := pip.Publish(context.Background(), published(pip, genSpec("v0.2.0", "rel-x"), "NEW NOTES"), genSpec("v0.2.0", "rel-x"), f, false)
 		if err != nil {
 			t.Fatalf("Publish: %v", err)
 		}
@@ -1262,7 +1329,7 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 	})
 	t.Run("force overrides don't-clobber guard", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: "hand written"}})
-		_, err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, true)
+		_, err := pip.Publish(context.Background(), published(pip, genSpec("v0.2.0", "rel-x"), "NEW NOTES"), genSpec("v0.2.0", "rel-x"), f, true)
 		if err != nil {
 			t.Fatalf("Publish: %v", err)
 		}
@@ -1274,7 +1341,7 @@ func TestPublishErrorsAndGuard(t *testing.T) {
 	t.Run("edit release body error propagates", func(t *testing.T) {
 		pip, _, f, _ := fixture(t, nil, map[string]*Release{"v0.2.0": {ID: 1, Body: ""}})
 		f.editErr = errors.New("api down")
-		_, err := pip.Publish(context.Background(), published("NEW NOTES", "v0.1.0"), genSpec("v0.2.0", "rel-x"), f, false)
+		_, err := pip.Publish(context.Background(), published(pip, genSpec("v0.2.0", "rel-x"), "NEW NOTES"), genSpec("v0.2.0", "rel-x"), f, false)
 		if err == nil || !strings.Contains(err.Error(), "pipeline: edit release body") {
 			t.Fatalf("err = %v, want edit-release-body error", err)
 		}
@@ -1342,7 +1409,7 @@ profiles:
 	if res.ConfigDigest == "" {
 		t.Error("config digest should be populated")
 	}
-	if res.Notes != "FLOWING PROSE" {
+	if res.Notes != linkedTestNotes("FLOWING PROSE") {
 		t.Errorf("notes = %q", res.Notes)
 	}
 	// Both the manifest and the prompt were read pinned to the source tag.

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	gogithub "github.com/google/go-github/v89/github"
 
@@ -249,6 +251,85 @@ func (c *Client) EditReleaseBody(ctx context.Context, owner, repo string, releas
 	_, _, err = client.Repositories.UpdateRelease(ctx, owner, repo, releaseID,
 		gogithub.UpdateReleaseRequest{Body: gogithub.String(body)})
 	return err
+}
+
+// ResolveCommitReferences authenticates once for the repository, then resolves
+// each exact source SHA. Every merged association in this repository is kept;
+// open PRs are not evidence of how a released change landed. Only an empty
+// association array permits the commit-link fallback.
+func (c *Client) ResolveCommitReferences(ctx context.Context, owner, repo string, shas, _ []string) (map[string]pipeline.CommitReference, error) {
+	refs := make(map[string]pipeline.CommitReference, len(shas))
+	if len(shas) == 0 {
+		return refs, nil
+	}
+	client, err := c.repoClient(ctx, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+	for _, sha := range shas {
+		var pulls []*gogithub.PullRequest
+		page := 1
+		for {
+			batch, resp, err := client.PullRequests.ListPullRequestsWithCommit(ctx, owner, repo, sha, &gogithub.ListOptions{Page: page, PerPage: 100})
+			if err != nil {
+				return nil, fmt.Errorf("github: commit pull-request lookup: %w", err)
+			}
+			if batch == nil {
+				return nil, errors.New("github: commit association response is not an array")
+			}
+			pulls = append(pulls, batch...)
+			if resp == nil || resp.NextPage == 0 {
+				break
+			}
+			if resp.NextPage <= page {
+				return nil, errors.New("github: invalid commit association pagination")
+			}
+			page = resp.NextPage
+		}
+		var ref pipeline.CommitReference
+		if len(pulls) == 0 {
+			commit, _, err := client.Repositories.GetCommit(ctx, owner, repo, sha, nil)
+			if err != nil {
+				return nil, fmt.Errorf("github: commit URL lookup: %w", err)
+			}
+			if commit.GetSHA() != sha {
+				return nil, errors.New("github: commit response has a different SHA")
+			}
+			if err := pipeline.ValidateSourceURL("https://github.com", owner, repo, "commit", sha, commit.GetHTMLURL()); err != nil {
+				return nil, fmt.Errorf("github: %w", err)
+			}
+			ref.CommitURL = commit.GetHTMLURL()
+		} else {
+			seen := make(map[int]string)
+			for _, pr := range pulls {
+				if pr == nil {
+					return nil, errors.New("github: empty pull-request association")
+				}
+				if pr.GetMergedAt().IsZero() {
+					continue
+				}
+				if !strings.EqualFold(pr.GetBase().GetRepo().GetFullName(), owner+"/"+repo) || pr.GetNumber() <= 0 {
+					return nil, errors.New("github: merged association has a different or missing base repository")
+				}
+				if err := pipeline.ValidateSourceURL("https://github.com", owner, repo, "pull", strconv.Itoa(pr.GetNumber()), pr.GetHTMLURL()); err != nil {
+					return nil, fmt.Errorf("github: %w", err)
+				}
+				if previous, ok := seen[pr.GetNumber()]; ok {
+					if previous != pr.GetHTMLURL() {
+						return nil, errors.New("github: inconsistent pull-request association")
+					}
+					continue
+				}
+				seen[pr.GetNumber()] = pr.GetHTMLURL()
+				ref.PullRequests = append(ref.PullRequests, pipeline.PullRequestReference{Number: pr.GetNumber(), URL: pr.GetHTMLURL()})
+			}
+			if len(ref.PullRequests) == 0 {
+				return nil, errors.New("github: associated pull requests do not establish a merged source")
+			}
+		}
+		refs[sha] = ref
+	}
+	return refs, nil
 }
 
 // CloneInfo returns the URL and Authorization header the clone step uses. The

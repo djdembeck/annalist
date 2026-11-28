@@ -464,7 +464,7 @@ func TestGeneratedNotesRoundTrip(t *testing.T) {
 		CacheKey: "key-1", Platform: "github", Owner: "djdembeck", Repo: "annalist",
 		ReleaseID: "rel-1", FromTag: "v0.9.0", ToTag: "v1.0.0",
 		Profile: "customer", DisplayVersion: "1.0", ConfigDigest: "d1",
-		Notes: "Notes one",
+		Notes: "Notes one", SourceAttributions: `{"notes_hash":"bound-to-notes","groups":[]}`,
 	}); err != nil {
 		t.Fatalf("MarkGenerated: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestGeneratedNotesRoundTrip(t *testing.T) {
 	if got.Owner != "djdembeck" || got.Repo != "annalist" || got.Platform != "github" {
 		t.Errorf("note key fields mismatch: %+v", got)
 	}
-	if got.FromTag != "v0.9.0" || got.Profile != "customer" || got.DisplayVersion != "1.0" || got.ConfigDigest != "d1" {
+	if got.FromTag != "v0.9.0" || got.Profile != "customer" || got.DisplayVersion != "1.0" || got.ConfigDigest != "d1" || got.SourceAttributions != `{"notes_hash":"bound-to-notes","groups":[]}` {
 		t.Errorf("note contract fields mismatch: %+v", got)
 	}
 	if got.CreatedAt == "" {
@@ -518,6 +518,49 @@ func TestGeneratedNotesRoundTrip(t *testing.T) {
 	}
 	if got, err := s.GetGenerated("key-1"); err != nil || got == nil || got.Notes != "Notes two" {
 		t.Errorf("first key clobbered by second: %+v (err=%v)", got, err)
+	}
+}
+
+func TestGeneratedNotesAttributionMigration(t *testing.T) {
+	dataDir := t.TempDir()
+	conn, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = conn.Exec(`CREATE TABLE generated_notes (
+		cache_key TEXT PRIMARY KEY,
+		platform TEXT NOT NULL, owner TEXT NOT NULL, repo TEXT NOT NULL,
+		release_id TEXT NOT NULL, from_tag TEXT NOT NULL DEFAULT '',
+		to_tag TEXT NOT NULL, profile TEXT NOT NULL DEFAULT '',
+		display_version TEXT NOT NULL, config_digest TEXT NOT NULL DEFAULT '',
+		notes TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`)
+	if err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	_, err = conn.Exec(`INSERT INTO generated_notes (cache_key, platform, owner, repo, release_id, to_tag, display_version, notes)
+		VALUES ('old-contract', 'github', 'owner', 'repo', 'release', 'v1.0.0', 'v1.0.0', 'Original linked notes')`)
+	if err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		s, err := New(dataDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.GetGenerated("old-contract")
+		if err != nil || got == nil || got.Notes != "Original linked notes" || got.SourceAttributions != "" {
+			s.Close()
+			t.Fatalf("open %d changed existing row: got=%+v err=%v", i, got, err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -569,7 +612,7 @@ func TestOpenLegacyGeneratedNotes(t *testing.T) {
 		t.Fatalf("legacy row A missing: %v (err=%v)", gotA, err)
 	}
 	if gotA.Notes != "Note A" || gotA.ToTag != "v1.0.0" || gotA.DisplayVersion != "v1.0.0" ||
-		gotA.FromTag != "" || gotA.Profile != "" || gotA.ConfigDigest != "" ||
+		gotA.FromTag != "" || gotA.Profile != "" || gotA.ConfigDigest != "" || gotA.SourceAttributions != "" ||
 		gotA.CreatedAt != "2025-01-01 00:00:00" {
 		t.Errorf("legacy row A metadata wrong: %+v", gotA)
 	}

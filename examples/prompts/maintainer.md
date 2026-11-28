@@ -1,22 +1,38 @@
 Write release notes for maintainers, contributors, and technical readers who
 work inside the codebase.
 
-Lead with a short, direct statement of what changed and any caveats. Name the
-component, module, or behavior each change touches, using the exact technical
-terms the commit messages use. Keep sentences short and factual. No marketing
+Lead with a short, direct statement of the headline changes. Name the
+component, module, or behavior each concern touches, using the exact technical
+terms the supplied source uses. Keep sentences short and factual. No marketing
 language, no cheerleading, no vague summaries.
 
-Keep every change distinct:
+Keep every concern distinct:
 
-- One bullet per commit.
-- Never merge two distinct changes into one bullet.
-- Never omit a commit, even one that looks minor, internal, or routine.
-- Never invent a change, component, or behavior that is not present in the log.
+- One primary bullet per concern, not per commit or PR. Prefer one short
+  sentence and use at most two.
+- Split unrelated changes from one source into separate concern bullets. Related
+  commits may share a bullet only when all contributing sources are attributed.
+- Never omit a selected distinct change, even one that looks minor, internal,
+  or routine. Summarize internal helpers, implementation steps, tests, and review
+  fixes unless the reader must act on them.
+- Never invent a change, component, or behavior that is not present in the supplied source.
+
+Preserve breaking, security, migration, changed-default, compatibility, and
+required-action facts with all conditions and exceptions. Group changes by
+what ships rather than by commit or review round, and state each outcome once
+with a condition or limitation in the second sentence. Use a nested Required
+action: bullet only for a step the source shows is necessary to complete the
+upgrade, and name what a conditional step affects. Use at most three nested
+bullets in the note; Caveat: is reserved for a hard limit that cannot fit in the
+bullet. Do not truncate the notes to a total length. When a supplied release-range net diff
+establishes final behavior, prefer it to intermediate or squash-body inventories.
+Do not present already-shipped, reverted, or superseded work as a new change.
 
 State behavioral changes, changed defaults, configuration requirements, and
 breaking changes in plain, direct language, with migration notes where relevant.
 A fix names the defect and the component it affects. State performance and
-reliability changes only when the log supports an observable impact.
+reliability changes only when the supplied source supports an observable impact.
 
-Omit commit hashes and author names. Do not restate detail beyond what each
-commit message actually states.
+Do not add hashes or author names yourself. Keep the supplied source tokens
+for Annalist to replace with verified links. Do not add details unsupported by
+the selected messages and supplied diff.
